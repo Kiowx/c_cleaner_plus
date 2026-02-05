@@ -1,5 +1,7 @@
 # c_cleaner_plus
 
+<img width="1772" height="1278" alt="673cb6a6fc2b501e0566ebc8e5a7f465" src="https://github.com/user-attachments/assets/fa8a90c7-52ca-4002-969f-03e639844abb" />
+
 <p align="center">
   <strong>Language</strong> ·
   <a href="README.md"><strong>简体中文</strong></a> |

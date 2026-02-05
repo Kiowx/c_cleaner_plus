@@ -2,8 +2,8 @@
 
 <p align="center">
   <strong>Language</strong> ·
-  <a href="README.en.md">简体中文</a> |
-  <a href="README.md"><strong>English</strong></a>
+  <a href="README.md">简体中文</a> |
+  <a href="README.en.md"><strong>English</strong></a>
 </p>
 
 ---

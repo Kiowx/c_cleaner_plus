@@ -14,8 +14,6 @@ It can scan and clean junk files as well as large files on the C drive.
 This project is built with **Python + Tkinter** and designed specifically for Windows systems.  
 It supports regular cleanup and large-file scanning, provides a graphical user interface, automatic administrator privilege elevation, and flexible deletion modes.
 
-👉 **If you find this project useful, please consider giving it a Star. Thank you!**
-
 ---
 
 ## ✨ Features

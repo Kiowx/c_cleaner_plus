@@ -1,0 +1,2 @@
+# c_cleaner_plus
+Windows的C盘强力清理工具，可扫描并清理C盘中的垃圾文件以及大文件

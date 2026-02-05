@@ -1,7 +1,7 @@
 # c_cleaner_plus
 
-**Language:**  
-[简体中文](README.md) | [English](README.en.md)
+Language:  \n
+[**简体中文**](README.md) | [English](README.en.md)
 
 ---
 

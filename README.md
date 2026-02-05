@@ -2,7 +2,11 @@
 
 ### Language:  
 
-<p align="center">[简体中文](README.md) | [English](README.en.md)</p>
+<p align="center">
+<strong>Language:</strong>
+<a href="README.md">简体中文</a> |
+<a href="README.en.md">English</a>
+</p>
 
 
 

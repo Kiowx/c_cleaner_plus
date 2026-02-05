@@ -8,8 +8,6 @@
 
 ---
 
-# 🧹 C Cleaner Plus (Windows)
-
 A powerful C drive cleaning tool for Windows.  
 It can scan and clean junk files as well as large files on the C drive.
 

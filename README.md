@@ -1,7 +1,7 @@
 # c_cleaner_plus
-
+---
 <p align="center">
-  <strong>Language</strong> · 
+  <strong>Language</strong> ·
   <a href="README.md"><strong>简体中文</strong></a> |
   <a href="README.en.md">English</a>
 </p>

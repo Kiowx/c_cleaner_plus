@@ -1,4 +1,5 @@
 # c_cleaner_plus
+[简体中文](#c_cleaner_plus) | [English](#c_cleaner_plus-english)
 
 Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文件以及大文件。
 
@@ -103,7 +104,6 @@ https://github.com/Kiowx/c_cleaner_plus//releases
 git clone https://github.com/你的用户名/你的仓库名.git
 cd 你的仓库名
 
-[简体中文](#c_cleaner_plus) | [English](#c_cleaner_plus-english)
 
 ---
 

@@ -1,14 +1,13 @@
 # c_cleaner_plus
 
-Language:  
+#Language:  
 
-<p align="center">[**简体中文**](README.md) | [English](README.en.md)</p>
+# [**简体中文**](README.md) | [English](README.en.md)
 
 
 
 ---
 
-# 🧹 C盘强力清理工具（Windows）
 
 Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文件以及大文件。
 

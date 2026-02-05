@@ -2,7 +2,7 @@
 
 **Language：** 
 
-[简体中文](#-c盘强力清理工具windows) | [English](#-c-cleaner-plus-windows)
+[简体中文](#c_cleaner_plus) | [English](#c_cleaner_plus-english)
 
 ---
 

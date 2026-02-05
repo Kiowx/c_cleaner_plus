@@ -103,4 +103,118 @@ https://github.com/Kiowx/c_cleaner_plus//releases
 git clone https://github.com/你的用户名/你的仓库名.git
 cd 你的仓库名
 
+[简体中文](#c_cleaner_plus) | [English](#c_cleaner_plus-english)
+
+---
+
+# c_cleaner_plus (English)
+
+A powerful C drive cleanup tool for Windows.  
+It can scan and clean junk files as well as large files on the C drive.
+
+This project is built with **Python + Tkinter** and is designed specifically for Windows.  
+It provides a graphical user interface, automatic administrator privilege elevation, safe recycle-bin deletion or permanent deletion, and both regular cleanup and large file scanning features.
+
+If you find this project useful, please consider giving it a ⭐ Star. Thank you!
+
+---
+
+## ✨ Features
+
+### 🔹 Regular Cleanup
+- User temporary files (`%TEMP%`)
+- System temporary files (`C:\Windows\Temp`)
+- Windows logs (CBS / DISM)
+- Crash dumps (Minidump / MEMORY.DMP)
+- Explorer thumbnail cache
+- DirectX / NVIDIA shader cache
+- Browser cache (Edge / Chrome, optional)
+- Windows Update cache (optional)
+
+Supports:
+- Scanning and **estimating reclaimable disk space**
+- Selecting cleanup items individually
+- Safe items enabled by default
+
+---
+
+### 🔹 Large File Scan
+- Scan **large files on the C drive**
+- Customizable:
+  - Minimum file size threshold (MB)
+  - Maximum number of results
+- Sort results by file size
+- Select files individually for deletion
+
+Large file list features:
+- File name / size / full path display
+- Right-click context menu:
+  - Copy file path
+  - Open containing folder
+  - Locate file in File Explorer
+- Double-click to toggle selection
+
+---
+
+### 🔹 Cleanup Modes
+- **Normal Mode**: Files are moved to the Recycle Bin (recoverable)
+- **Force Mode**: Permanently deletes files (not recoverable)  
+  - Enabled by default  
+  - Strong confirmation required before execution
+
+---
+
+### 🔹 Permissions & Safety
+- Automatically checks administrator privileges on startup
+- Requests UAC elevation if not running as administrator
+- Optional system restore point creation before cleanup (requires admin)
+
+---
+
+### 🔹 UI & User Experience
+- Graphical user interface (Tkinter)
+- Vertical split layout:
+  - Regular cleanup section / Large file list section
+  - Fixed layout ratio (default 55% / 45%)
+- Responsive window resizing
+- Real-time logs and progress bar
+- Cleanup can be stopped or canceled at any time
+
+---
+
+## 🖥️ System Requirements
+
+- Windows 10 / Windows 11
+- Python 3.9+ (recommended 3.10 / 3.11)
+- Windows only (uses Windows-specific APIs)
+
+---
+
+## 🚀 Usage
+
+### Method 1: Download from Releases (Recommended)
+
+If you don’t want to set up a Python environment,  
+**we strongly recommend downloading the prebuilt executable**:
+
+👉 **Download the latest release here:**  
+https://github.com/Kiowx/c_cleaner_plus/releases
+
+Steps:
+1. Download the `.exe` file
+2. **Right-click → Run as administrator**
+3. Follow the on-screen instructions to scan and clean
+
+> The executable provided in Releases is fully self-contained and does not require Python to be installed.
+
+---
+
+### Method 2: Run from Source (Developers)
+
+#### 1️⃣ Clone the repository
+
+```bash
+git clone https://github.com/Kiowx/c_cleaner_plus.git
+cd c_cleaner_plus
+
 

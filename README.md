@@ -1,7 +1,6 @@
 # c_cleaner_plus
 
-**语言 / Language：**
-- [简体中文](#-c盘强力清理工具windows) | [English](#-c-cleaner-plus-windows)
+**Language：** [简体中文](#-c盘强力清理工具windows) | [English](#-c-cleaner-plus-windows)
 
 ---
 

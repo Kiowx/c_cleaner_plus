@@ -105,8 +105,6 @@ git clone https://github.com/你的用户名/你的仓库名.git
 cd 你的仓库名
 
 
----
-
 # c_cleaner_plus (English)
 
 A powerful C drive cleanup tool for Windows.  

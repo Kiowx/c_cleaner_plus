@@ -1,6 +1,10 @@
 # c_cleaner_plus
 
-Language:  [**简体中文**](README.md) | [English](README.en.md)
+Language:  
+
+<p align="center">[**简体中文**](README.md) | [English](README.en.md)</p>
+
+
 
 ---
 
@@ -10,7 +14,7 @@ Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文�
 
 本项目使用 **Python + Tkinter** 编写，面向 Windows 平台，支持常规垃圾清理与大文件扫描清理两种模式，提供图形界面、管理员权限自动提权、回收站/永久删除控制等功能，适合普通用户与进阶用户使用。
 
-👉 **如果你觉得这个项目有用，欢迎点个 Star 支持一下，感谢！**
+👉 **如果你觉得这个项目有用，请点个 Star 支持一下，感谢！**
 
 ---
 

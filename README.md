@@ -1,8 +1,7 @@
 # c_cleaner_plus
 
-**Language：** 
-
-[简体中文](#c_cleaner_plus) | [English](#c_cleaner_plus-english)
+**Language:**  
+[简体中文](README.md) | [English](README.en.md)
 
 ---
 

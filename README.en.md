@@ -24,7 +24,7 @@ This project is written in **Python + Tkinter**, completely free, designed for t
 - Windows Logs (CBS / DISM)
 - Crash Dumps (Minidump / MEMORY.DMP)
 - Thumbnail Cache (Explorer)
-- DirectX / NVIDIA Shader Cache / AMD Shader Cache(optional)
+- DirectX / NVIDIA Shader Cache / AMD Shader Cache (optional)
 - Browser Cache (Edge / Chrome, optional)
 - pip Download Package Cache / .NET Package Cache
 - Windows Update Cache (optional)

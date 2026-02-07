@@ -26,9 +26,11 @@ Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文�
 - Windows 日志（CBS / DISM）
 - 崩溃转储（Minidump / MEMORY.DMP）
 - 缩略图缓存（Explorer）
-- DirectX / NVIDIA Shader Cache
+- DirectX / NVIDIA Shader Cache / AMD Shader Cache
 - 浏览器缓存（Edge / Chrome，可选）
+- pip 下载包缓存 / .NET 包缓存
 - Windows 更新缓存（可选）
+- 更多内容可在[Releases](https://github.com/Kiowx/c_cleaner_plus/releases)内查看
 
 支持：
 - 扫描并**获取可清理大小**
@@ -95,7 +97,7 @@ Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文�
 
 如果你不想自己配置 Python 环境，**强烈推荐直接下载已打包好的可执行文件**：
 
-**前往 Releases 页面下载最新版：**  
+**前往 [Releases](https://github.com/Kiowx/c_cleaner_plus/releases) 页面下载最新版：**  
 https://github.com/Kiowx/c_cleaner_plus/releases
 
 下载后：

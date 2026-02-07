@@ -26,7 +26,7 @@ Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文�
 - Windows 日志（CBS / DISM）
 - 崩溃转储（Minidump / MEMORY.DMP）
 - 缩略图缓存（Explorer）
-- DirectX / NVIDIA Shader Cache / AMD Shader Cache
+- DirectX / NVIDIA Shader Cache / AMD Shader Cache（可选）
 - 浏览器缓存（Edge / Chrome，可选）
 - pip 下载包缓存 / .NET 包缓存
 - Windows 更新缓存（可选）

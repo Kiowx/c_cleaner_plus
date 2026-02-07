@@ -30,7 +30,7 @@ Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文�
 - 浏览器缓存（Edge / Chrome，可选）
 - pip 下载包缓存 / .NET 包缓存
 - Windows 更新缓存（可选）
-- 更多内容可在[Releases](https://github.com/Kiowx/c_cleaner_plus/releases)内查看
+- 更多详细内容可在[Releases](https://github.com/Kiowx/c_cleaner_plus/releases)内查看
 
 支持：
 - 扫描并**获取可清理大小**

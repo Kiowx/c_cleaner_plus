@@ -111,7 +111,7 @@ After downloading:
 
 ---
 
-### Method 2: Run from Source
+### Method 2: Run from Source(Currently Unsupported)
 
 ```bash
 git clone https://github.com/Kiowx/c_cleaner_plus.git

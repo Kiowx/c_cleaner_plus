@@ -1,6 +1,8 @@
 # c_cleaner_plus
 
-<img width="1773" height="1275" alt="34ee5a6741a442feb96c74dd5bb15d70" src="https://github.com/user-attachments/assets/52d3a1ac-ac35-4524-956a-868b4f9e5941" />
+<p align="center">
+  <img width="250" height="250" alt="driveclean_icon_512_circle" src="https://github.com/user-attachments/assets/f2d6399e-868c-4205-a086-65c6e3603468" />
+</p>
 
 <p align="center">
   <strong>Language</strong> ·
@@ -10,9 +12,11 @@
 
 ---
 
+<img width="1682" height="969" alt="QQ_1771558246203" src="https://github.com/user-attachments/assets/88aeefa9-7dbf-493d-80c2-4416cf086e9b" />
+
 A powerful C drive cleaner for Windows, capable of scanning and cleaning junk files and large files on the C drive.
 
-This project is written in **Python + Tkinter**, completely free, designed for the Windows platform. It supports two modes: regular junk cleaning and large file scanning/cleaning. It also provides a GUI interface, automatically acquires administrator privileges on startup, and offers features like Recycle Bin/Permanent Deletion. It's simple and easy to use, suitable for users of all levels.
+This project is written in **Python**, completely free, designed for the Windows platform. It supports two modes: regular junk cleaning and large file scanning/cleaning. It also provides a GUI interface, automatically acquires administrator privileges on startup, and offers features like Recycle Bin/Permanent Deletion. It's simple and easy to use, suitable for users of all levels.
 
 ---
 

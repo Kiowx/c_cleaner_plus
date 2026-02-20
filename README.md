@@ -1,6 +1,7 @@
 # c_cleaner_plus
 
-<img width="1682" height="969" alt="QQ_1771558246203" src="https://github.com/user-attachments/assets/88aeefa9-7dbf-493d-80c2-4416cf086e9b" />
+<img width="512" height="512" alt="driveclean_icon_512_circle" src="https://github.com/user-attachments/assets/f2d6399e-868c-4205-a086-65c6e3603468" />
+
 
 <p align="center">
   <strong>Language</strong> ·
@@ -10,7 +11,7 @@
 
 ---
 
-
+<img width="1682" height="969" alt="QQ_1771558246203" src="https://github.com/user-attachments/assets/88aeefa9-7dbf-493d-80c2-4416cf086e9b" />
 
 Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文件以及大文件。
 

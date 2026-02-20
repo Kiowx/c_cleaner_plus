@@ -1,6 +1,8 @@
 # c_cleaner_plus
 
-<img width="512" height="512" alt="driveclean_icon_512_circle" src="https://github.com/user-attachments/assets/f2d6399e-868c-4205-a086-65c6e3603468" />
+<p align="center">
+  <img width="250" height="250" alt="driveclean_icon_512_circle" src="https://github.com/user-attachments/assets/f2d6399e-868c-4205-a086-65c6e3603468" />
+</p>
 
 
 <p align="center">
@@ -11,11 +13,11 @@
 
 ---
 
-<img width="1682" height="969" alt="QQ_1771558246203" src="https://github.com/user-attachments/assets/88aeefa9-7dbf-493d-80c2-4416cf086e9b" />
-
 Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文件以及大文件。
 
 本项目使用 **Python** 编写，完全免费，面向 Windows 平台，支持常规垃圾清理与大文件扫描清理两种模式，同时提供GUI界面，每次启动时自动获取管理员权限、回收站/永久删除等功能，简单易操作，适合各种方面的用户使用。
+
+<img width="1682" height="969" alt="QQ_1771558246203" src="https://github.com/user-attachments/assets/88aeefa9-7dbf-493d-80c2-4416cf086e9b" />
 
 ---
 

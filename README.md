@@ -1,6 +1,6 @@
 # c_cleaner_plus
 
-<img width="1773" height="1275" alt="34ee5a6741a442feb96c74dd5bb15d70" src="https://github.com/user-attachments/assets/52d3a1ac-ac35-4524-956a-868b4f9e5941" />
+<img width="1682" height="969" alt="QQ_1771558246203" src="https://github.com/user-attachments/assets/88aeefa9-7dbf-493d-80c2-4416cf086e9b" />
 
 <p align="center">
   <strong>Language</strong> ·

@@ -74,17 +74,6 @@ Large file list supports:
 
 ---
 
-### 🔹 GUI
-- Graphical interface (Tkinter)
-- Split layout:
-  - Regular cleaning area / Large file list area
-  - Fixed ratio layout (default 55% / 45%)
-- Adaptive window sizing
-- Log output and progress bar display
-- Ability to stop/cancel operations at any time
-
----
-
 ## 🖥️ Runtime Environment
 
 - Windows 10 / Windows 11

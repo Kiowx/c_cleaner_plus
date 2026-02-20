@@ -12,11 +12,11 @@
 
 ---
 
-<img width="1682" height="969" alt="QQ_1771558246203" src="https://github.com/user-attachments/assets/88aeefa9-7dbf-493d-80c2-4416cf086e9b" />
-
 A powerful C drive cleaner for Windows, capable of scanning and cleaning junk files and large files on the C drive.
 
 This project is written in **Python**, completely free, designed for the Windows platform. It supports two modes: regular junk cleaning and large file scanning/cleaning. It also provides a GUI interface, automatically acquires administrator privileges on startup, and offers features like Recycle Bin/Permanent Deletion. It's simple and easy to use, suitable for users of all levels.
+
+<img width="1682" height="969" alt="QQ_1771558246203" src="https://github.com/user-attachments/assets/88aeefa9-7dbf-493d-80c2-4416cf086e9b" />
 
 ---
 

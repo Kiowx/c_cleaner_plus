@@ -99,7 +99,7 @@ After downloading:
 
 ---
 
-### Method 2: Run from Source Code (Currently Not Supported)
+### Method 2: Run from Source Code
 
 ```bash
 git clone https://github.com/Kiowx/c_cleaner_plus.git

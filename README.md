@@ -15,7 +15,7 @@
 
 Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文件以及大文件。
 
-本项目使用 **Python + Fluent 2 Design** 编写，完全免费开源，面向 Windows 平台，支持常规垃圾清理与大文件扫描清理两种模式，同时提供GUI界面，每次启动时自动获取管理员权限、回收站/永久删除等功能，简单易操作，适合各种方面的用户使用。
+本项目使用 **Python + Fluent 2 Design** 编写，完全开源免费，面向 Windows 平台，支持常规垃圾清理与大文件扫描清理两种模式，同时提供GUI界面，每次启动时自动获取管理员权限、回收站/永久删除等功能，简单易操作，适合各种方面的用户使用。
 
 <img width="1682" height="969" alt="QQ_1771643066991" src="https://github.com/user-attachments/assets/facb84b7-4e5a-47ec-82b3-2e9808f7e83a" />
 

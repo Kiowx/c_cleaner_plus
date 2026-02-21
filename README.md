@@ -100,7 +100,7 @@ https://github.com/Kiowx/c_cleaner_plus/releases
 
 ---
 
-### 方法二：从源码运行（暂不支持）
+### 方法二：从源码运行
 
 ```bash
 git clone https://github.com/Kiowx/c_cleaner_plus.git

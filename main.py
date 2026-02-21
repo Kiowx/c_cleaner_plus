@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.1.0-alpha04
+C盘强力清理工具 v0.1.0
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 Python 3.12.6 / PySide6 6.10.2 / PySide6-Fluent-Widgets 1.11.1
 """
@@ -731,7 +731,7 @@ class MainWindow(FluentWindow):
 
     def _init_win(self):
         self.resize(1121, 646); self.setMinimumSize(874, 473)
-        self.setWindowTitle("C盘强力清理工具 v0.1.0-alpha04")
+        self.setWindowTitle("C盘强力清理工具 v0.1.0")
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
         self.setWindowIcon(QIcon(icon_path))
         scr=QApplication.primaryScreen()
@@ -777,7 +777,7 @@ class MainWindow(FluentWindow):
 
     def _about(self):
         MessageBox("关于",
-            "C盘强力清理工具 v0.1.0-alpha04\n"
+            "C盘强力清理工具 v0.1.0\n"
             "UI：Fluent Widgets\nby Kio",self).exec()
 
 # ══════════════════════════════════════════════════════════

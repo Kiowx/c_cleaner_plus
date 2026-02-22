@@ -11,7 +11,13 @@
   <a href="README.en.md">English</a>
 </p>
 
-[QQ交流群](https://qm.qq.com/q/xE1xw9wP7M)
+<div align="center">
+  <a href="https://qm.qq.com/q/xE1xw9wP7M">
+    <img src="https://img.shields.io/badge/QQ交流群 - 点击加入 -12B7F5?style=for-the-badge&logo=tencent-qq&logoColor=white" alt="QQ 交流群">
+  </a>
+</div>
+  
+</div>
 
 ---
 

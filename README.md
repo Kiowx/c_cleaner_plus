@@ -14,10 +14,11 @@
   
 <p align="center">
   <a href="https://github.com/Kiowx/c_cleaner_plus/releases">
-    <img src="https://img.shields.io/badge/Version-v0.1.1-green?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/github/v/tag/Kiowx/c_cleaner_plus?style=flat-square&color=green&label=Version" alt="Version">
   </a>
+  &nbsp;&nbsp;
   <a href="https://qm.qq.com/q/xE1xw9wP7M">
-    <img src="https://img.shields.io/badge/QQ交流群 - 点击加入 -12B7F5?style=flat-square&logo=tencent-qq&logoColor=white" alt="QQ Group">
+    <img src="https://img.shields.io/badge/QQ 交流群 - 点击加入 -12B7F5?style=flat-square&logo=tencent-qq&logoColor=white" alt="QQ Group">
   </a>
 </p>
 

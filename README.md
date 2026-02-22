@@ -5,20 +5,27 @@
 </p>
 
 
-<p align="center">
-  <strong>Language</strong> ·
-  <a href="README.md"><strong>简体中文</strong></a> |
-  <a href="README.en.md">English</a>
-</p>
-
 <div align="center">
-  <a href="https://qm.qq.com/q/xE1xw9wP7M">
-    <img src="https://img.shields.io/badge/QQ交流群 - 点击加入 -12B7F5?style=for-the-badge&logo=tencent-qq&logoColor=white" alt="QQ 交流群">
-  </a>
-</div>
-  
-</div>
+  <p>
+    <strong>Language</strong> ·
+    <a href="README.md"><strong>简体中文</strong></a> |
+    <a href="README.en.md">English</a>
+  </p>
 
+  <p>
+    <a href="https://github.com/Kiowx/c_cleaner_plus/releases">
+      <img src="https://img.shields.io/github/v/release/Kiowx/c_cleaner_plus?style=flat-square&color=green&label=Latest Release" alt="Release">
+    </a>
+  </p>
+
+  <p>
+    <a href="https://qm.qq.com/q/xE1xw9wP7M">
+      <img src="https://img.shields.io/badge/QQ 交流群 - 点击加入 -12B7F5?style=flat-square&logo=tencent-qq&logoColor=white" alt="QQ Group">
+    </a>
+  </p>
+  
+  <br/>
+</div>
 ---
 
 Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文件以及大文件。

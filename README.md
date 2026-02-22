@@ -31,7 +31,7 @@ Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文�
 - 缩略图缓存（Explorer）
 - DirectX / NVIDIA Shader Cache / AMD Shader Cache（可选）
 - 浏览器缓存（Edge / Chrome，可选）
-- pip 下载包缓存 / .NET 包缓存
+- 前端（npm / Yarn / pnpm）、后端（Go / Maven / Gradle / Cargo / Composer）及 pip / .NET 等包缓存清理（默认不勾选，防误删保护）
 - Windows 更新缓存（可选）
 - 更多详细内容可在[Releases](https://github.com/Kiowx/c_cleaner_plus/releases)内查看
 
@@ -39,6 +39,8 @@ Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文�
 - 扫描并**获取可清理大小**
 - 按项目勾选执行
 - 安全项默认勾选
+- 清理开发缓存特设二次确认弹窗，并智能精简重复警告，减少打扰
+- 退出时无感保存当前勾选状态，下次启动软件自动恢复，无需重复配置
 
 ---
 

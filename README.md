@@ -10,7 +10,9 @@
   <a href="README.md"><strong>简体中文</strong></a> |
   <a href="README.en.md">English</a>
 </p>
+
 [QQ交流群](https://qm.qq.com/q/xE1xw9wP7M)
+
 ---
 
 Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文件以及大文件。

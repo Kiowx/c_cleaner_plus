@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.1.0-alpha04
+C盘强力清理工具 v0.1.1-alpha02
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
-Python 3.12.6 / PySide6 6.10.2 / PySide6-Fluent-Widgets 1.11.1
+包含：常规清理、开发缓存清理、大文件多盘扫描、偏好状态记忆、自定义下拉选框体验优化
 """
 
-import os, sys, time, ctypes, fnmatch, shutil, threading, subprocess, queue
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import os, sys, time, ctypes, threading, subprocess, queue, json
 
-from PySide6.QtCore import Qt, Signal, QObject, QModelIndex
-from PySide6.QtGui import QFont, QIcon, QColor, QPainter
+from PySide6.QtCore import Qt, Signal, QObject, QModelIndex, QPoint
+from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QWidget, QFrame, QVBoxLayout, QHBoxLayout,
     QAbstractItemView, QTableWidgetItem, QStyleOptionViewItem,
-    QStyledItemDelegate,
+    QStyledItemDelegate, QSplashScreen,
 )
 
 from qfluentwidgets import (
@@ -21,7 +20,7 @@ from qfluentwidgets import (
     setTheme, Theme, setThemeColor,
     setFontFamilies, setFont, getFont,
     NavigationItemPosition, FluentWindow,
-    PushButton, PrimaryPushButton,
+    PushButton, PrimaryPushButton, DropDownPushButton,
     CheckBox, SpinBox, ProgressBar,
     BodyLabel, SubtitleLabel, TitleLabel, CaptionLabel, StrongBodyLabel,
     SimpleCardWidget, HeaderCardWidget, CardWidget, IconWidget,
@@ -35,6 +34,12 @@ from qfluentwidgets import (
 #  自定义 Delegate：只保留 Fluent 风格勾选框
 # ══════════════════════════════════════════════════════════
 from qfluentwidgets.components.widgets.table_view import TableItemDelegate
+
+def resource_path(relative_path):
+    """兼容开发环境和 PyInstaller 打包后的路径"""
+    if getattr(sys, '_MEIPASS', None):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
 
 class FluentOnlyCheckDelegate(TableItemDelegate):
     def paint(self, painter, option, index):
@@ -128,6 +133,7 @@ def dir_size(path):
     return t
 
 def delete_path(path, perm, log_fn):
+    import shutil
     try:
         if not os.path.exists(path): return True
         if not perm:
@@ -140,9 +146,20 @@ def delete_path(path, perm, log_fn):
 
 def expand_env(p): return os.path.expandvars(p)
 
+def get_available_drives():
+    """获取系统当前所有可用的盘符列表"""
+    drives = []
+    bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+    for i in range(26):
+        if bitmask & (1 << i):
+            drives.append(chr(65 + i) + ":\\")
+    return drives
+
 # ══════════════════════════════════════════════════════════
-#  磁盘类型检测
+#  类型检测 + 缓存
 # ══════════════════════════════════════════════════════════
+CACHE_FILE = os.path.join(os.environ.get("TEMP", "."), "cdisk_cleaner_cache.json")
+
 def detect_disk_type(drive_letter="C"):
     try:
         ps_script = f"""
@@ -163,50 +180,89 @@ if ($partition) {{
     except Exception:
         return "Unknown"
 
-#  线程设置
-
+# 线程
 def get_scan_threads(drive_letter="C"):
     dtype = detect_disk_type(drive_letter)
     thread_map = {"SSD": 8, "HDD": 2, "Unknown": 4}
     return thread_map.get(dtype, 4), dtype
 
+def get_scan_threads_cached(drive_letter="C"):
+    """优先读缓存（24小时有效），否则实际检测并写入缓存"""
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+            if time.time() - cache.get("ts", 0) < 86400:
+                return cache["threads"], cache["dtype"]
+    except:
+        pass
+
+    threads, dtype = get_scan_threads(drive_letter)
+
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"threads": threads, "dtype": dtype, "ts": time.time()}, f)
+    except:
+        pass
+
+    return threads, dtype
+
 # ══════════════════════════════════════════════════════════
 #  默认清理目标
 # ══════════════════════════════════════════════════════════
 def default_clean_targets():
-    sr=os.environ.get("SystemRoot",r"C:\Windows")
-    la=os.environ.get("LOCALAPPDATA","")
-    pd=os.environ.get("PROGRAMDATA",r"C:\ProgramData")
-    J=os.path.join
+    sr = os.environ.get("SystemRoot", r"C:\Windows")
+    la = os.environ.get("LOCALAPPDATA", "")
+    pd = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
+    up = os.environ.get("USERPROFILE", "")
+    J = os.path.join
+    
     return [
-        ("用户临时文件",expand_env(r"%TEMP%"),"dir",True,"常见垃圾，安全"),
-        ("系统临时文件",J(sr,"Temp"),"dir",True,"可能需管理员"),
-        ("Prefetch",J(sr,"Prefetch"),"dir",False,"影响首次启动"),
-        ("CBS 日志",J(sr,"Logs","CBS"),"dir",True,"较安全"),
-        ("DISM 日志",J(sr,"Logs","DISM"),"dir",True,"较安全"),
-        ("LiveKernelReports",J(sr,"LiveKernelReports"),"dir",True,"内核转储"),
-        ("WER(用户)",J(la,"Microsoft","Windows","WER"),"dir",True,"崩溃报告"),
-        ("WER(系统)",J(sr,"System32","config","systemprofile","AppData","Local","Microsoft","Windows","WER"),"dir",False,"需管理员"),
-        ("Minidump",J(sr,"Minidump"),"dir",True,"崩溃转储"),
-        ("MEMORY.DMP",J(sr,"MEMORY.DMP"),"file",False,"确认不调试时勾选"),
-        ("缩略图缓存",J(la,"Microsoft","Windows","Explorer"),"glob",True,"thumbcache*.db"),
-        ("D3DSCache",J(la,"D3DSCache"),"dir",False,"d3d着色器缓存"),
-        ("NVIDIA DX",J(la,"NVIDIA","DXCache"),"dir",False,"NV着色器缓存"),
-        ("NVIDIA GL",J(la,"NVIDIA","GLCache"),"dir",False,"NV OpenGL缓存"),
-        ("NVIDIA Compute",J(la,"NVIDIA","ComputeCache"),"dir",False,"CUDA"),
-        ("NV_Cache",J(pd,"NVIDIA Corporation","NV_Cache"),"dir",False,"NV CUDA/计算缓存"),
-        ("AMD DX",J(la,"AMD","DxCache"),"dir",False,"AMD着色器缓存"),
-        ("AMD GL",J(la,"AMD","GLCache"),"dir",False,"AMD OpenGL缓存"),
-        ("Steam Shader",J(la,"Steam","steamapps","shadercache"),"dir",False,"Steam"),
-        ("Steam 下载临时",J(la,"Steam","steamapps","downloading"),"dir",False,"下载残留"),
-        ("Edge Cache",J(la,"Microsoft","Edge","User Data","Default","Cache"),"dir",False,"浏览器"),
-        ("Edge Code",J(la,"Microsoft","Edge","User Data","Default","Code Cache"),"dir",False,"JS"),
-        ("Chrome Cache",J(la,"Google","Chrome","User Data","Default","Cache"),"dir",False,"浏览器"),
-        ("Chrome Code",J(la,"Google","Chrome","User Data","Default","Code Cache"),"dir",False,"JS"),
-        ("pip Cache",J(la,"pip","Cache"),"dir",True,"Python"),
-        ("NuGet Cache",J(la,"NuGet","v3-cache"),"dir",True,".NET"),
-        ("WU Download",J(sr,"SoftwareDistribution","Download"),"dir",False,"更新缓存"),
-        ("Delivery Opt",J(sr,"SoftwareDistribution","DeliveryOptimization"),"dir",False,"需管理员"),
+        # --- 基础系统临时文件 ---
+        ("用户临时文件", expand_env(r"%TEMP%"), "dir", True, "常见垃圾，安全"),
+        ("系统临时文件", J(sr, "Temp"), "dir", True, "可能需管理员"),
+        ("Prefetch", J(sr, "Prefetch"), "dir", False, "影响首次启动"),
+        ("CBS 日志", J(sr, "Logs", "CBS"), "dir", True, "较安全"),
+        ("DISM 日志", J(sr, "Logs", "DISM"), "dir", True, "较安全"),
+        ("LiveKernelReports", J(sr, "LiveKernelReports"), "dir", True, "内核转储"),
+        ("WER(用户)", J(la, "Microsoft", "Windows", "WER"), "dir", True, "崩溃报告"),
+        ("WER(系统)", J(sr, "System32", "config", "systemprofile", "AppData", "Local", "Microsoft", "Windows", "WER"), "dir", False, "需管理员"),
+        ("Minidump", J(sr, "Minidump"), "dir", True, "崩溃转储"),
+        ("MEMORY.DMP", J(sr, "MEMORY.DMP"), "file", False, "确认不调试时勾选"),
+        ("缩略图缓存", J(la, "Microsoft", "Windows", "Explorer"), "glob", True, "thumbcache*.db"),
+        
+        # --- 显卡与游戏缓存 ---
+        ("D3DSCache", J(la, "D3DSCache"), "dir", False, "d3d着色器缓存"),
+        ("NVIDIA DX", J(la, "NVIDIA", "DXCache"), "dir", False, "NV着色器缓存"),
+        ("NVIDIA GL", J(la, "NVIDIA", "GLCache"), "dir", False, "NV OpenGL缓存"),
+        ("NVIDIA Compute", J(la, "NVIDIA", "ComputeCache"), "dir", False, "CUDA"),
+        ("NV_Cache", J(pd, "NVIDIA Corporation", "NV_Cache"), "dir", False, "NV CUDA/计算缓存"),
+        ("AMD DX", J(la, "AMD", "DxCache"), "dir", False, "AMD着色器缓存"),
+        ("AMD GL", J(la, "AMD", "GLCache"), "dir", False, "AMD OpenGL缓存"),
+        ("Steam Shader", J(la, "Steam", "steamapps", "shadercache"), "dir", False, "Steam"),
+        ("Steam 下载临时", J(la, "Steam", "steamapps", "downloading"), "dir", False, "下载残留"),
+        
+        # --- 浏览器缓存 ---
+        ("Edge Cache", J(la, "Microsoft", "Edge", "User Data", "Default", "Cache"), "dir", False, "浏览器"),
+        ("Edge Code", J(la, "Microsoft", "Edge", "User Data", "Default", "Code Cache"), "dir", False, "JS"),
+        ("Chrome Cache", J(la, "Google", "Chrome", "User Data", "Default", "Cache"), "dir", False, "浏览器"),
+        ("Chrome Code", J(la, "Google", "Chrome", "User Data", "Default", "Code Cache"), "dir", False, "JS"),
+        
+        # --- 开发环境缓存 (默认不勾选，避免频繁重新下载耗时) ---
+        ("pip Cache", J(la, "pip", "Cache"), "dir", False, "Python 包缓存"),
+        ("NuGet Cache", J(la, "NuGet", "v3-cache"), "dir", False, ".NET 包缓存"),
+        ("npm Cache", J(la, "npm-cache"), "dir", False, "Node.js 包缓存"),
+        ("Yarn Cache", J(la, "Yarn", "Cache"), "dir", False, "Yarn 全局缓存"),
+        ("pnpm Store", J(la, "pnpm", "store"), "dir", False, "pnpm 内容寻址存储库"),
+        ("Go Build Cache", J(la, "go-build"), "dir", False, "Go 编译缓存"),
+        ("Cargo Cache", J(up, ".cargo", "registry", "cache"), "dir", False, "Rust 包下载缓存"),
+        ("Gradle Cache", J(up, ".gradle", "caches"), "dir", False, "Java/Android 构建缓存"),
+        ("Maven Repository", J(up, ".m2", "repository"), "dir", False, "Java 本地依赖库"),
+        ("Composer Cache", J(la, "Composer"), "dir", False, "PHP 包缓存"),
+        
+        # --- 系统更新 ---
+        ("WU Download", J(sr, "SoftwareDistribution", "Download"), "dir", False, "更新缓存"),
+        ("Delivery Opt", J(sr, "SoftwareDistribution", "DeliveryOptimization"), "dir", False, "需管理员"),
     ]
 
 DEFAULT_EXCLUDES=[r"C:\Windows\WinSxS",r"C:\Windows\Installer",r"C:\Program Files",r"C:\Program Files (x86)",r"C:\ProgramData\Microsoft\Windows\WER\ReportArchive"]
@@ -219,18 +275,16 @@ def should_exclude(p, prefixes):
 # ══════════════════════════════════════════════════════════
 #  大文件扫描（生产者-消费者并发模型）
 # ══════════════════════════════════════════════════════════
-_SENTINEL = None  # 队列终止标记
+_SENTINEL = None
 
 def _dir_worker(dir_queue, min_b, excl, stop_flag, results, counter, lock):
-    """消费者线程：从队列中取目录，扫描其直属文件，
-    并将子目录放回队列供其他线程消费。"""
     while not stop_flag.is_set():
         try:
             dirpath = dir_queue.get(timeout=0.05)
         except queue.Empty:
             continue
         if dirpath is _SENTINEL:
-            dir_queue.put(_SENTINEL)  # 传播终止信号给其他线程
+            dir_queue.put(_SENTINEL)
             break
 
         try:
@@ -275,20 +329,15 @@ def _dir_worker(dir_queue, min_b, excl, stop_flag, results, counter, lock):
         dir_queue.task_done()
 
 
-def scan_big_files(root, min_b, excl, stop, cb, workers=4):
-    """生产者-消费者模型并发扫描。
-    主线程将 root 放入队列，worker 线程扫描目录并将子目录放回队列，
-    实现动态负载均衡——大目录（如 Windows）的子目录会被多个线程分摊。
-    """
+def scan_big_files(roots, min_b, excl, stop, cb, workers=4):
     dir_queue = queue.Queue()
     results = []
-    counter = [0]  # 可变容器用于线程间共享计数
+    counter = [0]
     lock = threading.Lock()
 
-    # 种子：root 本身
-    dir_queue.put(root)
+    for root in roots:
+        dir_queue.put(root)
 
-    # 启动 worker 线程
     threads = []
     for _ in range(workers):
         t = threading.Thread(
@@ -299,11 +348,9 @@ def scan_big_files(root, min_b, excl, stop, cb, workers=4):
         t.start()
         threads.append(t)
 
-    # 等待队列清空（所有目录都处理完毕）
     tk = time.time()
     while not stop.is_set():
         try:
-            # 短超时轮询，兼顾响应速度和 CPU 占用
             dir_queue.all_tasks_done.acquire()
             try:
                 if dir_queue.unfinished_tasks == 0:
@@ -319,12 +366,10 @@ def scan_big_files(root, min_b, excl, stop, cb, workers=4):
             tk = now
         time.sleep(0.05)
 
-    # 发送终止信号
     dir_queue.put(_SENTINEL)
     for t in threads:
         t.join(timeout=2)
 
-    # 最终回调
     cb(counter[0])
 
     results.sort(reverse=True, key=lambda x: x[0])
@@ -332,11 +377,12 @@ def scan_big_files(root, min_b, excl, stop, cb, workers=4):
 
 
 # ══════════════════════════════════════════════════════════
-#  信号（big_add 用 str,str 避免 int32 溢出）
+#  信号
 # ══════════════════════════════════════════════════════════
 class Sig(QObject):
     log=Signal(str); prog=Signal(int,int); est=Signal(int,int)
     big_clr=Signal(); big_add=Signal(str,str); done=Signal(str)
+    disk_ready=Signal(str,int)
 
 # ══════════════════════════════════════════════════════════
 #  公共
@@ -381,8 +427,7 @@ def make_ctx(parent, table, pos, col):
     def _copy_path():
         QApplication.clipboard().setText(raw)
         InfoBar.success(
-            "复制成功",
-            raw,
+            "复制成功", raw,
             orient=Qt.Orientation.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
@@ -500,6 +545,7 @@ class CleanPage(ScrollArea):
         self.stop.clear(); threading.Thread(target=self._est_w,daemon=True).start()
 
     def _est_w(self):
+        import fnmatch
         self.sig.log.emit("开始估算...")
         its=[(i,t) for i,t in enumerate(self.targets) if t[3]]
         if not its: self.sig.done.emit("没有勾选项目"); return
@@ -526,12 +572,35 @@ class CleanPage(ScrollArea):
 
     def do_clean(self):
         self._sync_targets_from_table()
-        if self.chk_perm.isChecked():
-            w=MessageBox("确认","当前为强力模式，删除不可恢复。继续？",self.window())
-            if not w.exec(): return
-        self.stop.clear(); threading.Thread(target=self._cln_w,daemon=True).start()
+        
+        dev_cache_names = {
+            "pip Cache", "NuGet Cache", "npm Cache", "Yarn Cache", 
+            "pnpm Store", "Go Build Cache", "Cargo Cache", 
+            "Gradle Cache", "Maven Repository", "Composer Cache"
+        }
+        
+        selected_dev_caches = [nm for nm, _, _, en, _ in self.targets if en and nm in dev_cache_names]
+        
+        if selected_dev_caches:
+            msg = (
+                "你勾选了以下开发环境缓存：\n"
+                f"{', '.join(selected_dev_caches)}\n\n"
+                "⚠️ 注意：清理这些缓存会导致下次编译或安装包时强制重新下载，非常耗时。\n\n"
+                "确定要继续清理吗？（将直接执行清理）"
+            )
+            w = MessageBox("清理开发缓存确认", msg, self.window())
+            if not w.exec():
+                return
+        elif self.chk_perm.isChecked():
+            w = MessageBox("强力模式确认", "当前为强力模式，删除后将无法从回收站恢复。继续？", self.window())
+            if not w.exec(): 
+                return
+                
+        self.stop.clear()
+        threading.Thread(target=self._cln_w, daemon=True).start()
 
     def _cln_w(self):
+        import fnmatch
         pm=self.chk_perm.isChecked()
         if pm: self.sig.log.emit("[警告] 强力模式已开启")
         self._try_rst()
@@ -577,7 +646,7 @@ class CleanPage(ScrollArea):
         except Exception as e: self.sig.log.emit(f"[还原点] {e}")
 
 # ══════════════════════════════════════════════════════════
-#  大文件扫描页
+#  大文件扫描页（支持多选盘符、纯手工下拉防抖体验）
 # ══════════════════════════════════════════════════════════
 class BigFilePage(ScrollArea):
     def __init__(self, sig, stop, parent=None):
@@ -588,13 +657,38 @@ class BigFilePage(ScrollArea):
 
         v.addLayout(make_title_row(FIF.ZOOM, "大文件扫描"))
 
-        self._disk_threads, self._disk_type = get_scan_threads("C")
-        self.lbl_disk = CaptionLabel(
-            f"扫描 C 盘  |  "
-            f"磁盘: {self._disk_type}  |  "
-            f"线程: {self._disk_threads}"
-        )
+        self.drives = get_available_drives()
+        self.drive_actions = []
+        self.drive_states = {d: (True if d.startswith("C") else False) for d in self.drives}
+        self._menu_last_close = 0
+
+        dl = QHBoxLayout(); dl.setSpacing(10)
+        dl.addWidget(StrongBodyLabel("选择扫描范围:"))
+
+        self.btn_drives = PushButton("磁盘: C:\\")
+        self.menu_drives = RoundMenu(parent=self)
+
+        for d in self.drives:
+            action = Action(d)
+            action.setData(d) 
+            action.triggered.connect(lambda checked=False, a=action: self._toggle_drive(a))
+            self.menu_drives.addAction(action)
+            self.drive_actions.append(action)
+
+        self.btn_drives.clicked.connect(self._show_drives_menu)
+        dl.addWidget(self.btn_drives)
+        dl.addStretch()
+        v.addLayout(dl)
+        
+        self._update_drive_btn_text()
+
+        self._disk_threads = 4
+        self._disk_type = "检测中..."
+        self.lbl_disk = CaptionLabel(f"类型: 检测中...  |  线程: 4")
         v.addWidget(self.lbl_disk)
+
+        self.sig.disk_ready.connect(self._on_disk_ready)
+        threading.Thread(target=self._async_detect, daemon=True).start()
 
         pr=QHBoxLayout(); pr.setSpacing(10)
         pr.addWidget(CaptionLabel("最小文件MB:"))
@@ -604,8 +698,6 @@ class BigFilePage(ScrollArea):
         self.chk_perm=CheckBox("永久删除"); self.chk_perm.setChecked(True); pr.addWidget(self.chk_perm)
         pr.addStretch(); v.addLayout(pr)
 
-
-# 大文件列表控件
         self.tbl=TableWidget(); self.tbl.setColumnCount(4)
         self.tbl.setHorizontalHeaderLabels([" ","文件名","大小","路径"])
         self.tbl.verticalHeader().setVisible(False)
@@ -615,7 +707,7 @@ class BigFilePage(ScrollArea):
         self.tbl.horizontalHeader().setStretchLastSection(True)
         self.tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tbl.customContextMenuRequested.connect(lambda p: make_ctx(self,self.tbl,p,3))
-        self.tbl.setColumnWidth(0, 36); self.tbl.setColumnWidth(1, 200); self.tbl.setColumnWidth(2, 120); self.tbl.setColumnWidth(3, 770)
+        self.tbl.setColumnWidth(0, 36); self.tbl.setColumnWidth(1, 200); self.tbl.setColumnWidth(2, 120); self.tbl.setColumnWidth(3, 760)
         style_table(self.tbl)
         v.addWidget(self.tbl, 1)
 
@@ -635,14 +727,50 @@ class BigFilePage(ScrollArea):
         self.log.setFont(QFont("Consolas",9)); self.log.setPlaceholderText("日志...")
         v.addWidget(self.log)
 
-    def _redetect(self):
-        self._disk_threads, self._disk_type = get_scan_threads("C")
-        self.lbl_disk.setText(
-            f"扫描 C 盘  |  "
-            f"磁盘: {self._disk_type}  |  "
-            f"线程: {self._disk_threads}"
-        )
+    def _show_drives_menu(self):
+        if time.time() - self._menu_last_close < 0.2:
+            return
+        pos = self.btn_drives.mapToGlobal(QPoint(0, self.btn_drives.height() + 2))
+        self.menu_drives.exec(pos)
+        self._menu_last_close = time.time()
 
+    def _toggle_drive(self, action):
+        d = action.data()
+        self.drive_states[d] = not self.drive_states[d]
+        self._update_drive_btn_text()
+
+    def _update_drive_btn_text(self):
+        selected = []
+        for a in self.drive_actions:
+            d = a.data()
+            if self.drive_states[d]:
+                selected.append(d)
+                a.setText(f"{d} √") 
+            else:
+                a.setText(d) 
+                
+        if not selected:
+            self.btn_drives.setText("磁盘: (未选择)")
+        else:
+            self.btn_drives.setText(f"磁盘: {', '.join(selected)}")
+
+    def _async_detect(self):
+        threads, dtype = get_scan_threads_cached("C")
+        self.sig.disk_ready.emit(dtype, threads)
+
+    def _on_disk_ready(self, dtype, threads):
+        self._disk_type = dtype
+        self._disk_threads = threads
+        self.lbl_disk.setText(f"类型: {self._disk_type}  |  线程: {self._disk_threads}")
+
+    def _redetect(self):
+        try:
+            if os.path.exists(CACHE_FILE): os.remove(CACHE_FILE)
+        except: pass
+        self._disk_type = "检测中..."
+        self._disk_threads = 4
+        self.lbl_disk.setText("类型: 检测中...  |  线程: 4")
+        threading.Thread(target=self._async_detect, daemon=True).start()
 
     def _sort(self):
         rc=self.tbl.rowCount()
@@ -667,24 +795,26 @@ class BigFilePage(ScrollArea):
     def _scan_w(self):
         mb=self.sp_mb.value(); mx=self.sp_mx.value()
         w = self._disk_threads
-        self.sig.log.emit(
-            f"扫描 C:\\ (≥{mb}MB, 上限{mx}) | "
-            f"{self._disk_type}, {w} 线程"
-        )
+        
+        roots = [d for d, state in self.drive_states.items() if state]
+        if not roots:
+            self.sig.done.emit("错误：未选择任何要扫描的磁盘")
+            return
+            
+        self.sig.log.emit(f"扫描 {', '.join(roots)} (≥{mb}MB, 上限{mx}) | 线程: {w}")
         self.sig.big_clr.emit()
         def cb(n): self.sig.prog.emit(n % 100, 100)
         t0 = time.time()
-        res = scan_big_files("C:\\", mb*1024*1024, DEFAULT_EXCLUDES, self.stop, cb, workers=w)
+        
+        res = scan_big_files(roots, mb*1024*1024, DEFAULT_EXCLUDES, self.stop, cb, workers=w)
+        
         elapsed = time.time() - t0
         if self.stop.is_set():
             self.sig.done.emit(f"已取消，耗时 {elapsed:.1f}s")
             return
         for sz,pa in res[:mx]:
-            self.sig.big_add.emit(str(sz), pa)  # str 避免 int32 溢出
-        self.sig.done.emit(
-            f"扫描完成，{len(res[:mx])} 条，"
-            f"{elapsed:.1f}s ({self._disk_type}/{w}线程)"
-        )
+            self.sig.big_add.emit(str(sz), pa)
+        self.sig.done.emit(f"扫描完成，共找到 {len(res[:mx])} 条，耗时 {elapsed:.1f}s")
 
     def do_del(self):
         paths=[]
@@ -715,10 +845,37 @@ class BigFilePage(ScrollArea):
 class MainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
-        self.targets=default_clean_targets(); self.stop=threading.Event(); self.sig=Sig()
-        self.pg_clean=CleanPage(self.sig,self.targets,self.stop,self)
-        self.pg_big=BigFilePage(self.sig,self.stop,self)
-        self._init_nav(); self._init_win(); self._conn()
+        self.targets = default_clean_targets()
+        
+        self.config_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "cdisk_cleaner_config.json")
+        if os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    saved_state = json.load(f)
+                for i in range(len(self.targets)):
+                    nm, pa, tp, en, nt = self.targets[i]
+                    if nm in saved_state:
+                        self.targets[i] = (nm, pa, tp, saved_state[nm], nt)
+            except Exception:
+                pass
+                
+        self.stop = threading.Event()
+        self.sig = Sig()
+        self.pg_clean = CleanPage(self.sig, self.targets, self.stop, self)
+        self.pg_big = BigFilePage(self.sig, self.stop, self)
+        self._init_nav()
+        self._init_win()
+        self._conn()
+
+    def closeEvent(self, event):
+        try:
+            self.pg_clean._sync_targets_from_table()
+            saved_state = {nm: en for nm, _, _, en, _ in self.targets}
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(saved_state, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     def _init_nav(self):
         self.navigationInterface.setExpandWidth(200)
@@ -733,9 +890,10 @@ class MainWindow(FluentWindow):
 
     def _init_win(self):
         self.resize(1121, 646); self.setMinimumSize(874, 473)
-        self.setWindowTitle("C盘强力清理工具 v0.1.0-alpha04")
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
-        self.setWindowIcon(QIcon(icon_path))
+        self.setWindowTitle("C盘强力清理工具 v0.1.1-alpha02")
+        icon_path = resource_path("icon.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
         scr=QApplication.primaryScreen()
         if scr:
             g=scr.availableGeometry()
@@ -770,7 +928,7 @@ class MainWindow(FluentWindow):
             isClosable=True,position=InfoBarPosition.TOP,duration=4000,parent=self)
 
     def _badd(self, sz_str, pa):
-        sz = int(sz_str)  # 字符串转回整数
+        sz = int(sz_str)
         t=self.pg_big.tbl; r=t.rowCount(); t.setRowCount(r+1)
         t.setItem(r, 0, make_check_item(False))
         t.setItem(r, 1, QTableWidgetItem(os.path.basename(pa) if pa else ""))
@@ -779,13 +937,14 @@ class MainWindow(FluentWindow):
 
     def _about(self):
         MessageBox("关于",
-            "C盘强力清理工具 v0.1.0-alpha04\n"
-            "UI：Fluent Widgets\nby Kio",self).exec()
+            "C盘强力清理工具 v0.1.1-alpha02\n"
+            "支持多盘扫描与开发环境深度清理\n"
+            "UI：Fluent Widgets\nQQ交流群：670804369\nby Kio",self).exec()
 
 # ══════════════════════════════════════════════════════════
+#  入口
 # ══════════════════════════════════════════════════════════
 def relaunch_as_admin():
-    """以管理员权限重新启动自身"""
     try:
         params = " ".join(f'"{a}"' for a in sys.argv)
         ctypes.windll.shell32.ShellExecuteW(
@@ -799,13 +958,16 @@ def main():
     if sys.platform != "win32":
         print("Windows only"); sys.exit(1)
 
-    # 自动提权：非管理员时弹 UAC 提升
     if not is_admin():
         relaunch_as_admin()
 
     app = QApplication(sys.argv)
+
     setFontFamilies(["微软雅黑"])
     setTheme(Theme.AUTO); setThemeColor("#0078d4")
-    w = MainWindow(); w.show(); sys.exit(app.exec())
+
+    w = MainWindow(); w.show()
+
+    sys.exit(app.exec())
 
 if __name__=="__main__": main()

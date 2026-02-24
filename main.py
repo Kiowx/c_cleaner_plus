@@ -35,13 +35,10 @@ from qfluentwidgets import (
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.1.1"
+CURRENT_VERSION = "0.1.1-alpha03"
 # 必须使用 raw 链接获取纯 JSON 数据
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 
-# ══════════════════════════════════════════════════════════
-#  自定义 Delegate：只保留 Fluent 风格勾选框
-# ══════════════════════════════════════════════════════════
 from qfluentwidgets.components.widgets.table_view import TableItemDelegate
 
 def resource_path(relative_path):

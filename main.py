@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.1.1-alpha03
+C盘强力清理工具 v0.1.1
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理、开发缓存清理、大文件多盘扫描、偏好状态记忆、自定义下拉选框体验优化、自动检查更新
 """
@@ -35,7 +35,7 @@ from qfluentwidgets import (
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.1.1-alpha03"
+CURRENT_VERSION = "0.1.1"
 # 必须使用 raw 链接获取纯 JSON 数据
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 
@@ -900,7 +900,7 @@ class MainWindow(FluentWindow):
 
     def _init_win(self):
         self.resize(1121, 646); self.setMinimumSize(874, 473)
-        self.setWindowTitle("C盘强力清理工具 v0.1.1-alpha03")
+        self.setWindowTitle("C盘强力清理工具 v0.1.1")
         icon_path = resource_path("icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -917,20 +917,29 @@ class MainWindow(FluentWindow):
         self.sig.update_found.connect(self._show_update_dialog)
 
     def _check_update_worker(self):
-        try:
-            req = urllib.request.Request(UPDATE_JSON_URL, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                
-                remote_version = data.get("version", "").replace("v", "")
-                local_version = CURRENT_VERSION.replace("v", "")
-                
-                if remote_version and remote_version > local_version:
-                    download_url = data.get("url", "")
-                    changelog = data.get("changelog", "发现新版本可用！")
-                    self.sig.update_found.emit(remote_version, download_url, changelog)
-        except Exception:
-            pass
+            try:
+                req = urllib.request.Request(UPDATE_JSON_URL, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    
+                    remote_version = data.get("version", "").replace("v", "")
+                    local_version = CURRENT_VERSION.replace("v", "")
+                    
+                    def parse_v(v_str):
+                        parts = v_str.split('-', 1)
+                        # 1. 提取主版本号数字 (例如 "0.1.1" -> [0, 1, 1])
+                        base = [int(x) for x in parts[0].split('.') if x.isdigit()]
+                        # 2. 提取后缀。如果没有后缀(正式版)，给它一个极大的字符 "zzzzz"，确保它大于 "alpha" 或 "beta"
+                        suffix = parts[1] if len(parts) > 1 else "zzzzz"
+                        return (base, suffix)
+
+                    # 使用元组进行高精度对比
+                    if remote_version and parse_v(remote_version) > parse_v(local_version):
+                        download_url = data.get("url", "")
+                        changelog = data.get("changelog", "发现新版本可用！")
+                        self.sig.update_found.emit(remote_version, download_url, changelog)
+            except Exception:
+                pass
 
     def _show_update_dialog(self, version, url, changelog):
         title = f"发现新版本 v{version}"
@@ -973,7 +982,7 @@ class MainWindow(FluentWindow):
 
     def _about(self):
         MessageBox("关于",
-            "C盘强力清理工具 v0.1.1-alpha03\n"
+            "C盘强力清理工具 v0.1.1\n"
             "支持多盘扫描与开发环境深度清理\n"
             "UI：Fluent Widgets\nQQ交流群：670804369\nby Kio",self).exec()
 

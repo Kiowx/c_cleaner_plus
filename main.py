@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.1.1-alpha02
+C盘强力清理工具 v0.1.1-alpha03
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
-包含：常规清理、开发缓存清理、大文件多盘扫描、偏好状态记忆、自定义下拉选框体验优化
+包含：常规清理、开发缓存清理、大文件多盘扫描、偏好状态记忆、自定义下拉选框体验优化、自动检查更新
 """
 
 import os, sys, time, ctypes, threading, subprocess, queue, json
+import urllib.request
+import webbrowser
 
 from PySide6.QtCore import Qt, Signal, QObject, QModelIndex, QPoint
 from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QPixmap
@@ -29,6 +31,13 @@ from qfluentwidgets import (
     MessageBox, InfoBar, InfoBarPosition,
     ScrollArea,
 )
+
+# ══════════════════════════════════════════════════════════
+#  版本与更新配置
+# ══════════════════════════════════════════════════════════
+CURRENT_VERSION = "0.1.1"
+# 必须使用 raw 链接获取纯 JSON 数据
+UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 
 # ══════════════════════════════════════════════════════════
 #  自定义 Delegate：只保留 Fluent 风格勾选框
@@ -183,7 +192,7 @@ if ($partition) {{
 # 线程
 def get_scan_threads(drive_letter="C"):
     dtype = detect_disk_type(drive_letter)
-    thread_map = {"SSD": 8, "HDD": 2, "Unknown": 4}
+    thread_map = {"SSD": 12, "HDD": 2, "Unknown": 4}
     return thread_map.get(dtype, 4), dtype
 
 def get_scan_threads_cached(drive_letter="C"):
@@ -383,6 +392,7 @@ class Sig(QObject):
     log=Signal(str); prog=Signal(int,int); est=Signal(int,int)
     big_clr=Signal(); big_add=Signal(str,str); done=Signal(str)
     disk_ready=Signal(str,int)
+    update_found=Signal(str, str, str)  # 增加更新信号
 
 # ══════════════════════════════════════════════════════════
 #  公共
@@ -646,7 +656,7 @@ class CleanPage(ScrollArea):
         except Exception as e: self.sig.log.emit(f"[还原点] {e}")
 
 # ══════════════════════════════════════════════════════════
-#  大文件扫描页（支持多选盘符、纯手工下拉防抖体验）
+#  大文件扫描页
 # ══════════════════════════════════════════════════════════
 class BigFilePage(ScrollArea):
     def __init__(self, sig, stop, parent=None):
@@ -867,6 +877,9 @@ class MainWindow(FluentWindow):
         self._init_win()
         self._conn()
 
+        # 启动后延时 2 秒在后台检测更新
+        threading.Timer(2.0, self._check_update_worker).start()
+
     def closeEvent(self, event):
         try:
             self.pg_clean._sync_targets_from_table()
@@ -890,7 +903,7 @@ class MainWindow(FluentWindow):
 
     def _init_win(self):
         self.resize(1121, 646); self.setMinimumSize(874, 473)
-        self.setWindowTitle("C盘强力清理工具 v0.1.1-alpha02")
+        self.setWindowTitle("C盘强力清理工具 v0.1.1-alpha03")
         icon_path = resource_path("icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -904,6 +917,32 @@ class MainWindow(FluentWindow):
         self.sig.est.connect(self._est); self.sig.done.connect(self._done)
         self.sig.big_clr.connect(lambda: self.pg_big.tbl.setRowCount(0))
         self.sig.big_add.connect(self._badd)
+        self.sig.update_found.connect(self._show_update_dialog)
+
+    def _check_update_worker(self):
+        try:
+            req = urllib.request.Request(UPDATE_JSON_URL, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                
+                remote_version = data.get("version", "").replace("v", "")
+                local_version = CURRENT_VERSION.replace("v", "")
+                
+                if remote_version and remote_version > local_version:
+                    download_url = data.get("url", "")
+                    changelog = data.get("changelog", "发现新版本可用！")
+                    self.sig.update_found.emit(remote_version, download_url, changelog)
+        except Exception:
+            pass
+
+    def _show_update_dialog(self, version, url, changelog):
+        title = f"发现新版本 v{version}"
+        content = f"更新内容：\n{changelog}\n\n是否立即前往下载？"
+        w = MessageBox(title, content, self.window())
+        # 取消了强制宽度，让它根据文字自动撑开
+        if w.exec():
+            if url:
+                webbrowser.open(url)
 
     def _ts(self): return time.strftime("%H:%M:%S")
 
@@ -937,7 +976,7 @@ class MainWindow(FluentWindow):
 
     def _about(self):
         MessageBox("关于",
-            "C盘强力清理工具 v0.1.1-alpha02\n"
+            "C盘强力清理工具 v0.1.1-alpha03\n"
             "支持多盘扫描与开发环境深度清理\n"
             "UI：Fluent Widgets\nQQ交流群：670804369\nby Kio",self).exec()
 

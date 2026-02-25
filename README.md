@@ -176,13 +176,3 @@ python main.py
 ## 许可证
 
 本项目采用 [MIT 许可证](LICENSE) 开源，您可以自由使用、修改和分发。
-
----
-
-<div align="center">
-
-**如果这个项目对你有帮助，请给一个 ⭐ Star 支持一下！**
-
-Made with ❤️ by [Kiowx](https://github.com/Kiowx)
-
-</div>

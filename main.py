@@ -38,7 +38,6 @@ from qfluentwidgets import (
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
 CURRENT_VERSION = "0.1.5"
-# 必须使用 raw 链接获取纯 JSON 数据
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 
 from qfluentwidgets.components.widgets.table_view import TableItemDelegate
@@ -1430,5 +1429,6 @@ def main():
 
     w = MainWindow(); w.show()
     sys.exit(app.exec())
+
 
 if __name__=="__main__": main()

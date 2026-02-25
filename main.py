@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.1.5 
+C盘强力清理工具 v0.1.6-alpha01 
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理、开发缓存清理、大文件多盘扫描、偏好状态记忆、自定义下拉选框体验优化、自动检查更新
-新增：重复文件查找、空文件夹扫描、无效快捷方式清理、注册表清理（多线程支持）
+新增：重复文件查找、空文件夹扫描、无效快捷方式清理、注册表清理（多线程支持）、更多清理全选功能
 """
 
 import os, sys, time, ctypes, threading, subprocess, queue, json, hashlib, winreg, re
@@ -37,7 +37,7 @@ from qfluentwidgets import (
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.1.5"
+CURRENT_VERSION = "0.1.6-alpha01"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 
 from qfluentwidgets.components.widgets.table_view import TableItemDelegate
@@ -838,7 +838,7 @@ class BigFilePage(ScrollArea):
 
 
 # ══════════════════════════════════════════════════════════
-#  更多清理页（新增功能：重复文件、空文件夹、快捷方式、注册表）
+#  更多清理页（新增功能：重复文件、空文件夹、快捷方式、注册表、智能全选）
 # ══════════════════════════════════════════════════════════
 class MoreCleanPage(ScrollArea):
     def __init__(self, sig, stop, parent=None):
@@ -904,6 +904,10 @@ class MoreCleanPage(ScrollArea):
         # 底部按钮
         br=QHBoxLayout(); br.setSpacing(8)
         b1=PrimaryPushButton(FIF.SEARCH,"开始扫描"); b1.setFixedHeight(30); b1.clicked.connect(self.do_scan); br.addWidget(b1)
+        
+        self.btn_sel_all = PushButton(FIF.ACCEPT, "全选"); self.btn_sel_all.setFixedHeight(30)
+        self.btn_sel_all.clicked.connect(self.toggle_sel_all); br.addWidget(self.btn_sel_all)
+
         b2=PushButton(FIF.DELETE,"清理已勾选"); b2.setFixedHeight(30); b2.clicked.connect(self.do_del); br.addWidget(b2)
         b3=PushButton(FIF.CANCEL,"停止"); b3.setFixedHeight(30); b3.clicked.connect(lambda:self.stop.set()); br.addWidget(b3)
         br.addStretch(); v.addLayout(br)
@@ -916,6 +920,31 @@ class MoreCleanPage(ScrollArea):
         self.log=TextEdit(); self.log.setReadOnly(True); self.log.setMaximumHeight(120)
         self.log.setFont(QFont("Consolas",9)); self.log.setPlaceholderText("日志...")
         v.addWidget(self.log)
+
+    def toggle_sel_all(self):
+        rc = self.tbl.rowCount()
+        if rc == 0: return
+
+        # 检查是否所有行都已经勾选
+        all_checked = True
+        for r in range(rc):
+            if not is_row_checked(self.tbl, r):
+                all_checked = False
+                break
+
+        # 如果已全部勾选，则执行全不选；否则执行全选
+        new_state = not all_checked
+
+        for r in range(rc):
+            set_row_checked(self.tbl, r, new_state)
+            
+        # 动态更新按钮的文字和图标
+        if new_state:
+            self.btn_sel_all.setText("取消全选")
+            self.btn_sel_all.setIcon(FIF.CLOSE)
+        else:
+            self.btn_sel_all.setText("全选")
+            self.btn_sel_all.setIcon(FIF.ACCEPT)
 
     def _on_mode_change(self):
         # 注册表扫描不需要选择磁盘
@@ -950,6 +979,11 @@ class MoreCleanPage(ScrollArea):
 
         self.stop.clear()
         self.sig.more_clr.emit()
+        
+        # 重置全选按钮状态
+        self.btn_sel_all.setText("全选")
+        self.btn_sel_all.setIcon(FIF.ACCEPT)
+        
         self.sig.log.emit(f"开始 {self.cb_mode.currentText()}...")
         
         workers = self.window().pg_big._disk_threads if hasattr(self.window(), 'pg_big') else 4
@@ -1305,7 +1339,7 @@ class MainWindow(FluentWindow):
 
     def _init_win(self):
         self.resize(1121, 646); self.setMinimumSize(874, 473)
-        self.setWindowTitle("C盘强力清理工具 v0.1.5")
+        self.setWindowTitle("C盘强力清理工具 v0.1.6-alpha01")
         icon_path = resource_path("icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -1399,7 +1433,7 @@ class MainWindow(FluentWindow):
 
     def _about(self):
         MessageBox("关于",
-            "C盘强力清理工具 v0.1.5\n"
+            "C盘强力清理工具 v0.1.6-alpha01\n"
             "支持多盘扫描、重复文件查找、空文件夹处理等\n"
             "UI：Fluent Widgets\nQQ交流群：670804369\nby Kio",self).exec()
 
@@ -1429,6 +1463,5 @@ def main():
 
     w = MainWindow(); w.show()
     sys.exit(app.exec())
-
 
 if __name__=="__main__": main()

@@ -4,14 +4,13 @@
   <img width="250" height="250" alt="driveclean_icon_512_circle" src="https://github.com/user-attachments/assets/f2d6399e-868c-4205-a086-65c6e3603468" />
 </p>
 
-
 <div align="center">
   <p>
     <strong>Language</strong> ·
     <a href="README.md"><strong>简体中文</strong></a> |
     <a href="README.en.md">English</a>
   </p>
-  
+
 <p align="center">
   <a href="https://github.com/Kiowx/c_cleaner_plus/releases">
     <img src="https://img.shields.io/github/v/tag/Kiowx/c_cleaner_plus?style=flat-square&color=green&label=Version" alt="Version">
@@ -24,11 +23,11 @@
 
 ---
 
-Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文件以及大文件。
+Windows 系统的 C 盘强力清理工具，可扫描并清理 C 盘中的垃圾文件、大文件、重复文件及系统残留。
 
-本项目使用 **Python + Fluent 2 Design** 编写，完全开源免费，面向 Windows 平台，支持常规垃圾清理与大文件扫描清理两种模式，同时提供GUI界面，每次启动时自动获取管理员权限、回收站/永久删除等功能，简单易操作，适合各种方面的用户使用。
+本项目使用 **Python + Fluent 2 Design** 编写，完全开源免费，面向 Windows 平台，支持常规垃圾清理、大文件扫描、重复文件查找、空文件夹清理、无效快捷方式清理及注册表清理等多种模式，同时提供 GUI 界面，每次启动时自动获取管理员权限、回收站/永久删除等功能，简单易操作，适合各种方面的用户使用。
 
-<img width="1682" height="969" alt="QQ_1771643066991" src="https://github.com/user-attachments/assets/facb84b7-4e5a-47ec-82b3-2e9808f7e83a" />
+<img width="1674" height="962" alt="QQ_1772002038801" src="https://github.com/user-attachments/assets/485d81c7-53cc-4d5f-b274-cccd39c7c46a" />
 
 ---
 
@@ -44,7 +43,6 @@ Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文�
 - 浏览器缓存（Edge / Chrome，可选）
 - 前端（npm / Yarn / pnpm）、后端（Go / Maven / Gradle / Cargo / Composer）及 pip / .NET 等包缓存清理（可选）
 - Windows 更新缓存（可选）
-- 更多详细内容可在[Releases](https://github.com/Kiowx/c_cleaner_plus/releases)内查看
 
 支持：
 - 扫描并**获取可清理大小**
@@ -72,26 +70,73 @@ Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文�
 
 ---
 
-### 🔹 清理模式
+### 更多清理
+- **下拉框一键切换**多种高级清理模式
+- 集成多种专项清理功能于统一界面
+- 智能识别并隐藏无关选项
+
+---
+
+### 重复文件查找
+- 采用 **三阶段哈希算法** 精准定位重复文件
+  - 第一阶段：文件大小快速筛选
+  - 第二阶段：部分哈希比对
+  - 第三阶段：完整哈希确认
+- **智能勾选** 多余副本，保留原始文件
+- 支持多分区扫描
+- 大幅降低误删风险
+
+---
+
+### 空文件夹扫描
+- **深度遍历** 指定目录
+- 安全清理无实际内容的空目录
+- 支持自定义扫描路径
+- 扫描结果可预览确认
+
+---
+
+### 无效快捷方式清理
+- 自动解析 `.lnk` 快捷方式
+- 找出**目标文件已丢失**的失效快捷方式
+- 支持桌面、开始菜单、快速启动等位置
+- 一键清理无效链接
+
+---
+
+### 无效注册表扫描（新增）
+- 一键清理**已卸载软件**留下的注册表残留
+- 扫描常见注册表路径：
+  - `HKEY_CURRENT_USER\Software`
+  - `HKEY_LOCAL_MACHINE\SOFTWARE`
+  - 卸载信息残留
+- **自动隐藏** 无关的磁盘选择模块
+- 清理前建议创建系统还原点
+
+---
+
+### 清理模式
 - **普通模式**：删除文件进入回收站（可恢复）
-- **强力模式**：永久删除，不进入回收站  
-  - 默认开启  
+- **强力模式**：永久删除，不进入回收站
+  - 默认开启
   - 执行前确认是否清理
 
 ---
 
-### 🔹 权限与安全
+### 权限与安全
 - 启动时自动检测管理员权限
 - 非管理员状态下自动请求 UAC 提权
 - 可选：清理前创建系统还原点（需管理员）
-
----
+- 完善的删除警告文案，防止误操作
 
 ## 🖥️ 运行环境
 
-- Windows 10 / Windows 11
-- Python 3.9+（推荐 3.10 / 3.11）
-- 仅支持 Windows（使用了 Windows API）
+| 项目 | 要求 |
+|------|------|
+| 操作系统 | Windows 10 / Windows 11 |
+| Python 版本 | 3.9+（推荐 3.10 / 3.11） |
+| 平台支持 | 仅支持 Windows（使用了 Windows API） |
+| 管理员权限 | 部分功能需要管理员权限 |
 
 ---
 
@@ -101,7 +146,7 @@ Windows系统的C盘强力清理工具，可扫描并清理C盘中的垃圾文�
 
 如果你不想自己配置 Python 环境，**强烈推荐直接下载已打包好的可执行文件**：
 
-**前往 [Releases](https://github.com/Kiowx/c_cleaner_plus/releases) 页面下载最新版：**  
+**前往 [Releases](https://github.com/Kiowx/c_cleaner_plus/releases) 页面下载最新版：**
 https://github.com/Kiowx/c_cleaner_plus/releases
 
 下载后：
@@ -115,6 +160,89 @@ https://github.com/Kiowx/c_cleaner_plus/releases
 ### 方法二：从源码运行
 
 ```bash
+# 克隆项目
 git clone https://github.com/Kiowx/c_cleaner_plus.git
 cd c_cleaner_plus
+
+# 以管理员身份运行
 python main.py
+```
+
+---
+
+## 📦 依赖安装
+
+```bash
+pip install -r requirements.txt
+```
+
+主要依赖：
+- `customtkinter` - Fluent 风格 UI 框架
+- `pywin32` - Windows API 调用
+- `psutil` - 系统信息获取
+- 其他标准库模块
+
+---
+
+## 免责声明
+
+本工具仅供学习和个人使用，清理操作存在一定风险：
+
+- 建议在清理前**创建系统还原点**
+- 请勿随意删除不明确的大文件
+- 注册表清理前请**备份注册表**
+- 作者不对任何数据丢失承担责任
+- 使用本工具即表示您同意自行承担风险
+
+---
+
+## 贡献指南
+
+欢迎提交 Issue 和 Pull Request！
+
+### 提交 Bug
+1. 描述问题现象
+2. 提供复现步骤
+3. 附上截图或日志
+
+### 功能建议
+1. 说明功能用途
+2. 描述使用场景
+3. 提供参考方案
+
+### 代码贡献
+1. Fork 本项目
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
+
+---
+
+## 📸 界面预览
+
+| 功能模块 | 预览 |
+|----------|------|
+| 主界面 | 常规清理 + 大文件扫描 |
+| 更多清理 | 下拉框切换高级清理模式 |
+| 重复文件 | 三阶段哈希算法查找 |
+| 注册表清理 | 自动隐藏无关模块 |
+
+> 更多详情请查看 [Releases](https://github.com/Kiowx/c_cleaner_plus/releases) 页面
+
+
+---
+
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE) 开源，您可以自由使用、修改和分发。
+
+---
+
+<div align="center">
+
+**如果这个项目对你有帮助，请给一个 ⭐ Star 支持一下！**
+
+Made with ❤️ by [Kiowx](https://github.com/Kiowx)
+
+</div>

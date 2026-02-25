@@ -7,8 +7,8 @@
 <div align="center">
   <p>
     <strong>Language</strong> ·
-    <a href="README.md"><strong>简体中文</strong></a> |
-    <a href="README.en.md">English</a>
+    <a href="README.md">简体中文</a> |
+    <a href="README.en.md"><strong>English</strong></a>
   </p>
 
 <p align="center">

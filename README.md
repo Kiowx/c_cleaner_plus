@@ -159,21 +159,6 @@ cd c_cleaner_plus
 # 以管理员身份运行
 python main.py
 ```
-
----
-
-## 📦 依赖安装
-
-```bash
-pip install -r requirements.txt
-```
-
-主要依赖：
-- `customtkinter` - Fluent 风格 UI 框架
-- `pywin32` - Windows API 调用
-- `psutil` - 系统信息获取
-- 其他标准库模块
-
 ---
 
 ## 免责声明

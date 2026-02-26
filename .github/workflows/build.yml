@@ -6,7 +6,6 @@ on:
   push:
     tags:
       - 'v*'
-  # 2. 允许在 GitHub 网页上纯手动点击触发（新增这一行！）
   workflow_dispatch: 
     inputs:
       version_tag:

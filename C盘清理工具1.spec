@@ -12,7 +12,7 @@ my_datas = [item for item in qfw_datas if item and len(item) == 2]
 my_datas.append(('icon.ico', '.'))
 
 a = Analysis(
-    ['fl2cl1.py'],
+    ['main.py'],
     pathex=[],
     binaries=[],
     datas=my_datas,
@@ -99,3 +99,4 @@ exe = EXE(
     entitlements_file=None,
     uac_admin=True,
 )
+

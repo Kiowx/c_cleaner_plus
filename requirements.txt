@@ -1,0 +1,3 @@
+PySide6
+PySide6-Fluent-Widgets
+pyinstaller

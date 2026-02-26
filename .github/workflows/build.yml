@@ -1,0 +1,47 @@
+name: Build and Release Windows EXE
+
+# 触发条件：当你推送 v 开头的 tag 时触发
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Package Windows Executable
+    runs-on: windows-latest  # 微软提供的 Windows Server 云环境
+
+    steps:
+    - name: 1. 检出代码 (Checkout code)
+      uses: actions/checkout@v4
+
+    - name: 2. 设置 Python 环境 (Set up Python)
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' 
+
+    - name: 3. 安装依赖库 (Install dependencies)
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: 4. 安装 UPX 压缩工具 (Install UPX)
+      # 利用 Windows 云服务器自带的 choco 包管理器一键安装 UPX，并自动添加进系统环境变量 PATH
+      run: choco install upx
+
+    - name: 5. 执行 Spec 打包 (Build executable)
+      # 这里假设你的 spec 文件名为 main.spec，如果有变更请自行修改
+      # 因为第4步已经安装了系统级 UPX，PyInstaller 会自动发现并使用它进行压缩
+      run: pyinstaller main.spec --clean
+
+    - name: 6. 自动创建 GitHub Release 并上传 (Create Release)
+      uses: softprops/action-gh-release@v2
+      with:
+        # 使用通配符直接捕获 dist 目录下的 exe，这样无论你 spec 里起什么名字都能上传成功
+        files: dist/*.exe
+        generate_release_notes: true 
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

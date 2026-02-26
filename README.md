@@ -155,6 +155,7 @@ https://github.com/Kiowx/c_cleaner_plus/releases
 # 克隆项目
 git clone https://github.com/Kiowx/c_cleaner_plus.git
 cd c_cleaner_plus
+
 pip install requirements.txt
 
 # 以管理员身份运行

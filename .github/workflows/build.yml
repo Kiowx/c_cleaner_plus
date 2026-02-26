@@ -40,7 +40,7 @@ jobs:
       run: choco install upx
 
     - name: 5. 执行 Spec 打包 (Build executable)
-      run: pyinstaller main.spec --clean
+      run: pyinstaller c_cleaner_plus.spec --clean
 
     - name: 6. 自动创建 GitHub Release 并上传 (Create Release)
       uses: softprops/action-gh-release@v2

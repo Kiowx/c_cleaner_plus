@@ -1,0 +1,101 @@
+# -*- mode: python ; coding: utf-8 -*-
+# C盘清理工具.spec
+import os, sys, re
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
+# 收集 qfluentwidgets 的所有子模块和资源
+qfw_datas = collect_data_files('qfluentwidgets', include_py_files=False)
+qfw_hidden = collect_submodules('qfluentwidgets')
+
+# 过滤掉空元素，再加上自己的资源
+my_datas = [item for item in qfw_datas if item and len(item) == 2]
+my_datas.append(('icon.ico', '.'))
+
+a = Analysis(
+    ['fl2cl1.py'],
+    pathex=[],
+    binaries=[],
+    datas=my_datas,
+    hiddenimports=qfw_hidden,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    noarchive=False,
+    optimize=2,
+    excludes=[
+        'PySide6.QtWebEngine', 'PySide6.QtWebEngineCore',
+        'PySide6.QtWebEngineWidgets', 'PySide6.QtWebChannel',
+        'PySide6.QtWebSockets',
+        'PySide6.Qt3DCore', 'PySide6.Qt3DRender', 'PySide6.Qt3DInput',
+        'PySide6.Qt3DLogic', 'PySide6.Qt3DAnimation', 'PySide6.Qt3DExtras',
+        'PySide6.QtQuick', 'PySide6.QtQuick3D', 'PySide6.QtQuickWidgets',
+        'PySide6.QtQml', 'PySide6.QtMultimedia', 'PySide6.QtMultimediaWidgets',
+        'PySide6.QtBluetooth', 'PySide6.QtNfc', 'PySide6.QtPositioning',
+        'PySide6.QtLocation', 'PySide6.QtSensors', 'PySide6.QtSerialPort',
+        'PySide6.QtRemoteObjects', 'PySide6.QtSql', 'PySide6.QtTest',
+        'PySide6.QtPdf', 'PySide6.QtPdfWidgets', 'PySide6.QtCharts',
+        'PySide6.QtDataVisualization', 'PySide6.QtOpenGL',
+        'PySide6.QtOpenGLWidgets',
+        'PySide6.QtHelp', 'PySide6.QtDesigner',
+        'PySide6.QtConcurrent', 'PySide6.QtNetworkAuth', 'PySide6.QtDBus',
+        'PySide6.QtHttpServer', 'PySide6.QtSpatialAudio',
+    ],
+)
+
+pyz = PYZ(a.pure)
+
+# ══════ 过滤不需要的大体积 DLL 和资源 ══════
+exclude_keywords = [
+    'opengl32sw', 'd3dcompiler',
+    'Qt6Quick', 'Qt6Qml', 'Qt6Multimedia',
+    'Qt6WebEngine', 'Qt63D', 'Qt6Pdf',
+    'Qt6Charts', 'Qt6DataVis', 'Qt6Bluetooth',
+    'Qt6Sensors', 'Qt6Serial', 'Qt6Remote',
+    'Qt6Help', 'Qt6Designer', 'Qt6Test',
+    'Qt6Spatial', 'Qt6HttpServer',
+    'Qt6OpenGL', 'QtOpenGL',
+]
+
+def should_keep(name, src):
+    """检查目标名和源路径，任一匹配则排除"""
+    combined = (name + '|' + str(src)).lower()
+    for kw in exclude_keywords:
+        if kw.lower() in combined:
+            return False
+    return True
+
+before_b = len(a.binaries)
+before_d = len(a.datas)
+
+a.binaries = [b for b in a.binaries if should_keep(b[0], b[1])]
+a.datas = [d for d in a.datas
+           if should_keep(d[0], d[1])
+           and not d[0].lower().startswith(('qml/', 'qml\\'))
+           and not d[0].lower().startswith(('translations/', 'translations\\'))
+           and not d[0].lower().startswith(('pyside6/translations', 'pyside6\\translations'))]
+
+print(f"[过滤] binaries: {before_b} -> {len(a.binaries)}")
+print(f"[过滤] datas: {before_d} -> {len(a.datas)}")
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name='C盘强力清理工具',
+    icon='app.ico',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=True,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    uac_admin=True,
+)

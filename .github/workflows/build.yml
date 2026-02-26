@@ -2,10 +2,11 @@ name: Build and Release Windows EXE
 
 # 触发条件：
 on:
-  # 1. 当你推送 v 开头的 tag 时自动触发
+  # 1. 当你推送 v 开头的 tag 时自动触发 (例如 v0.2.3)
   push:
     tags:
       - 'v*'
+  # 2. 允许在 GitHub 网页上纯手动点击触发
   workflow_dispatch: 
     inputs:
       version_tag:
@@ -13,13 +14,14 @@ on:
         required: true
         default: 'v0.2.4'
 
+# 赋予 GitHub Action 创建 Release 和上传文件的权限
 permissions:
   contents: write
 
 jobs:
   build:
     name: Package Windows Executable
-    runs-on: windows-latest 
+    runs-on: windows-latest  # 使用微软提供的 Windows Server 云环境
 
     steps:
     - name: 1. 检出代码 (Checkout code)
@@ -36,16 +38,22 @@ jobs:
         pip install -r requirements.txt
 
     - name: 4. 安装 UPX 压缩工具 (Install UPX)
+      # 利用 Windows 云服务器自带的 choco 包管理器一键安装 UPX
       run: choco install upx
 
     - name: 5. 执行 Spec 打包 (Build executable)
+      # 根据你的报错日志，使用 c_cleaner_plus.spec 进行打包
       run: pyinstaller c_cleaner_plus.spec --clean
+      env:
+        # 【核心修复】强制 Python 终端使用 UTF-8 编码，完美解决 spec 文件中 print 中文导致的 cp1252 编码报错
+        PYTHONIOENCODING: utf8  
 
     - name: 6. 自动创建 GitHub Release 并上传 (Create Release)
       uses: softprops/action-gh-release@v2
       with:
+        # 使用通配符直接捕获 dist 目录下的所有 exe 文件
         files: dist/*.exe
-        # 如果是手动点击触发的，就用你输入的版本号作为 Release 名称；如果是 push tag 触发的，就自动用 tag 名称
+        # 智能命名：如果是手动触发就用输入框的版本号，如果是 push tag 触发就用 tag 名称
         tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
         generate_release_notes: true 
       env:

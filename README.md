@@ -156,7 +156,7 @@ https://github.com/Kiowx/c_cleaner_plus/releases
 git clone https://github.com/Kiowx/c_cleaner_plus.git
 cd c_cleaner_plus
 
-pip install requirements.txt
+pip install -r requirements.txt
 
 # 以管理员身份运行
 python main.py

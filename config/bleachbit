@@ -1,0 +1,3274 @@
+[
+  [
+    "BleachBit | aMule - Logs | 骡子 - 日志",
+    "%AppData%\\aMule\\logfile",
+    "file",
+    false,
+    "BleachBit amule.xml option=logs command=delete search=file path=$$profile$$\\logfile",
+    true
+  ],
+  [
+    "BleachBit | aMule - Temporary files | 骡子 - 临时文件",
+    "%AppData%\\aMule\\Temp",
+    "dir",
+    false,
+    "BleachBit amule.xml option=temp command=delete search=walk.files path=$$profile$$\\Temp\\",
+    true
+  ],
+  [
+    "BleachBit | aMule - Known files history | 骡子 - 已知文件历史记录",
+    "%AppData%\\aMule\\known.met",
+    "file",
+    false,
+    "BleachBit amule.xml option=known_files command=delete search=file path=$$profile$$\\known.met",
+    true
+  ],
+  [
+    "BleachBit | aMule - Known files history | 骡子 - 已知文件历史记录 #2",
+    "%AppData%\\aMule\\known2_64.met",
+    "file",
+    false,
+    "BleachBit amule.xml option=known_files command=delete search=file path=$$profile$$\\known2_64.met",
+    true
+  ],
+  [
+    "BleachBit | aMule - Known files history | 骡子 - 已知文件历史记录 #3",
+    "%AppData%\\aMule\\canceled.met",
+    "file",
+    false,
+    "BleachBit amule.xml option=known_files command=delete search=file path=$$profile$$\\canceled.met",
+    true
+  ],
+  [
+    "BleachBit | aMule - Known clients and friends | 骡子 - 已知的客户和朋友",
+    "%AppData%\\aMule\\emfriends.met",
+    "file",
+    false,
+    "BleachBit amule.xml option=known_clients command=delete search=file path=$$profile$$\\emfriends.met",
+    true
+  ],
+  [
+    "BleachBit | aMule - Known clients and friends | 骡子 - 已知的客户和朋友 #2",
+    "%AppData%\\aMule\\clients.met",
+    "file",
+    false,
+    "BleachBit amule.xml option=known_clients command=delete search=file path=$$profile$$\\clients.met",
+    true
+  ],
+  [
+    "BleachBit | aMule - Backup files | 骡子 - 备份文件",
+    "%AppData%\\aMule\\logfile.bak",
+    "file",
+    false,
+    "BleachBit amule.xml option=backup command=delete search=file path=$$profile$$\\logfile.bak",
+    true
+  ],
+  [
+    "BleachBit | aMule - Backup files | 骡子 - 备份文件 #2",
+    "%AppData%\\aMule\\clients.met.bak",
+    "file",
+    false,
+    "BleachBit amule.xml option=backup command=delete search=file path=$$profile$$\\clients.met.bak",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cache | 勇敢的 - 缓存",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Safe Browsing Channel IDs-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=cache command=delete search=file path=$$base$$/Safe Browsing Channel IDs-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cache | 勇敢的 - 缓存 #2",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit brave.xml option=cache command=delete search=file path=$$profile$$/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cache | 勇敢的 - 缓存 #3",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\ShaderCache",
+    "dir",
+    false,
+    "BleachBit brave.xml option=cache command=delete search=walk.all path=$$base$$/ShaderCache",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cache | 勇敢的 - 缓存 #4",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\File System",
+    "dir",
+    false,
+    "BleachBit brave.xml option=cache command=delete search=walk.all path=$$profile$$/File System",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cache | 勇敢的 - 缓存 #5",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Pepper Data\\Shockwave Flash\\CacheWritableAdobeRoot",
+    "dir",
+    false,
+    "BleachBit brave.xml option=cache command=delete search=walk.all path=$$profile$$/Pepper Data/Shockwave Flash/CacheWritableAdobeRoot/",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cache | 勇敢的 - 缓存 #6",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Service Worker",
+    "dir",
+    false,
+    "BleachBit brave.xml option=cache command=delete search=walk.all path=$$profile$$/Service Worker",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cache | 勇敢的 - 缓存 #7",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "BleachBit brave.xml option=cache command=delete search=walk.files path=$$profile$$/GPUCache/",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cache | 勇敢的 - 缓存 #8",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Default\\Application Cache",
+    "dir",
+    false,
+    "BleachBit brave.xml option=cache command=delete search=walk.all path=$$profile$$\\Default\\Application Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cache | 勇敢的 - 缓存 #9",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Cache",
+    "dir",
+    false,
+    "BleachBit brave.xml option=cache command=delete search=walk.files path=$$profile$$\\Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cache | 勇敢的 - 缓存 #10",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Media Cache",
+    "dir",
+    false,
+    "BleachBit brave.xml option=cache command=delete search=walk.files path=$$profile$$\\Media Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cookies | 勇敢的 - 曲奇饼",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=cookies command=delete search=file path=$$profile$$/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cookies | 勇敢的 - 曲奇饼 #2",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Network\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=cookies command=delete search=file path=$$profile$$/Network/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cookies | 勇敢的 - 曲奇饼 #3",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extension Cookies-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=cookies command=delete search=file path=$$profile$$/Extension Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cookies | 勇敢的 - 曲奇饼 #4",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\IndexedDB",
+    "dir",
+    false,
+    "BleachBit brave.xml option=cookies command=delete search=walk.all path=$$profile$$/IndexedDB/",
+    true
+  ],
+  [
+    "BleachBit | Brave - Cookies | 勇敢的 - 曲奇饼 #5",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Pepper Data\\Shockwave Flash\\WritableRoot",
+    "dir",
+    false,
+    "BleachBit brave.xml option=cookies command=delete search=walk.all path=$$profile$$/Pepper Data/Shockwave Flash/WritableRoot/",
+    true
+  ],
+  [
+    "BleachBit | Brave - DOM Storage | 勇敢的 - DOM存储",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Local Storage\\leveldb",
+    "dir",
+    false,
+    "BleachBit brave.xml option=dom command=delete search=walk.all path=$$profile$$/Local Storage/leveldb",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\chrome_shutdown_ms.txt",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$base$$/chrome_shutdown_ms.txt",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #2",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Safe Browsing Cookies-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$base$$/Safe Browsing Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #3",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Archived History",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Archived History",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #4",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Archived History-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Archived History-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #5",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\DownloadMetadata",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/DownloadMetadata",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #6",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\History-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/History-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #7",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\History Provider Cache",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/History Provider Cache",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #8",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Network Action Predictor",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Network Action Predictor",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #9",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Network Action Predictor-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Network Action Predictor-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #10",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Origin Bound Certs-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Origin Bound Certs-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #11",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Shortcuts",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Shortcuts",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #12",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Shortcuts-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Shortcuts-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #13",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Thumbnails",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Thumbnails",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #14",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Thumbnails",
+    "dir",
+    false,
+    "BleachBit brave.xml option=history command=delete search=walk.files path=$$profile$$/Thumbnails",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #15",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Thumbnails-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Thumbnails-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #16",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Top Sites",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Top Sites",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #17",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Top Sites-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Top Sites-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #18",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Visited Links",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/Visited Links",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #19",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\QuotaManager",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/QuotaManager",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #20",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\QuotaManager-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=history command=delete search=file path=$$profile$$/QuotaManager-journal",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #21",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Session Storage",
+    "dir",
+    false,
+    "BleachBit brave.xml option=history command=delete search=walk.files path=$$profile$$/Session Storage/",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #22",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\JumpListIconsMostVisited",
+    "dir",
+    false,
+    "BleachBit brave.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsMostVisited\\",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #23",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\JumpListIconsOld",
+    "dir",
+    false,
+    "BleachBit brave.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsOld\\",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #24",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\JumpListIconsRecentClosed",
+    "dir",
+    false,
+    "BleachBit brave.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsRecentClosed\\",
+    true
+  ],
+  [
+    "BleachBit | Brave - History | 勇敢的 - 历史 #25",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\JumpListIcons",
+    "dir",
+    false,
+    "BleachBit brave.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIcons\\",
+    true
+  ],
+  [
+    "BleachBit | Brave - Session | 勇敢的 - 会议",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Current Session",
+    "file",
+    false,
+    "BleachBit brave.xml option=session command=delete search=file path=$$profile$$/Current Session",
+    true
+  ],
+  [
+    "BleachBit | Brave - Session | 勇敢的 - 会议 #2",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Current Tabs",
+    "file",
+    false,
+    "BleachBit brave.xml option=session command=delete search=file path=$$profile$$/Current Tabs",
+    true
+  ],
+  [
+    "BleachBit | Brave - Session | 勇敢的 - 会议 #3",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Last Session",
+    "file",
+    false,
+    "BleachBit brave.xml option=session command=delete search=file path=$$profile$$/Last Session",
+    true
+  ],
+  [
+    "BleachBit | Brave - Session | 勇敢的 - 会议 #4",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Last Tabs",
+    "file",
+    false,
+    "BleachBit brave.xml option=session command=delete search=file path=$$profile$$/Last Tabs",
+    true
+  ],
+  [
+    "BleachBit | Brave - Session | 勇敢的 - 会议 #5",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Extension State",
+    "dir",
+    false,
+    "BleachBit brave.xml option=session command=delete search=walk.all path=$$profile$$/Extension State",
+    true
+  ],
+  [
+    "BleachBit | Brave - Session | 勇敢的 - 会议 #6",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Sessions",
+    "dir",
+    false,
+    "BleachBit brave.xml option=session command=delete search=walk.all path=$$profile$$/Sessions",
+    true
+  ],
+  [
+    "BleachBit | Brave - Sync | 勇敢的 - 同步",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Sync Data",
+    "dir",
+    false,
+    "BleachBit brave.xml option=sync command=delete search=walk.files path=$$profile$$/Sync Data/",
+    true
+  ],
+  [
+    "BleachBit | Brave - Sync | 勇敢的 - 同步 #2",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Sync Data Backup",
+    "dir",
+    false,
+    "BleachBit brave.xml option=sync command=delete search=walk.files path=$$profile$$/Sync Data Backup/",
+    true
+  ],
+  [
+    "BleachBit | Brave - Passwords | 勇敢的 - 密码",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Login Data",
+    "file",
+    false,
+    "BleachBit brave.xml option=passwords command=delete search=file path=$$profile$$/Login Data",
+    true
+  ],
+  [
+    "BleachBit | Brave - Passwords | 勇敢的 - 密码 #2",
+    "%LocalAppData%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Login Data-journal",
+    "file",
+    false,
+    "BleachBit brave.xml option=passwords command=delete search=file path=$$profile$$/Login Data-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存",
+    "%LocalAppData%\\Chromium\\User Data\\Safe Browsing Channel IDs-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=file path=$$base$$/Safe Browsing Channel IDs-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #2",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=file path=$$profile$$/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #3",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Network\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=file path=$$profile$$/Network/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #4",
+    "%LocalAppData%\\Chromium\\User Data\\ShaderCache",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.all path=$$base$$/ShaderCache",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #5",
+    "%LocalAppData%\\Chromium\\User Data\\GrShaderCache",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.all path=$$base$$/GrShaderCache",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #6",
+    "%LocalAppData%\\Chromium\\User Data\\GraphiteDawnCache",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.all path=$$base$$/GraphiteDawnCache",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #7",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\File System",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.all path=$$profile$$/File System",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #8",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Service Worker",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.all path=$$profile$$/Service Worker",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #9",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.files path=$$profile$$/GPUCache/",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #10",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\DawnCache",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.files path=$$profile$$/DawnCache/",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #11",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Cache",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.files path=$$profile$$/Cache",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #12",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Default\\Application Cache",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.all path=$$profile$$\\Default\\Application Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #13",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Code Cache",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.files path=$$profile$$\\Code Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cache | 铬 - 缓存 #14",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Media Cache",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=cache command=delete search=walk.files path=$$profile$$\\Media Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cookies | 铬 - 曲奇饼",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=cookies command=delete search=file path=$$profile$$/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cookies | 铬 - 曲奇饼 #2",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Network\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=cookies command=delete search=file path=$$profile$$/Network/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Cookies | 铬 - 曲奇饼 #3",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Extension Cookies-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=cookies command=delete search=file path=$$profile$$/Extension Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - DOM Storage | 铬 - DOM存储",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Local Storage\\leveldb",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=dom command=delete search=walk.all path=$$profile$$/Local Storage/leveldb",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Form history | 铬 - 表单历史记录",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Web Data-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=form_history command=delete search=file path=$$profile$$/Web Data-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史",
+    "%LocalAppData%\\Chromium\\User Data\\chrome_shutdown_ms.txt",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$base$$/chrome_shutdown_ms.txt",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #2",
+    "%LocalAppData%\\Chromium\\User Data\\Safe Browsing Cookies-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$base$$/Safe Browsing Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #3",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Archived History",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Archived History",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #4",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Archived History-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Archived History-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #5",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\DownloadMetadata",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/DownloadMetadata",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #6",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\History-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/History-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #7",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\History Provider Cache",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/History Provider Cache",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #8",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Network Action Predictor",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Network Action Predictor",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #9",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Network Action Predictor-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Network Action Predictor-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #10",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Origin Bound Certs-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Origin Bound Certs-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #11",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Shortcuts",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Shortcuts",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #12",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Shortcuts-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Shortcuts-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #13",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Thumbnails",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Thumbnails",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #14",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Thumbnails",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=walk.files path=$$profile$$/Thumbnails",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #15",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Thumbnails-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Thumbnails-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #16",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Top Sites",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Top Sites",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #17",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Top Sites-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Top Sites-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #18",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Visited Links",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/Visited Links",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #19",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\QuotaManager",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/QuotaManager",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #20",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\QuotaManager-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/QuotaManager-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #21",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\WebStorage\\QuotaManager",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/WebStorage/QuotaManager",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #22",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\WebStorage\\QuotaManager-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=file path=$$profile$$/WebStorage/QuotaManager-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #23",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Session Storage",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=walk.files path=$$profile$$/Session Storage/",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #24",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\JumpListIconsMostVisited",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsMostVisited\\",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #25",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\JumpListIconsOld",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsOld\\",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #26",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\JumpListIconsRecentClosed",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsRecentClosed\\",
+    true
+  ],
+  [
+    "BleachBit | Chromium - History | 铬 - 历史 #27",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\JumpListIcons",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIcons\\",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Session | 铬 - 会议",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Current Session",
+    "file",
+    false,
+    "BleachBit chromium.xml option=session command=delete search=file path=$$profile$$/Current Session",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Session | 铬 - 会议 #2",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Current Tabs",
+    "file",
+    false,
+    "BleachBit chromium.xml option=session command=delete search=file path=$$profile$$/Current Tabs",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Session | 铬 - 会议 #3",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Last Session",
+    "file",
+    false,
+    "BleachBit chromium.xml option=session command=delete search=file path=$$profile$$/Last Session",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Session | 铬 - 会议 #4",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Last Tabs",
+    "file",
+    false,
+    "BleachBit chromium.xml option=session command=delete search=file path=$$profile$$/Last Tabs",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Session | 铬 - 会议 #5",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Extension State",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=session command=delete search=walk.all path=$$profile$$/Extension State",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Sync | 铬 - 同步",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Sync Data",
+    "dir",
+    false,
+    "BleachBit chromium.xml option=sync command=delete search=walk.files path=$$profile$$/Sync Data/",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Passwords | 铬 - 密码",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Login Data",
+    "file",
+    false,
+    "BleachBit chromium.xml option=passwords command=delete search=file path=$$profile$$/Login Data",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Passwords | 铬 - 密码 #2",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Login Data-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=passwords command=delete search=file path=$$profile$$/Login Data-journal",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Passwords | 铬 - 密码 #3",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Login Data For Account",
+    "file",
+    false,
+    "BleachBit chromium.xml option=passwords command=delete search=file path=$$profile$$/Login Data For Account",
+    true
+  ],
+  [
+    "BleachBit | Chromium - Passwords | 铬 - 密码 #4",
+    "%LocalAppData%\\Chromium\\User Data\\Default\\Login Data For Account-journal",
+    "file",
+    false,
+    "BleachBit chromium.xml option=passwords command=delete search=file path=$$profile$$/Login Data For Account-journal",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存",
+    "%UserProfile%\\AppData\\Roaming\\discord\\Cache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/Cache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #2",
+    "%UserProfile%\\AppData\\Roaming\\discordptb\\Cache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/Cache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #3",
+    "%UserProfile%\\AppData\\Roaming\\discordcanary\\Cache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/Cache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #4",
+    "%UserProfile%\\AppData\\Roaming\\discorddevelopment\\Cache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/Cache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #5",
+    "%UserProfile%\\AppData\\Roaming\\discord\\Code Cache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/Code Cache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #6",
+    "%UserProfile%\\AppData\\Roaming\\discordptb\\Code Cache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/Code Cache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #7",
+    "%UserProfile%\\AppData\\Roaming\\discordcanary\\Code Cache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/Code Cache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #8",
+    "%UserProfile%\\AppData\\Roaming\\discorddevelopment\\Code Cache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/Code Cache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #9",
+    "%UserProfile%\\AppData\\Roaming\\discord\\GPUCache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/GPUCache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #10",
+    "%UserProfile%\\AppData\\Roaming\\discordptb\\GPUCache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/GPUCache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #11",
+    "%UserProfile%\\AppData\\Roaming\\discordcanary\\GPUCache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/GPUCache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #12",
+    "%UserProfile%\\AppData\\Roaming\\discorddevelopment\\GPUCache",
+    "dir",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=walk.all path=$$base$$/GPUCache",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #13",
+    "%UserProfile%\\AppData\\Roaming\\discord\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=file path=$$base$$/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #14",
+    "%UserProfile%\\AppData\\Roaming\\discordptb\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=file path=$$base$$/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #15",
+    "%UserProfile%\\AppData\\Roaming\\discordcanary\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=file path=$$base$$/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cache | 不和谐 - 缓存 #16",
+    "%UserProfile%\\AppData\\Roaming\\discorddevelopment\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit discord.xml option=cache command=delete search=file path=$$base$$/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼",
+    "%UserProfile%\\AppData\\Roaming\\discord\\Cookies",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Cookies",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #2",
+    "%UserProfile%\\AppData\\Roaming\\discordptb\\Cookies",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Cookies",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #3",
+    "%UserProfile%\\AppData\\Roaming\\discordcanary\\Cookies",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Cookies",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #4",
+    "%UserProfile%\\AppData\\Roaming\\discorddevelopment\\Cookies",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Cookies",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #5",
+    "%UserProfile%\\AppData\\Roaming\\discord\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #6",
+    "%UserProfile%\\AppData\\Roaming\\discordptb\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #7",
+    "%UserProfile%\\AppData\\Roaming\\discordcanary\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #8",
+    "%UserProfile%\\AppData\\Roaming\\discorddevelopment\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #9",
+    "%UserProfile%\\AppData\\Roaming\\discord\\Preferences",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Preferences",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #10",
+    "%UserProfile%\\AppData\\Roaming\\discordptb\\Preferences",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Preferences",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #11",
+    "%UserProfile%\\AppData\\Roaming\\discordcanary\\Preferences",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Preferences",
+    true
+  ],
+  [
+    "BleachBit | Discord - Cookies | 不和谐 - 曲奇饼 #12",
+    "%UserProfile%\\AppData\\Roaming\\discorddevelopment\\Preferences",
+    "file",
+    false,
+    "BleachBit discord.xml option=cookies command=delete search=file path=$$base$$/Preferences",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史",
+    "%UserProfile%\\AppData\\Roaming\\discord\\TransportSecurity",
+    "file",
+    false,
+    "BleachBit discord.xml option=history command=delete search=file path=$$base$$/TransportSecurity",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #2",
+    "%UserProfile%\\AppData\\Roaming\\discordptb\\TransportSecurity",
+    "file",
+    false,
+    "BleachBit discord.xml option=history command=delete search=file path=$$base$$/TransportSecurity",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #3",
+    "%UserProfile%\\AppData\\Roaming\\discordcanary\\TransportSecurity",
+    "file",
+    false,
+    "BleachBit discord.xml option=history command=delete search=file path=$$base$$/TransportSecurity",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #4",
+    "%UserProfile%\\AppData\\Roaming\\discorddevelopment\\TransportSecurity",
+    "file",
+    false,
+    "BleachBit discord.xml option=history command=delete search=file path=$$base$$/TransportSecurity",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #5",
+    "%UserProfile%\\AppData\\Roaming\\discord\\Session Storage",
+    "dir",
+    false,
+    "BleachBit discord.xml option=history command=delete search=walk.all path=$$base$$/Session Storage",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #6",
+    "%UserProfile%\\AppData\\Roaming\\discordptb\\Session Storage",
+    "dir",
+    false,
+    "BleachBit discord.xml option=history command=delete search=walk.all path=$$base$$/Session Storage",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #7",
+    "%UserProfile%\\AppData\\Roaming\\discordcanary\\Session Storage",
+    "dir",
+    false,
+    "BleachBit discord.xml option=history command=delete search=walk.all path=$$base$$/Session Storage",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #8",
+    "%UserProfile%\\AppData\\Roaming\\discorddevelopment\\Session Storage",
+    "dir",
+    false,
+    "BleachBit discord.xml option=history command=delete search=walk.all path=$$base$$/Session Storage",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #9",
+    "%UserProfile%\\AppData\\Roaming\\discord\\VideoDecodeStats",
+    "dir",
+    false,
+    "BleachBit discord.xml option=history command=delete search=walk.all path=$$base$$/VideoDecodeStats",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #10",
+    "%UserProfile%\\AppData\\Roaming\\discordptb\\VideoDecodeStats",
+    "dir",
+    false,
+    "BleachBit discord.xml option=history command=delete search=walk.all path=$$base$$/VideoDecodeStats",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #11",
+    "%UserProfile%\\AppData\\Roaming\\discordcanary\\VideoDecodeStats",
+    "dir",
+    false,
+    "BleachBit discord.xml option=history command=delete search=walk.all path=$$base$$/VideoDecodeStats",
+    true
+  ],
+  [
+    "BleachBit | Discord - History | 不和谐 - 历史 #12",
+    "%UserProfile%\\AppData\\Roaming\\discorddevelopment\\VideoDecodeStats",
+    "dir",
+    false,
+    "BleachBit discord.xml option=history command=delete search=walk.all path=$$base$$/VideoDecodeStats",
+    true
+  ],
+  [
+    "BleachBit | FileZilla - Most recently used | 文件齐拉 - 最近使用过",
+    "%AppData%\\FileZilla\\recentservers.xml",
+    "file",
+    false,
+    "BleachBit filezilla.xml option=mru command=delete search=file path=$$profile$$/recentservers.xml",
+    true
+  ],
+  [
+    "BleachBit | Firefox - Crash reports | 火狐浏览器 - 崩溃报告",
+    "%AppData%\\Mozilla\\Firefox\\Crash Reports",
+    "dir",
+    false,
+    "BleachBit firefox.xml option=crash_reports command=delete search=walk.all path=$$base$$/Crash Reports/",
+    true
+  ],
+  [
+    "BleachBit | Flash Player - Cache | 闪存播放器 - 缓存",
+    "%AppData%\\Adobe\\Flash Player\\AssetCache",
+    "dir",
+    false,
+    "BleachBit flash.xml option=cache command=delete search=walk.all path=$$adobe$$/AssetCache/",
+    true
+  ],
+  [
+    "BleachBit | Flash Player - Cache | 闪存播放器 - 缓存 #2",
+    "%AppData%\\Adobe\\Flash Player\\APSPrivateData2",
+    "dir",
+    false,
+    "BleachBit flash.xml option=cache command=delete search=walk.all path=$$adobe$$/APSPrivateData2/",
+    true
+  ],
+  [
+    "BleachBit | Flash Player - Cache | 闪存播放器 - 缓存 #3",
+    "%AppData%\\Adobe\\Flash Player\\NativeCache",
+    "dir",
+    false,
+    "BleachBit flash.xml option=cache command=delete search=walk.all path=$$adobe$$/NativeCache/",
+    true
+  ],
+  [
+    "BleachBit | Flash Player - Cache | 闪存播放器 - 缓存 #4",
+    "%AppData%\\Adobe\\Flash Player\\AFCache",
+    "dir",
+    false,
+    "BleachBit flash.xml option=cache command=delete search=walk.all path=$$adobe$$\\AFCache\\",
+    true
+  ],
+  [
+    "BleachBit | Flash Player - Cache | 闪存播放器 - 缓存 #5",
+    "%AppData%\\Adobe\\Flash Player\\Icon Cache",
+    "dir",
+    false,
+    "BleachBit flash.xml option=cache command=delete search=walk.all path=$$adobe$$\\Icon Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Flash Player - Cookies | 闪存播放器 - 曲奇饼",
+    "%AppData%\\Macromedia\\Flash Player\\#SharedObjects",
+    "dir",
+    false,
+    "BleachBit flash.xml option=cookies command=delete search=walk.all path=$$macromedia$$/#SharedObjects/",
+    true
+  ],
+  [
+    "BleachBit | Flash Player - Cookies | 闪存播放器 - 曲奇饼 #2",
+    "%AppData%\\Macromedia\\Flash Player\\macromedia.com\\support\\flashplayer\\sys",
+    "dir",
+    false,
+    "BleachBit flash.xml option=cookies command=delete search=walk.all path=$$macromedia$$/macromedia.com/support/flashplayer/sys/",
+    true
+  ],
+  [
+    "BleachBit | GIMP - Temporary files | GIMP - 临时文件",
+    "%USERPROFILE%\\.gimp-2.4\\tmp",
+    "dir",
+    false,
+    "BleachBit gimp.xml option=tmp command=delete search=walk.files path=$$base$$/tmp/",
+    true
+  ],
+  [
+    "BleachBit | GIMP - Temporary files | GIMP - 临时文件 #2",
+    "%USERPROFILE%\\.gimp-2.6\\tmp",
+    "dir",
+    false,
+    "BleachBit gimp.xml option=tmp command=delete search=walk.files path=$$base$$/tmp/",
+    true
+  ],
+  [
+    "BleachBit | GIMP - Temporary files | GIMP - 临时文件 #3",
+    "%USERPROFILE%\\.gimp-2.8\\tmp",
+    "dir",
+    false,
+    "BleachBit gimp.xml option=tmp command=delete search=walk.files path=$$base$$/tmp/",
+    true
+  ],
+  [
+    "BleachBit | GIMP - Temporary files | GIMP - 临时文件 #4",
+    "%AppData%\\GIMP\\2.10\\tmp",
+    "dir",
+    false,
+    "BleachBit gimp.xml option=tmp command=delete search=walk.files path=$$base$$/tmp/",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Safe Browsing Channel IDs-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=file path=$$base$$/Safe Browsing Channel IDs-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #2",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=file path=$$profile$$/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #3",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Network\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=file path=$$profile$$/Network/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #4",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\ShaderCache",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=walk.all path=$$base$$/ShaderCache",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #5",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\File System",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=walk.all path=$$profile$$/File System",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #6",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Pepper Data\\Shockwave Flash\\CacheWritableAdobeRoot",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=walk.all path=$$profile$$/Pepper Data/Shockwave Flash/CacheWritableAdobeRoot/",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #7",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Service Worker",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=walk.all path=$$profile$$/Service Worker",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #8",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=walk.files path=$$profile$$/GPUCache/",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #9",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Default\\Application Cache",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=walk.all path=$$profile$$\\Default\\Application Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #10",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Cache",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=walk.files path=$$profile$$\\Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #11",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Code Cache",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=walk.files path=$$profile$$\\Code Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cache | 谷歌浏览器 - 缓存 #12",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Media Cache",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cache command=delete search=walk.files path=$$profile$$\\Media Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cookies | 谷歌浏览器 - 曲奇饼",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=cookies command=delete search=file path=$$profile$$/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cookies | 谷歌浏览器 - 曲奇饼 #2",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Extension Cookies-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=cookies command=delete search=file path=$$profile$$/Extension Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cookies | 谷歌浏览器 - 曲奇饼 #3",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Network\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=cookies command=delete search=file path=$$profile$$/Network/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cookies | 谷歌浏览器 - 曲奇饼 #4",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\IndexedDB",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cookies command=delete search=walk.all path=$$profile$$/IndexedDB/",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Cookies | 谷歌浏览器 - 曲奇饼 #5",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Pepper Data\\Shockwave Flash\\WritableRoot",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=cookies command=delete search=walk.all path=$$profile$$/Pepper Data/Shockwave Flash/WritableRoot/",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - DOM Storage | 谷歌浏览器 - DOM存储",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Local Storage\\leveldb",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=dom command=delete search=walk.all path=$$profile$$/Local Storage/leveldb",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\chrome_shutdown_ms.txt",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$base$$/chrome_shutdown_ms.txt",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #2",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Safe Browsing Cookies-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$base$$/Safe Browsing Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #3",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Archived History",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Archived History",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #4",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Archived History-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Archived History-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #5",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\DownloadMetadata",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/DownloadMetadata",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #6",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\History-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/History-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #7",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\History Provider Cache",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/History Provider Cache",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #8",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Network Action Predictor",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Network Action Predictor",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #9",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Network Action Predictor-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Network Action Predictor-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #10",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Origin Bound Certs-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Origin Bound Certs-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #11",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Shortcuts",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Shortcuts",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #12",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Shortcuts-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Shortcuts-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #13",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Thumbnails",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Thumbnails",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #14",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Thumbnails",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=walk.files path=$$profile$$/Thumbnails",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #15",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Thumbnails-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Thumbnails-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #16",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Top Sites",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Top Sites",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #17",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Top Sites-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Top Sites-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #18",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Visited Links",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/Visited Links",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #19",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\QuotaManager",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/QuotaManager",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #20",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\QuotaManager-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=file path=$$profile$$/QuotaManager-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #21",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Session Storage",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=walk.files path=$$profile$$/Session Storage/",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #22",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\JumpListIconsMostVisited",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsMostVisited\\",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #23",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\JumpListIconsOld",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsOld\\",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #24",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\JumpListIconsRecentClosed",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsRecentClosed\\",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - History | 谷歌浏览器 - 历史 #25",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\JumpListIcons",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIcons\\",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Session | 谷歌浏览器 - 会议",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Current Session",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=session command=delete search=file path=$$profile$$/Current Session",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Session | 谷歌浏览器 - 会议 #2",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Current Tabs",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=session command=delete search=file path=$$profile$$/Current Tabs",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Session | 谷歌浏览器 - 会议 #3",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Last Session",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=session command=delete search=file path=$$profile$$/Last Session",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Session | 谷歌浏览器 - 会议 #4",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Last Tabs",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=session command=delete search=file path=$$profile$$/Last Tabs",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Session | 谷歌浏览器 - 会议 #5",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Extension State",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=session command=delete search=walk.all path=$$profile$$/Extension State",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Session | 谷歌浏览器 - 会议 #6",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Sessions",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=session command=delete search=walk.all path=$$profile$$/Sessions",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Sync | 谷歌浏览器 - 同步",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Sync Data",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=sync command=delete search=walk.files path=$$profile$$/Sync Data/",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Sync | 谷歌浏览器 - 同步 #2",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Sync Data Backup",
+    "dir",
+    false,
+    "BleachBit google_chrome.xml option=sync command=delete search=walk.files path=$$profile$$/Sync Data Backup/",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Passwords | 谷歌浏览器 - 密码",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Login Data",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=passwords command=delete search=file path=$$profile$$/Login Data",
+    true
+  ],
+  [
+    "BleachBit | Google Chrome - Passwords | 谷歌浏览器 - 密码 #2",
+    "%LocalAppData%\\Google\\Chrome\\User Data\\Default\\Login Data-journal",
+    "file",
+    false,
+    "BleachBit google_chrome.xml option=passwords command=delete search=file path=$$profile$$/Login Data-journal",
+    true
+  ],
+  [
+    "BleachBit | Google Earth - Temporary files | 谷歌地球 - 临时文件",
+    "%UserProfile%\\Application Data\\Google\\GoogleEarth\\dbCache.dat",
+    "file",
+    false,
+    "BleachBit google_earth.xml option=temporary_files command=delete search=file path=$USERPROFILE\\Application Data\\Google\\GoogleEarth\\dbCache.dat",
+    true
+  ],
+  [
+    "BleachBit | Google Earth - Temporary files | 谷歌地球 - 临时文件 #2",
+    "%UserProfile%\\Application Data\\Google\\GoogleEarth\\dbCache.dat.index",
+    "file",
+    false,
+    "BleachBit google_earth.xml option=temporary_files command=delete search=file path=$USERPROFILE\\Application Data\\Google\\GoogleEarth\\dbCache.dat.index",
+    true
+  ],
+  [
+    "BleachBit | Google Toolbar - Search history | 谷歌工具栏 - 搜索历史",
+    "%AppData%\\Google\\Local Search History",
+    "dir",
+    false,
+    "BleachBit google_toolbar.xml option=search_history command=delete search=walk.files path=$APPDATA\\Google\\Local Search History\\",
+    true
+  ],
+  [
+    "BleachBit | gPodder - Downloaded podcasts | 格波德 - 下载的播客",
+    "%Documents%\\gPodder\\Downloads",
+    "dir",
+    false,
+    "BleachBit gpodder.xml option=downloaded_podcasts command=delete search=walk.files path=$$base$$/Downloads",
+    true
+  ],
+  [
+    "BleachBit | gPodder - Logs | 格波德 - 日志",
+    "%Documents%\\gPodder\\Logs",
+    "dir",
+    false,
+    "BleachBit gpodder.xml option=logs command=delete search=walk.files path=$$base$$/Logs",
+    true
+  ],
+  [
+    "BleachBit | HexChat - Chat logs | 十六进制聊天室 - 聊天记录",
+    "%AppData%\\X-Chat 2\\scrollback",
+    "dir",
+    false,
+    "BleachBit hexchat.xml option=logs command=delete search=walk.all path=$APPDATA\\X-Chat 2\\scrollback\\",
+    true
+  ],
+  [
+    "BleachBit | Hippo OpenSim Viewer - Cache | Hippo OpenSim 查看器 - 缓存",
+    "%UserProfile%\\Application Data\\Hippo_OpenSim_Viewer\\cache",
+    "dir",
+    false,
+    "BleachBit hippo_opensim_viewer.xml option=cache command=delete search=walk.files path=$USERPROFILE\\Application Data\\Hippo_OpenSim_Viewer\\cache\\",
+    true
+  ],
+  [
+    "BleachBit | Hippo OpenSim Viewer - Logs | Hippo OpenSim 查看器 - 日志",
+    "%UserProfile%\\Application Data\\Hippo_OpenSim_Viewer\\logs",
+    "dir",
+    false,
+    "BleachBit hippo_opensim_viewer.xml option=logs command=delete search=walk.files path=$USERPROFILE\\Application Data\\Hippo_OpenSim_Viewer\\logs\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cookies | 互联网浏览器 - 曲奇饼",
+    "%UserProfile%\\Cookies",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cookies command=delete search=walk.files path=%UserProfile%\\Cookies\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cookies | 互联网浏览器 - 曲奇饼 #2",
+    "%AppData%\\Microsoft\\Windows\\Cookies",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cookies command=delete search=walk.files path=%AppData%\\Microsoft\\Windows\\Cookies\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cookies | 互联网浏览器 - 曲奇饼 #3",
+    "%LocalAppData%\\Microsoft\\Internet Explorer\\DOMStore",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cookies command=delete search=walk.files path=%LocalAppData%\\Microsoft\\Internet Explorer\\DOMStore\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cookies | 互联网浏览器 - 曲奇饼 #4",
+    "%LocalAppData%\\Microsoft\\Windows\\INetCookies",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cookies command=delete search=walk.files path=$$IELocalAppData$$\\INetCookies\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cookies | 互联网浏览器 - 曲奇饼 #5",
+    "%UserProfile%\\Local Settings\\INetCookies",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cookies command=delete search=walk.files path=$$IELocalAppData$$\\INetCookies\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cookies | 互联网浏览器 - 曲奇饼 #6",
+    "%UserProfile%\\Ustawienia lokalne\\INetCookies",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cookies command=delete search=walk.files path=$$IELocalAppData$$\\INetCookies\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cookies | 互联网浏览器 - 曲奇饼 #7",
+    "%LocalAppDataLow%\\Microsoft\\Internet Explorer\\DOMStore",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cookies command=delete search=walk.files path=%LocalAppDataLow%\\Microsoft\\Internet Explorer\\DOMStore\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - History | 互联网浏览器 - 历史",
+    "%LocalAppData%\\Microsoft\\Windows\\History",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=history command=delete search=walk.files path=$$IELocalAppData$$\\History\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - History | 互联网浏览器 - 历史 #2",
+    "%UserProfile%\\Local Settings\\History",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=history command=delete search=walk.files path=$$IELocalAppData$$\\History\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - History | 互联网浏览器 - 历史 #3",
+    "%UserProfile%\\Ustawienia lokalne\\History",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=history command=delete search=walk.files path=$$IELocalAppData$$\\History\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - History | 互联网浏览器 - 历史 #4",
+    "%LocalAppData%\\Microsoft\\Internet Explorer\\Recovery\\Active",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=history command=delete search=walk.files path=%LocalAppData%\\Microsoft\\Internet Explorer\\Recovery\\Active\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - History | 互联网浏览器 - 历史 #5",
+    "%LocalAppData%\\Microsoft\\Internet Explorer\\Recovery\\Immersive\\Active",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=history command=delete search=walk.files path=%LocalAppData%\\Microsoft\\Internet Explorer\\Recovery\\Immersive\\Active\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - History | 互联网浏览器 - 历史 #6",
+    "%LocalAppData%\\Microsoft\\Internet Explorer\\Recovery\\Last Active",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=history command=delete search=walk.files path=%LocalAppData%\\Microsoft\\Internet Explorer\\Recovery\\Last Active\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存",
+    "%LocalAppData%\\Microsoft\\Windows\\Temporary Internet Files",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\Temporary Internet Files\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #2",
+    "%UserProfile%\\Local Settings\\Temporary Internet Files",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\Temporary Internet Files\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #3",
+    "%UserProfile%\\Ustawienia lokalne\\Temporary Internet Files",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\Temporary Internet Files\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #4",
+    "%AppData%\\Microsoft\\Internet Explorer\\UserData",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=%AppData%\\Microsoft\\Internet Explorer\\UserData\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #5",
+    "%AppData%\\Microsoft\\Windows\\IETldCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=%AppData%\\Microsoft\\Windows\\IETldCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #6",
+    "%AppData%\\Microsoft\\Windows\\IECompatCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=%AppData%\\Microsoft\\Windows\\IECompatCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #7",
+    "%AppData%\\Microsoft\\Windows\\IECompatUACache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=%AppData%\\Microsoft\\Windows\\IECompatUACache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #8",
+    "%LocalAppData%\\Microsoft\\Windows\\INetCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\INetCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #9",
+    "%UserProfile%\\Local Settings\\INetCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\INetCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #10",
+    "%UserProfile%\\Ustawienia lokalne\\INetCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\INetCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #11",
+    "%LocalAppData%\\Microsoft\\Windows\\WebCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\WebCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #12",
+    "%UserProfile%\\Local Settings\\WebCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\WebCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #13",
+    "%UserProfile%\\Ustawienia lokalne\\WebCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\WebCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #14",
+    "%LocalAppDataLow%\\Microsoft\\Internet Explorer\\iconcache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=%LocalAppDataLow%\\Microsoft\\Internet Explorer\\iconcache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #15",
+    "%LocalAppData%\\Microsoft\\Windows\\AppCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\AppCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #16",
+    "%UserProfile%\\Local Settings\\AppCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\AppCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #17",
+    "%UserProfile%\\Ustawienia lokalne\\AppCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$IELocalAppData$$\\AppCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #18",
+    "%WinDir%\\System32\\config\\systemprofile\\AppData\\Local\\Microsoft\\Windows\\INetCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$windirsystem32$$\\config\\systemprofile\\AppData\\Local\\Microsoft\\Windows\\INetCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #19",
+    "%WinDir%\\Sysnative\\config\\systemprofile\\AppData\\Local\\Microsoft\\Windows\\INetCache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=$$windirsystem32$$\\config\\systemprofile\\AppData\\Local\\Microsoft\\Windows\\INetCache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Cache | 互联网浏览器 - 缓存 #20",
+    "%LocalAppData%\\Microsoft\\Feeds Cache",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=cache command=delete search=walk.all path=%LocalAppData%\\Microsoft\\Feeds Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Download history | 互联网浏览器 - 下载历史记录",
+    "%AppData%\\Microsoft\\Windows\\IEDownloadHistory",
+    "dir",
+    false,
+    "BleachBit internet_explorer.xml option=downloads command=delete search=walk.all path=%AppData%\\Microsoft\\Windows\\IEDownloadHistory\\",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Logs | 互联网浏览器 - 日志",
+    "%LocalAppData%\\Microsoft\\Internet Explorer\\brndlog.bak",
+    "file",
+    false,
+    "BleachBit internet_explorer.xml option=logs command=delete search=file path=%LocalAppData%\\Microsoft\\Internet Explorer\\brndlog.bak",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Logs | 互联网浏览器 - 日志 #2",
+    "%LocalAppData%\\Microsoft\\Internet Explorer\\brndlog.txt",
+    "file",
+    false,
+    "BleachBit internet_explorer.xml option=logs command=delete search=file path=%LocalAppData%\\Microsoft\\Internet Explorer\\brndlog.txt",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Logs | 互联网浏览器 - 日志 #3",
+    "%WinDir%\\System32\\config\\systemprofile\\Application Data\\Microsoft\\Internet Explorer\\brndlog.bak",
+    "file",
+    false,
+    "BleachBit internet_explorer.xml option=logs command=delete search=file path=$$windirsystem32$$\\config\\systemprofile\\Application Data\\Microsoft\\Internet Explorer\\brndlog.bak",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Logs | 互联网浏览器 - 日志 #4",
+    "%WinDir%\\Sysnative\\config\\systemprofile\\Application Data\\Microsoft\\Internet Explorer\\brndlog.bak",
+    "file",
+    false,
+    "BleachBit internet_explorer.xml option=logs command=delete search=file path=$$windirsystem32$$\\config\\systemprofile\\Application Data\\Microsoft\\Internet Explorer\\brndlog.bak",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Logs | 互联网浏览器 - 日志 #5",
+    "%WinDir%\\System32\\config\\systemprofile\\Application Data\\Microsoft\\Internet Explorer\\brndlog.txt",
+    "file",
+    false,
+    "BleachBit internet_explorer.xml option=logs command=delete search=file path=$$windirsystem32$$\\config\\systemprofile\\Application Data\\Microsoft\\Internet Explorer\\brndlog.txt",
+    true
+  ],
+  [
+    "BleachBit | Internet Explorer - Logs | 互联网浏览器 - 日志 #6",
+    "%WinDir%\\Sysnative\\config\\systemprofile\\Application Data\\Microsoft\\Internet Explorer\\brndlog.txt",
+    "file",
+    false,
+    "BleachBit internet_explorer.xml option=logs command=delete search=file path=$$windirsystem32$$\\config\\systemprofile\\Application Data\\Microsoft\\Internet Explorer\\brndlog.txt",
+    true
+  ],
+  [
+    "BleachBit | Java - Cache | 爪哇 - 缓存",
+    "%AppData%\\Sun\\Java\\Deployment\\cache",
+    "dir",
+    false,
+    "BleachBit java.xml option=cache command=delete search=walk.files path=$APPDATA\\Sun\\Java\\Deployment\\cache\\",
+    true
+  ],
+  [
+    "BleachBit | Java - Cache | 爪哇 - 缓存 #2",
+    "%UserProfile%\\AppData\\LocalLow\\Sun\\Java\\Deployment\\cache",
+    "dir",
+    false,
+    "BleachBit java.xml option=cache command=delete search=walk.files path=$USERPROFILE\\AppData\\LocalLow\\Sun\\Java\\Deployment\\cache\\",
+    true
+  ],
+  [
+    "BleachBit | LibreWolf - Crash reports | 自由狼 - 崩溃报告",
+    "%AppData%\\librewolf\\Crash Reports",
+    "dir",
+    false,
+    "BleachBit librewolf.xml option=crash_reports command=delete search=walk.all path=$$base$$/Crash Reports/",
+    true
+  ],
+  [
+    "BleachBit | Midnight Commander - History | 午夜指挥官 - 历史",
+    "%UserProfile%\\Midnight Commander\\history",
+    "file",
+    false,
+    "BleachBit mc.xml option=history command=delete search=file path=$$profile$$/history",
+    true
+  ],
+  [
+    "BleachBit | Midnight Commander - History | 午夜指挥官 - 历史 #2",
+    "%UserProfile%\\Midnight Commander\\filepos",
+    "file",
+    false,
+    "BleachBit mc.xml option=history command=delete search=file path=$$profile$$/filepos",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cache | 微软边缘 - 缓存",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=cache command=delete search=file path=$$profile$$/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cache | 微软边缘 - 缓存 #2",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\ShaderCache",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=cache command=delete search=walk.all path=$$base$$/ShaderCache",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cache | 微软边缘 - 缓存 #3",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\File System",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=cache command=delete search=walk.all path=$$profile$$/File System",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cache | 微软边缘 - 缓存 #4",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Service Worker",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=cache command=delete search=walk.all path=$$profile$$/Service Worker",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cache | 微软边缘 - 缓存 #5",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=cache command=delete search=walk.files path=$$profile$$/GPUCache/",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cache | 微软边缘 - 缓存 #6",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Default\\Application Cache",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=cache command=delete search=walk.all path=$$profile$$\\Default\\Application Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cache | 微软边缘 - 缓存 #7",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Cache",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=cache command=delete search=walk.files path=$$profile$$\\Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cache | 微软边缘 - 缓存 #8",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Media Cache",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=cache command=delete search=walk.files path=$$profile$$\\Media Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cookies | 微软边缘 - 曲奇饼",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=cookies command=delete search=file path=$$profile$$/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cookies | 微软边缘 - 曲奇饼 #2",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Network\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=cookies command=delete search=file path=$$profile$$/Network/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Cookies | 微软边缘 - 曲奇饼 #3",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Extension Cookies-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=cookies command=delete search=file path=$$profile$$/Extension Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - DOM Storage | 微软边缘 - DOM存储",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Local Storage\\leveldb",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=dom command=delete search=walk.all path=$$profile$$/Local Storage/leveldb",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\chrome_shutdown_ms.txt",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$base$$/chrome_shutdown_ms.txt",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #2",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Safe Browsing Cookies-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$base$$/Safe Browsing Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #3",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Archived History",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Archived History",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #4",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Archived History-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Archived History-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #5",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\DownloadMetadata",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/DownloadMetadata",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #6",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\History-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/History-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #7",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\History Provider Cache",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/History Provider Cache",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #8",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Network Action Predictor",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Network Action Predictor",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #9",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Network Action Predictor-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Network Action Predictor-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #10",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Origin Bound Certs-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Origin Bound Certs-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #11",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Shortcuts",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Shortcuts",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #12",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Shortcuts-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Shortcuts-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #13",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Thumbnails",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Thumbnails",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #14",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Thumbnails",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=walk.files path=$$profile$$/Thumbnails",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #15",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Thumbnails-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Thumbnails-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #16",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Top Sites",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Top Sites",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #17",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Top Sites-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Top Sites-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #18",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Visited Links",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/Visited Links",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #19",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\QuotaManager",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/QuotaManager",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #20",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\QuotaManager-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=file path=$$profile$$/QuotaManager-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #21",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Session Storage",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=walk.files path=$$profile$$/Session Storage/",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #22",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\JumpListIconsMostVisited",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsMostVisited\\",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #23",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\JumpListIconsOld",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsOld\\",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #24",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\JumpListIconsRecentClosed",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIconsRecentClosed\\",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - History | 微软边缘 - 历史 #25",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\JumpListIcons",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=history command=delete search=walk.files path=$$profile$$\\JumpListIcons\\",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Session | 微软边缘 - 会议",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Session",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=session command=delete search=walk.all path=$$profile$$/Session",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Session | 微软边缘 - 会议 #2",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Extension State",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=session command=delete search=walk.all path=$$profile$$/Extension State",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Sync | 微软边缘 - 同步",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Sync Data",
+    "dir",
+    false,
+    "BleachBit microsoft_edge.xml option=sync command=delete search=walk.files path=$$profile$$/Sync Data/",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Passwords | 微软边缘 - 密码",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Login Data",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=passwords command=delete search=file path=$$profile$$/Login Data",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Edge - Passwords | 微软边缘 - 密码 #2",
+    "%LocalAppData%\\Microsoft\\Edge\\User Data\\Default\\Login Data-journal",
+    "file",
+    false,
+    "BleachBit microsoft_edge.xml option=passwords command=delete search=file path=$$profile$$/Login Data-journal",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Office - Debug logs | 微软办公软件 - 调试日志",
+    "%LOCALAPPDATA%\\Microsoft\\Office\\OffDiag",
+    "dir",
+    false,
+    "BleachBit microsoft_office.xml option=debug_logs command=delete search=walk.files path=%LOCALAPPDATA%\\Microsoft\\Office\\OffDiag\\",
+    true
+  ],
+  [
+    "BleachBit | Microsoft Office - Most recently used | 微软办公软件 - 最近使用过",
+    "%APPDATA%\\Microsoft\\Office\\Recent",
+    "dir",
+    false,
+    "BleachBit microsoft_office.xml option=mru command=delete search=walk.files path=%APPDATA%\\Microsoft\\Office\\Recent\\",
+    true
+  ],
+  [
+    "BleachBit | Miro - Logs | 米罗 - 日志",
+    "%Temp%\\Miro-downloader.log",
+    "file",
+    false,
+    "BleachBit miro.xml option=logs command=delete search=file path=%Temp%\\Miro-downloader.log",
+    true
+  ],
+  [
+    "BleachBit | Miro - Logs | 米罗 - 日志 #2",
+    "%Temp%\\Miro.log",
+    "file",
+    false,
+    "BleachBit miro.xml option=logs command=delete search=file path=%Temp%\\Miro.log",
+    true
+  ],
+  [
+    "BleachBit | Miro - Logs | 米罗 - 日志 #3",
+    "%Temp%\\Miro.log.1",
+    "file",
+    false,
+    "BleachBit miro.xml option=logs command=delete search=file path=%Temp%\\Miro.log.1",
+    true
+  ],
+  [
+    "BleachBit | Miro - Logs | 米罗 - 日志 #4",
+    "%Temp%\\Miro_Download_Daemon_a.txt",
+    "file",
+    false,
+    "BleachBit miro.xml option=logs command=delete search=file path=%Temp%\\Miro_Download_Daemon_a.txt",
+    true
+  ],
+  [
+    "BleachBit | Opera - History | 歌剧 - 历史",
+    "%AppData%\\Opera\\Opera\\profile\\download.dat",
+    "file",
+    false,
+    "BleachBit opera.xml option=history command=delete search=file path=%AppData%\\Opera\\Opera\\profile\\download.dat",
+    true
+  ],
+  [
+    "BleachBit | Opera - History | 歌剧 - 历史 #2",
+    "%AppData%\\Opera\\Opera\\profile\\global.dat",
+    "file",
+    false,
+    "BleachBit opera.xml option=history command=delete search=file path=%AppData%\\Opera\\Opera\\profile\\global.dat",
+    true
+  ],
+  [
+    "BleachBit | Opera - History | 歌剧 - 历史 #3",
+    "%AppData%\\Opera\\Opera\\profile\\typed_history.xml",
+    "file",
+    false,
+    "BleachBit opera.xml option=history command=delete search=file path=%AppData%\\Opera\\Opera\\profile\\typed_history.xml",
+    true
+  ],
+  [
+    "BleachBit | Opera - History | 歌剧 - 历史 #4",
+    "%AppData%\\Opera\\Opera\\profile\\vlink4.dat",
+    "file",
+    false,
+    "BleachBit opera.xml option=history command=delete search=file path=%AppData%\\Opera\\Opera\\profile\\vlink4.dat",
+    true
+  ],
+  [
+    "BleachBit | Pale Moon - Crash reports | 苍白的月亮 - 崩溃报告",
+    "%AppData%\\moonchild productions\\value\\Crash Reports",
+    "dir",
+    false,
+    "BleachBit palemoon.xml option=crash_reports command=delete search=walk.all path=$$base$$/Crash Reports/",
+    true
+  ],
+  [
+    "BleachBit | Pidgin - Cache | 洋泾浜语 - 缓存",
+    "%AppData%\\.purple\\icons",
+    "dir",
+    false,
+    "BleachBit pidgin.xml option=cache command=delete search=walk.all path=$APPDATA\\.purple\\icons\\",
+    true
+  ],
+  [
+    "BleachBit | Pidgin - Chat logs | 洋泾浜语 - 聊天记录",
+    "%AppData%\\.purple\\logs",
+    "dir",
+    false,
+    "BleachBit pidgin.xml option=logs command=delete search=walk.all path=$APPDATA\\.purple\\logs\\",
+    true
+  ],
+  [
+    "BleachBit | RealPlayer - Cookies | 真实玩家 - 曲奇饼",
+    "%AppData%\\Real\\RealPlayer\\cookies.txt",
+    "file",
+    false,
+    "BleachBit realplayer.xml option=cookies command=delete search=file path=$APPDATA\\Real\\RealPlayer\\cookies.txt",
+    true
+  ],
+  [
+    "BleachBit | RealPlayer - History | 真实玩家 - 历史",
+    "%AppData%\\Real\\RealPlayer\\realplayer.ste",
+    "file",
+    false,
+    "BleachBit realplayer.xml option=history command=delete search=file path=$APPDATA\\Real\\RealPlayer\\realplayer.ste",
+    true
+  ],
+  [
+    "BleachBit | RealPlayer - Logs | 真实玩家 - 日志",
+    "%AppData%\\Real\\RealPlayer\\RealPlayer-log.txt",
+    "file",
+    false,
+    "BleachBit realplayer.xml option=logs command=delete search=file path=$APPDATA\\Real\\RealPlayer\\RealPlayer-log.txt",
+    true
+  ],
+  [
+    "BleachBit | RealPlayer - Logs | 真实玩家 - 日志 #2",
+    "%AppData%\\Real\\RealPlayer\\ErrorLogs",
+    "dir",
+    false,
+    "BleachBit realplayer.xml option=logs command=delete search=walk.files path=$APPDATA\\Real\\RealPlayer\\ErrorLogs\\",
+    true
+  ],
+  [
+    "BleachBit | Safari - Cache | 狩猎之旅 - 缓存",
+    "%LocalAppData%\\Apple Computer\\Safari\\Cache.db",
+    "file",
+    false,
+    "BleachBit safari.xml option=cache command=delete search=file path=$localappdata\\Apple Computer\\Safari\\Cache.db",
+    true
+  ],
+  [
+    "BleachBit | Safari - Cookies | 狩猎之旅 - 曲奇饼",
+    "%AppData%\\Apple Computer\\Safari\\Cookies\\Cookies.plist",
+    "file",
+    false,
+    "BleachBit safari.xml option=cookies command=delete search=file path=$APPDATA\\Apple Computer\\Safari\\Cookies\\Cookies.plist",
+    true
+  ],
+  [
+    "BleachBit | Safari - Cookies | 狩猎之旅 - 曲奇饼 #2",
+    "%LocalAppData%\\Apple Computer\\Safari\\LocalStorage",
+    "dir",
+    false,
+    "BleachBit safari.xml option=cookies command=delete search=walk.files path=$localappdata\\Apple Computer\\Safari\\LocalStorage\\",
+    true
+  ],
+  [
+    "BleachBit | Safari - History | 狩猎之旅 - 历史",
+    "%AppData%\\Apple Computer\\Safari\\History.plist",
+    "file",
+    false,
+    "BleachBit safari.xml option=history command=delete search=file path=$APPDATA\\Apple Computer\\Safari\\History.plist",
+    true
+  ],
+  [
+    "BleachBit | Safari - History | 狩猎之旅 - 历史 #2",
+    "%AppData%\\Apple Computer\\Safari\\LastSession.plist",
+    "file",
+    false,
+    "BleachBit safari.xml option=history command=delete search=file path=$APPDATA\\Apple Computer\\Safari\\LastSession.plist",
+    true
+  ],
+  [
+    "BleachBit | Safari - History | 狩猎之旅 - 历史 #3",
+    "%LocalAppData%\\Apple Computer\\Safari\\History",
+    "dir",
+    false,
+    "BleachBit safari.xml option=history command=delete search=walk.files path=$localappdata\\Apple Computer\\Safari\\History\\",
+    true
+  ],
+  [
+    "BleachBit | Safari - History | 狩猎之旅 - 历史 #4",
+    "%LocalAppData%\\Apple Computer\\Safari\\Webpage Previews",
+    "dir",
+    false,
+    "BleachBit safari.xml option=history command=delete search=walk.files path=$localappdata\\Apple Computer\\Safari\\Webpage Previews\\",
+    true
+  ],
+  [
+    "BleachBit | SeaMonkey - Cache | 海猴 - 缓存",
+    "%LocalAppData%\\Mozilla\\Profiles\\default\\Cache",
+    "dir",
+    false,
+    "BleachBit seamonkey.xml option=cache command=delete search=walk.files path=$localappdata\\Mozilla\\Profiles\\default\\Cache\\",
+    true
+  ],
+  [
+    "BleachBit | SeaMonkey - Cache | 海猴 - 缓存 #2",
+    "%LocalAppData%\\Mozilla\\Profiles\\default\\cache2",
+    "dir",
+    false,
+    "BleachBit seamonkey.xml option=cache command=delete search=walk.files path=$localappdata\\Mozilla\\Profiles\\default\\cache2\\",
+    true
+  ],
+  [
+    "BleachBit | Second Life Viewer - Cache | 第二人生观众 - 缓存",
+    "%UserProfile%\\Application Data\\SecondLife\\cache",
+    "dir",
+    false,
+    "BleachBit secondlife_viewer.xml option=Cache command=delete search=walk.files path=$USERPROFILE\\Application Data\\SecondLife\\cache\\",
+    true
+  ],
+  [
+    "BleachBit | Second Life Viewer - Debug logs | 第二人生观众 - 调试日志",
+    "%UserProfile%\\Application Data\\SecondLife\\logs",
+    "dir",
+    false,
+    "BleachBit secondlife_viewer.xml option=Logs command=delete search=walk.files path=$USERPROFILE\\Application Data\\SecondLife\\logs\\",
+    true
+  ],
+  [
+    "BleachBit | Silverlight - Cookies | 银光 - 曲奇饼",
+    "%LocalAppData%\\Microsoft\\Silverlight\\is",
+    "dir",
+    false,
+    "BleachBit silverlight.xml option=cookies command=delete search=walk.all path=%LocalAppData%\\Microsoft\\Silverlight\\is\\",
+    true
+  ],
+  [
+    "BleachBit | Silverlight - Cookies | 银光 - 曲奇饼 #2",
+    "%LocalAppDataLow%\\Microsoft\\Silverlight\\is",
+    "dir",
+    false,
+    "BleachBit silverlight.xml option=cookies command=delete search=walk.all path=%LocalAppDataLow%\\Microsoft\\Silverlight\\is\\",
+    true
+  ],
+  [
+    "BleachBit | Slack - Cache | 松弛 - 缓存",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\Cache",
+    "dir",
+    false,
+    "BleachBit slack.xml option=cache command=delete search=walk.all path=$$base$$/Cache",
+    true
+  ],
+  [
+    "BleachBit | Slack - Cache | 松弛 - 缓存 #2",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\Code Cache",
+    "dir",
+    false,
+    "BleachBit slack.xml option=cache command=delete search=walk.all path=$$base$$/Code Cache",
+    true
+  ],
+  [
+    "BleachBit | Slack - Cache | 松弛 - 缓存 #3",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\GPUCache",
+    "dir",
+    false,
+    "BleachBit slack.xml option=cache command=delete search=walk.all path=$$base$$/GPUCache",
+    true
+  ],
+  [
+    "BleachBit | Slack - Cache | 松弛 - 缓存 #4",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\Network Persistent State",
+    "file",
+    false,
+    "BleachBit slack.xml option=cache command=delete search=file path=$$base$$/Network Persistent State",
+    true
+  ],
+  [
+    "BleachBit | Slack - Cookies | 松弛 - 曲奇饼",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\Cookies",
+    "file",
+    false,
+    "BleachBit slack.xml option=cookies command=delete search=file path=$$base$$/Cookies",
+    true
+  ],
+  [
+    "BleachBit | Slack - Cookies | 松弛 - 曲奇饼 #2",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\Cookies-journal",
+    "file",
+    false,
+    "BleachBit slack.xml option=cookies command=delete search=file path=$$base$$/Cookies-journal",
+    true
+  ],
+  [
+    "BleachBit | Slack - Cookies | 松弛 - 曲奇饼 #3",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\Preferences",
+    "file",
+    false,
+    "BleachBit slack.xml option=cookies command=delete search=file path=$$base$$/Preferences",
+    true
+  ],
+  [
+    "BleachBit | Slack - History | 松弛 - 历史",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\TransportSecurity",
+    "file",
+    false,
+    "BleachBit slack.xml option=history command=delete search=file path=$$base$$/TransportSecurity",
+    true
+  ],
+  [
+    "BleachBit | Slack - History | 松弛 - 历史 #2",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\Local Storage\\leveldb",
+    "dir",
+    false,
+    "BleachBit slack.xml option=history command=delete search=walk.all path=$$base$$/Local Storage/leveldb",
+    true
+  ],
+  [
+    "BleachBit | Slack - History | 松弛 - 历史 #3",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\Session Storage",
+    "dir",
+    false,
+    "BleachBit slack.xml option=history command=delete search=walk.all path=$$base$$/Session Storage",
+    true
+  ],
+  [
+    "BleachBit | Slack - History | 松弛 - 历史 #4",
+    "%UserProfile%\\AppData\\Roaming\\Slack\\VideoDecodeStats",
+    "dir",
+    false,
+    "BleachBit slack.xml option=history command=delete search=walk.all path=$$base$$/VideoDecodeStats",
+    true
+  ],
+  [
+    "BleachBit | SmartFTP - Cache | 智能FTP - 缓存",
+    "%LocalAppData%\\SmartFTP\\Client 2.0\\Cache",
+    "dir",
+    false,
+    "BleachBit smartftp.xml option=cache command=delete search=walk.all path=$LOCALAPPDATA\\SmartFTP\\Client 2.0\\Cache\\",
+    true
+  ],
+  [
+    "BleachBit | SmartFTP - Logs | 智能FTP - 日志",
+    "%LocalAppData%\\SmartFTP\\Client 2.0\\Log",
+    "dir",
+    false,
+    "BleachBit smartftp.xml option=log command=delete search=walk.all path=$LOCALAPPDATA\\SmartFTP\\Client 2.0\\Log\\",
+    true
+  ],
+  [
+    "BleachBit | TeamViewer - Most recently used | 团队查看器 - 最近使用过",
+    "%AppData%\\TeamViewer\\MRU",
+    "dir",
+    false,
+    "BleachBit teamviewer.xml option=mru command=delete search=walk.files path=$$Profile$$\\MRU\\",
+    true
+  ],
+  [
+    "BleachBit | TeamViewer - Most recently used | 团队查看器 - 最近使用过 #2",
+    "%AppData%\\TeamViewer\\MRU",
+    "file",
+    false,
+    "BleachBit teamviewer.xml option=mru command=delete search=file path=$$Profile$$\\MRU\\",
+    true
+  ],
+  [
+    "BleachBit | TeamViewer - Most recently used | 团队查看器 - 最近使用过 #3",
+    "%AppData%\\TeamViewer\\Connections.txt",
+    "file",
+    false,
+    "BleachBit teamviewer.xml option=mru command=delete search=file path=$$Profile$$\\Connections.txt",
+    true
+  ],
+  [
+    "BleachBit | VIM - History | 维姆 - 历史",
+    "%UserProfile%\\_viminfo",
+    "file",
+    false,
+    "BleachBit vim.xml option=history command=delete search=file path=$USERPROFILE\\_viminfo",
+    true
+  ],
+  [
+    "BleachBit | VLC media player - Most recently used | VLC媒体播放器 - 最近使用过",
+    "%AppData%\\vlc\\art\\artistalbum",
+    "dir",
+    false,
+    "BleachBit vlc.xml option=mru command=delete search=walk.files path=$$Profile$$/art/artistalbum/",
+    true
+  ],
+  [
+    "BleachBit | VLC media player - Memory dump | VLC媒体播放器 - 内存转储",
+    "%AppData%\\vlc\\crashdump",
+    "file",
+    false,
+    "BleachBit vlc.xml option=memory_dump command=delete search=file path=$$Profile$$\\crashdump",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Backup files | Vuze/Azureus - 备份文件",
+    "%AppData%\\Azureus",
+    "dir",
+    false,
+    "BleachBit vuze.xml option=backup command=delete search=walk.files path=$$Profile$$\\",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Cache | Vuze/Azureus - 缓存",
+    "%AppData%\\Azureus\\ipfilter.cache",
+    "file",
+    false,
+    "BleachBit vuze.xml option=cache command=delete search=file path=$$Profile$$\\ipfilter.cache",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Cache | Vuze/Azureus - 缓存 #2",
+    "%AppData%\\Azureus\\cache",
+    "dir",
+    false,
+    "BleachBit vuze.xml option=cache command=delete search=walk.all path=$$Profile$$\\cache",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Logs | Vuze/Azureus - 日志",
+    "%AppData%\\Azureus\\logs",
+    "dir",
+    false,
+    "BleachBit vuze.xml option=logs command=delete search=walk.all path=$$Profile$$\\logs\\",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Logs | Vuze/Azureus - 日志 #2",
+    "%AppData%\\Azureus\\update.log",
+    "file",
+    false,
+    "BleachBit vuze.xml option=logs command=delete search=file path=$$Profile$$\\update.log",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Logs | Vuze/Azureus - 日志 #3",
+    "%AppData%\\Azureus\\tracker.log",
+    "file",
+    false,
+    "BleachBit vuze.xml option=logs command=delete search=file path=$$Profile$$\\tracker.log",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Statistics | Vuze/Azureus - 统计数据",
+    "%AppData%\\Azureus\\stats",
+    "dir",
+    false,
+    "BleachBit vuze.xml option=stats command=delete search=walk.all path=$$Profile$$\\stats\\",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Temporary files | Vuze/Azureus - 临时文件",
+    "%AppData%\\Azureus\\tmp",
+    "dir",
+    false,
+    "BleachBit vuze.xml option=temp command=delete search=walk.files path=$$Profile$$\\tmp\\",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Temporary files | Vuze/Azureus - 临时文件 #2",
+    "%AppData%\\Azureus\\subs\\temp",
+    "dir",
+    false,
+    "BleachBit vuze.xml option=temp command=delete search=walk.files path=$$Profile$$\\subs\\temp\\",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Temporary files | Vuze/Azureus - 临时文件 #3",
+    "%AppData%\\Azureus\\updates",
+    "dir",
+    false,
+    "BleachBit vuze.xml option=temp command=delete search=walk.all path=$$Profile$$\\updates\\",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Temporary files | Vuze/Azureus - 临时文件 #4",
+    "%Temp%\\AzureusInstall",
+    "dir",
+    false,
+    "BleachBit vuze.xml option=temp command=delete search=walk.all path=%Temp%\\AzureusInstall\\",
+    true
+  ],
+  [
+    "BleachBit | Vuze/Azureus - Temporary files | Vuze/Azureus - 临时文件 #5",
+    "%Temp%\\AzureusInstall",
+    "file",
+    false,
+    "BleachBit vuze.xml option=temp command=delete search=file path=%Temp%\\AzureusInstall\\",
+    true
+  ],
+  [
+    "BleachBit | Waterfox - Crash reports | 水狐 - 崩溃报告",
+    "%AppData%\\Waterfox\\Crash Reports",
+    "dir",
+    false,
+    "BleachBit waterfox.xml option=crash_reports command=delete search=walk.all path=$$base$$/Crash Reports/",
+    true
+  ],
+  [
+    "BleachBit | Winamp - Most recently used | 温安普 - 最近使用过",
+    "%APPDATA%\\Winamp\\winamp.m3u",
+    "file",
+    false,
+    "BleachBit winamp.xml option=mru command=delete search=file path=%APPDATA%\\Winamp\\winamp.m3u",
+    true
+  ],
+  [
+    "BleachBit | Winamp - Most recently used | 温安普 - 最近使用过 #2",
+    "%APPDATA%\\Winamp\\winamp.m3u8",
+    "file",
+    false,
+    "BleachBit winamp.xml option=mru command=delete search=file path=%APPDATA%\\Winamp\\winamp.m3u8",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - History | 视窗卫士 - 历史",
+    "%CommonAppData%\\Microsoft\\Windows Defender\\Scans\\History\\Results\\Quick",
+    "dir",
+    false,
+    "BleachBit windows_defender.xml option=history command=delete search=walk.files path=%CommonAppData%\\Microsoft\\Windows Defender\\Scans\\History\\Results\\Quick\\",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - History | 视窗卫士 - 历史 #2",
+    "%CommonAppData%\\Microsoft\\Windows Defender\\Scans\\History\\Results\\Resource",
+    "dir",
+    false,
+    "BleachBit windows_defender.xml option=history command=delete search=walk.files path=%CommonAppData%\\Microsoft\\Windows Defender\\Scans\\History\\Results\\Resource\\",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - History | 视窗卫士 - 历史 #3",
+    "%CommonAppData%\\Microsoft\\Windows Defender\\Scans\\History\\Service\\History.Log",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=history command=delete search=file path=%CommonAppData%\\Microsoft\\Windows Defender\\Scans\\History\\Service\\History.Log",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Temporary files | 视窗卫士 - 临时文件",
+    "%WinDir%\\Temp\\MpCmdRun.log",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=temp command=delete search=file path=%WinDir%\\Temp\\MpCmdRun.log",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Temporary files | 视窗卫士 - 临时文件 #2",
+    "%WinDir%\\Temp\\MpSigStub.log",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=temp command=delete search=file path=%WinDir%\\Temp\\MpSigStub.log",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Temporary files | 视窗卫士 - 临时文件 #3",
+    "%WinDir%\\SoftwareDistribution\\Download\\Install\\mpas-d.exe",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=temp command=delete search=file path=%WinDir%\\SoftwareDistribution\\Download\\Install\\mpas-d.exe",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Temporary files | 视窗卫士 - 临时文件 #4",
+    "%WinDir%\\SoftwareDistribution\\Download\\Install\\mpas-fe.exe",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=temp command=delete search=file path=%WinDir%\\SoftwareDistribution\\Download\\Install\\mpas-fe.exe",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Temporary files | 视窗卫士 - 临时文件 #5",
+    "%WinDir%\\SoftwareDistribution\\Download\\Install\\mpas-fe_bd.exe",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=temp command=delete search=file path=%WinDir%\\SoftwareDistribution\\Download\\Install\\mpas-fe_bd.exe",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Temporary files | 视窗卫士 - 临时文件 #6",
+    "%WinDir%\\SoftwareDistribution\\Download\\Install\\AS_Engine.exe",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=temp command=delete search=file path=%WinDir%\\SoftwareDistribution\\Download\\Install\\AS_Engine.exe",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Temporary files | 视窗卫士 - 临时文件 #7",
+    "%WinDir%\\SoftwareDistribution\\Download\\Install\\AS_Base.exe",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=temp command=delete search=file path=%WinDir%\\SoftwareDistribution\\Download\\Install\\AS_Base.exe",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Temporary files | 视窗卫士 - 临时文件 #8",
+    "%WinDir%\\SoftwareDistribution\\Download\\Install\\AS_Delta.exe",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=temp command=delete search=file path=%WinDir%\\SoftwareDistribution\\Download\\Install\\AS_Delta.exe",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Temporary files | 视窗卫士 - 临时文件 #9",
+    "%CommonAppData%\\Microsoft\\Windows Defender\\Definition Updates\\Updates",
+    "dir",
+    false,
+    "BleachBit windows_defender.xml option=temp command=delete search=walk.files path=%CommonAppData%\\Microsoft\\Windows Defender\\Definition Updates\\Updates\\",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Quarantine | 视窗卫士 - 隔离",
+    "%CommonAppData%\\Microsoft\\Windows Defender\\Quarantine",
+    "dir",
+    false,
+    "BleachBit windows_defender.xml option=quarantine command=delete search=walk.files path=%CommonAppData%\\Microsoft\\Windows Defender\\Quarantine",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Backup files | 视窗卫士 - 备份文件",
+    "%CommonAppData%\\Microsoft\\Windows Defender\\Definition Updates\\Backup",
+    "dir",
+    false,
+    "BleachBit windows_defender.xml option=backup command=delete search=walk.files path=%CommonAppData%\\Microsoft\\Windows Defender\\Definition Updates\\Backup\\",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Logs | 视窗卫士 - 日志",
+    "%CommonAppData%\\Microsoft\\Windows Defender\\Scans\\History\\Service\\Detections.log",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=logs command=delete search=file path=%CommonAppData%\\Microsoft\\Windows Defender\\Scans\\History\\Service\\Detections.log",
+    true
+  ],
+  [
+    "BleachBit | Windows Defender - Logs | 视窗卫士 - 日志 #2",
+    "%CommonAppData%\\Microsoft\\Windows Defender\\Scans\\History\\Service\\Unknown.Log",
+    "file",
+    false,
+    "BleachBit windows_defender.xml option=logs command=delete search=file path=%CommonAppData%\\Microsoft\\Windows Defender\\Scans\\History\\Service\\Unknown.Log",
+    true
+  ],
+  [
+    "BleachBit | Windows Media Player - Cache | Windows媒体播放器 - 缓存",
+    "%LocalAppData%\\Microsoft\\Media Player\\Grafikcache\\LocalMLS",
+    "dir",
+    false,
+    "BleachBit windows_media_player.xml option=cache command=delete search=walk.all path=%LocalAppData%\\Microsoft\\Media Player\\Grafikcache\\LocalMLS\\",
+    true
+  ],
+  [
+    "BleachBit | Windows Media Player - Cache | Windows媒体播放器 - 缓存 #2",
+    "%LocalAppData%\\Microsoft\\Media Player\\Transcoded Files Cache",
+    "dir",
+    false,
+    "BleachBit windows_media_player.xml option=cache command=delete search=walk.all path=%LocalAppData%\\Microsoft\\Media Player\\Transcoded Files Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Windows Media Player - Cache | Windows媒体播放器 - 缓存 #3",
+    "%Temp%\\wmsetup.log",
+    "file",
+    false,
+    "BleachBit windows_media_player.xml option=cache command=delete search=file path=%Temp%\\wmsetup.log",
+    true
+  ],
+  [
+    "BleachBit | WinRAR - Temporary files | 解压缩工具 - 临时文件",
+    "%ProgramFiles%\\WinRAR",
+    "dir",
+    false,
+    "BleachBit winrar.xml option=temp command=delete search=walk.files path=%ProgramFiles%\\WinRAR\\",
+    true
+  ],
+  [
+    "BleachBit | Yahoo! Messenger - Cache | 雅虎！信使 - 缓存",
+    "%PROGRAMFILES%\\Yahoo!\\Messenger\\Cache",
+    "dir",
+    false,
+    "BleachBit yahoo_messenger.xml option=cache command=delete search=walk.files path=%PROGRAMFILES%\\Yahoo!\\Messenger\\Cache\\",
+    true
+  ],
+  [
+    "BleachBit | Yahoo! Messenger - Logs | 雅虎！信使 - 日志",
+    "%PROGRAMFILES%\\Yahoo!\\Messenger\\logs",
+    "dir",
+    false,
+    "BleachBit yahoo_messenger.xml option=logs command=delete search=walk.files path=%PROGRAMFILES%\\Yahoo!\\Messenger\\logs\\",
+    true
+  ],
+  [
+    "BleachBit | Yahoo! Messenger - Logs | 雅虎！信使 - 日志 #2",
+    "%LOCALAPPDATA%\\Yahoo\\Y!Msgr\\merlin.log",
+    "file",
+    false,
+    "BleachBit yahoo_messenger.xml option=logs command=delete search=file path=%LOCALAPPDATA%\\Yahoo\\Y!Msgr\\merlin.log",
+    true
+  ],
+  [
+    "BleachBit | Yahoo! Messenger - Logs | 雅虎！信使 - 日志 #3",
+    "%LOCALAPPDATA%\\Yahoo\\Y!Msgr\\merlin.log.old",
+    "file",
+    false,
+    "BleachBit yahoo_messenger.xml option=logs command=delete search=file path=%LOCALAPPDATA%\\Yahoo\\Y!Msgr\\merlin.log.old",
+    true
+  ],
+  [
+    "BleachBit | Zen - Crash reports | 禅 - 崩溃报告",
+    "%AppData%\\Zen\\Crash Reports",
+    "dir",
+    false,
+    "BleachBit zen.xml option=crash_reports command=delete search=walk.all path=$$base$$/Crash Reports/",
+    true
+  ],
+  [
+    "BleachBit | Zoom - Logs | 飞涨 - 日志",
+    "%AppData%\\Zoom\\logs",
+    "dir",
+    false,
+    "BleachBit zoom.xml option=logs command=delete search=walk.all path=$$base$$/logs/",
+    true
+  ],
+  [
+    "BleachBit | Zoom - Logs | 飞涨 - 日志 #2",
+    "%AppData%\\Zoom\\installer.txt",
+    "file",
+    false,
+    "BleachBit zoom.xml option=logs command=delete search=file path=$$base$$/installer.txt",
+    true
+  ],
+  [
+    "BleachBit | Zoom - Recordings | 飞涨 - 录音",
+    "%Documents%\\Zoom",
+    "dir",
+    false,
+    "BleachBit zoom.xml option=recordings command=delete search=walk.all path=$$doc$$",
+    true
+  ]
+]

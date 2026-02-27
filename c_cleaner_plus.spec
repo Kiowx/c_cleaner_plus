@@ -89,7 +89,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=True,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=['python3.dll', 'python311.dll', 'vcruntime140.dll', 'qwindows.dll', 'shiboken6.dll'],
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
@@ -99,4 +99,5 @@ exe = EXE(
     entitlements_file=None,
     uac_admin=True,
 )
+
 

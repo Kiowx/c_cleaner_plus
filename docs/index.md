@@ -4,6 +4,9 @@ hero:
   name: C Cleaner Plus
   text: Windows C 盘强力清理工具
   tagline: 基于 Python + Fluent 2 Design，完全开源免费
+  image:
+    src: /logo.png
+    alt: C Cleaner Plus
   actions:
     - theme: brand
       text: 快速开始
@@ -15,14 +18,39 @@ hero:
 features:
   - icon: 🧹
     title: 常规清理
-    details: 清理系统临时文件、日志、缓存
+    details: 清理系统临时文件、日志、缓存等垃圾文件
   - icon: 📁
     title: 大文件扫描
-    details: 快速定位占用空间大的文件
+    details: 快速定位占用空间较大的文件
   - icon: 🔍
     title: 重复文件查找
-    details: 三阶段哈希算法定位重复文件
+    details: 三阶段哈希算法精准定位重复文件
+  - icon: 🗑️
+    title: 空文件夹清理
+    details: 深度遍历并安全清理无内容的空目录
+  - icon: 🔗
+    title: 无效快捷方式
+    details: 自动解析并清理目标丢失的失效快捷方式
   - icon: 🛡️
     title: 安全可靠
-    details: 支持系统还原点，完善警告机制
+    details: 支持系统还原点，完善的警告机制
 ---
+
+## 🌟 为什么选择 C Cleaner Plus？
+
+| 特性 | 说明 |
+|------|------|
+| 🎨 **美观界面** | Fluent 2 Design 设计，现代简洁 |
+| ⚡ **高效清理** | 多线程扫描，快速释放空间 |
+| 🔒 **安全保障** | 回收站模式，支持系统还原点 |
+| 🆓 **完全免费** | 开源免费，无广告无捆绑 |
+| 🌐 **中文支持** | 完整中文界面，操作简单 |
+
+## 🚀 快速开始
+
+1. 前往 [Releases](https://github.com/Kiowx/c_cleaner_plus/releases) 下载
+2. 右键以管理员身份运行
+3. 选择清理项目，点击扫描
+4. 确认清理，释放空间
+
+[了解更多 →](/guide/)

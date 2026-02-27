@@ -1,0 +1,10 @@
+{
+  "name": "c-cleaner-plus-docs",
+  "version": "1.0.0",
+  "scripts": {
+    "docs:build": "vitepress build docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.0.0"
+  }
+}

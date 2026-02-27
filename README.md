@@ -204,7 +204,8 @@ python main.py
 
 * `%TEMP%\cdisk_cleaner_cache.json`
   用于保存硬盘类型检测缓存，可在设置页一键刷新
-
+### 通用规则
+* 你可以使用项目提供的通用[config](https://github.com/Kiowx/c_cleaner_plus/tree/main/config)规则
 ### 自定义规则格式
 
 详见：https://docs.cus.cc.cd/guide/config.html

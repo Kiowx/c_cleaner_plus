@@ -83,7 +83,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='C盘强力清理工具',
+    name='c_cleaner_plus',
     icon='app.ico',
     debug=False,
     bootloader_ignore_signals=False,
@@ -115,6 +115,7 @@ exe = EXE(
     entitlements_file=None,
     uac_admin=True,
 )
+
 
 
 

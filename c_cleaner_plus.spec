@@ -89,7 +89,23 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=True,
     upx=True,
-    upx_exclude=['python3.dll', 'python311.dll', 'vcruntime140.dll', 'qwindows.dll', 'shiboken6.dll'],
+    upx_exclude=[
+            # Python 核心
+            'python3.dll', 'python311.dll', 'python312.dll',
+            # C++ 底层运行库 (极其重要)
+            'vcruntime140.dll', 'vcruntime140_1.dll',
+            'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll',
+            'ucrtbase.dll', 
+            # API-MS-WIN-CRT 系列 (直接用通配符，如果 PyInstaller 版本支持)
+            'api-ms-win-*.dll',
+            # PySide6 核心库
+            'Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll', 
+            'Qt6Network.dll', 'Qt6Svg.dll', 'Qt6Xml.dll',
+            'shiboken6.dll', 'shiboken6.abi3.dll',
+            # 加密库
+            'libcrypto-3-x64.dll', 'libssl-3-x64.dll',
+            'libcrypto-3.dll', 'libssl-3.dll'
+    ],
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
@@ -99,5 +115,6 @@ exe = EXE(
     entitlements_file=None,
     uac_admin=True,
 )
+
 
 

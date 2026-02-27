@@ -87,25 +87,37 @@ exe = EXE(
     icon='app.ico',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
-    upx=True,
+    
+    # 👇 关键修改 1：Strip 必须保持 False！(强行剔除签名极易被杀毒软件误杀并导致 DLL 损坏)
+    strip=False,         
+    
+    # 👇 关键修改 2：满足你的心愿，开启 UPX 压缩！
+    upx=True,            
+    
+    # 👇 关键修改 3：免死金牌名单！把报错的元凶和 C++ 底层核心全部保护起来
     upx_exclude=[
-            # Python 核心
-            'python3.dll', 'python311.dll', 'python312.dll',
-            # C++ 底层运行库 (极其重要)
-            'vcruntime140.dll', 'vcruntime140_1.dll',
-            'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll',
-            'ucrtbase.dll', 
-            # API-MS-WIN-CRT 系列 (直接用通配符，如果 PyInstaller 版本支持)
-            'api-ms-win-*.dll',
-            # PySide6 核心库
-            'Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll', 
-            'Qt6Network.dll', 'Qt6Svg.dll', 'Qt6Xml.dll',
-            'shiboken6.dll', 'shiboken6.abi3.dll',
-            # 加密库
-            'libcrypto-3-x64.dll', 'libssl-3-x64.dll',
-            'libcrypto-3.dll', 'libssl-3.dll'
+        # 1. 解决你报错截图的绝对元凶
+        'python3.dll', 
+        'python311.dll', 
+        'python312.dll',
+        
+        # 2. 极其脆弱的 C++ 底层运行库（压了必崩）
+        'vcruntime140.dll', 
+        'vcruntime140_1.dll',
+        'msvcp140.dll', 
+        'msvcp140_1.dll', 
+        'msvcp140_2.dll',
+        'ucrtbase.dll',
+        
+        # 3. PySide6 图形界面核心（压了可能白屏或闪退）
+        'shiboken6.dll', 
+        'shiboken6.abi3.dll',
+        'Qt6Core.dll', 
+        'Qt6Gui.dll', 
+        'Qt6Widgets.dll',
+        'qwindows.dll'
     ],
+    
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,

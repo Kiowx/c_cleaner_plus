@@ -29,3 +29,22 @@ pip install -r requirements.txt
 
 # 3. 以管理员身份运行
 python main.py
+```
+
+### 依赖安装故障排除
+
+```bash
+# 如遇 pip 安装问题，可尝试
+pip install --upgrade pip
+pip install -r requirements.txt --user
+
+# 或使用国内镜像
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+## 常见问题
+
+### 启动时提示权限不足？
+
+右键程序 → 以管理员身份运行。部分清理功能需要管理员权限。
+```

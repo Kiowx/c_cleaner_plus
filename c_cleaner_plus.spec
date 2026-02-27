@@ -86,22 +86,14 @@ exe = EXE(
     name='c_cleaner_plus',
     icon='app.ico',
     debug=False,
-    bootloader_ignore_signals=False,
-    
-    # 👇 关键修改 1：Strip 必须保持 False！(强行剔除签名极易被杀毒软件误杀并导致 DLL 损坏)
+    bootloader_ignore_signals=False,    
     strip=False,         
-    
-    # 👇 关键修改 2：满足你的心愿，开启 UPX 压缩！
     upx=True,            
-    
-    # 👇 关键修改 3：免死金牌名单！把报错的元凶和 C++ 底层核心全部保护起来
     upx_exclude=[
-        # 1. 解决你报错截图的绝对元凶
         'python3.dll', 
         'python311.dll', 
         'python312.dll',
         
-        # 2. 极其脆弱的 C++ 底层运行库（压了必崩）
         'vcruntime140.dll', 
         'vcruntime140_1.dll',
         'msvcp140.dll', 
@@ -109,7 +101,6 @@ exe = EXE(
         'msvcp140_2.dll',
         'ucrtbase.dll',
         
-        # 3. PySide6 图形界面核心（压了可能白屏或闪退）
         'shiboken6.dll', 
         'shiboken6.abi3.dll',
         'Qt6Core.dll', 
@@ -127,6 +118,7 @@ exe = EXE(
     entitlements_file=None,
     uac_admin=True,
 )
+
 
 
 

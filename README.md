@@ -1,25 +1,30 @@
-# c_cleaner_plus
-
 <p align="center">
   <img width="250" height="250" alt="driveclean_icon_512_circle" src="https://github.com/user-attachments/assets/f2d6399e-868c-4205-a086-65c6e3603468" />
 </p>
 
-<div align="center">
-  <p>
-    <strong>Language</strong> ·
-    <a href="README.md"><strong>简体中文</strong></a> |
-    <a href="README.en.md">English</a>
-  </p>
+<h1 align="center">C Cleaner Plus</h1>
+
+<p align="center">
+  Windows C 盘强力清理工具 · 基于 Python + Fluent 2 Design
+</p>
+
 
 <p align="center">
   <a href="https://github.com/Kiowx/c_cleaner_plus/releases">
     <img src="https://img.shields.io/github/v/tag/Kiowx/c_cleaner_plus?style=flat-square&color=green&label=Version" alt="Version">
   </a>
+  <a href="https://docs.cus.cc.cd/">
+    <img src="https://img.shields.io/badge/_文档-docs.cus.cc.cd-12B7F5?style=flat-square&logo=read-the-docs&logoColor=white" alt="Documentation">
+  </a>
   <a href="https://qm.qq.com/q/xE1xw9wP7M">
-    <img src="https://img.shields.io/badge/QQ 交流群 - 点击加入 -12B7F5?style=flat-square&logo=tencent-qq&logoColor=white" alt="QQ Group">
+    <img src="https://img.shields.io/badge/QQ 交流群 - 点击加入-12B7F5?style=flat-square&logo=tencent-qq&logoColor=white" alt="QQ Group">
   </a>
 </p>
-</div>
+<p align="center">
+  <a href="README.md"><strong>简体中文</strong></a> ·
+  <a href="README.en.md">English</a>
+</p>
+
 
 ---
 
@@ -27,7 +32,7 @@ Windows 系统的 C 盘强力清理工具，可扫描并清理 C 盘中的垃圾
 
 本项目使用 **Python + Fluent 2 Design** 编写，完全开源免费，面向 Windows 平台，支持常规垃圾清理、大文件扫描、重复文件查找、空文件夹清理、无效快捷方式清理及注册表清理等多种模式，同时提供 GUI 界面，每次启动时自动获取管理员权限、回收站/永久删除等功能，简单易操作，适合各种方面的用户使用。
 
-<img width="1674" height="962" alt="QQ_1772002038801" src="https://github.com/user-attachments/assets/485d81c7-53cc-4d5f-b274-cccd39c7c46a" />
+<img width="1682" height="969" alt="QQ_1772186747866" src="https://github.com/user-attachments/assets/866ccfb3-9295-4c97-9ec6-0c9a4248726c" />
 
 ---
 
@@ -48,6 +53,7 @@ Windows 系统的 C 盘强力清理工具，可扫描并清理 C 盘中的垃圾
 - 扫描并**获取可清理大小**
 - 按项目勾选执行
 - 安全项默认勾选
+- 自定义清理规则
 
 ---
 
@@ -104,6 +110,26 @@ Windows 系统的 C 盘强力清理工具，可扫描并清理 C 盘中的垃圾
   - 卸载信息残留
 - **自动隐藏** 无关的磁盘选择模块
 - 清理前建议创建系统还原点
+
+#### 右键菜单清理
+- 深度扫描系统关键注册表位置
+- 列出并清理多余、失效或不需要的右键扩展项
+- 支持递归删除，包含子项的注册表键也可彻底清理
+
+---
+
+### 应用强力卸载
+提供两条路线
+
+- 标准卸载  
+  调用软件自带卸载程序，卸载结束后可继续深度扫描残留
+
+- 强力卸载  
+  面向顽固软件的强力清除流程  
+  可尝试解除进程、服务与驱动锁定  
+  使用系统命令强删注册表项  
+  强制删除残留文件与目录  
+  对内核锁定文件可安排重启后删除
 
 ---
 
@@ -162,6 +188,51 @@ pip install -r requirements.txt
 python main.py
 ```
 ---
+
+## 📁 配置文件说明
+
+常见配置文件位于本机以下路径
+
+* `%LOCALAPPDATA%\cdisk_cleaner_config.json`
+  用于保存常规清理的勾选状态与拖拽排序记忆
+
+* `%LOCALAPPDATA%\cdisk_cleaner_custom_rules.json`
+  用于保存自定义清理规则，独立于界面偏好
+
+* `%LOCALAPPDATA%\cdisk_cleaner_global_settings.json`
+  用于保存全局设置，例如自动保存与更新通道
+
+* `%TEMP%\cdisk_cleaner_cache.json`
+  用于保存硬盘类型检测缓存，可在设置页一键刷新
+
+### 自定义规则格式
+
+详见：https://docs.cus.cc.cd/guide/config.html
+
+## 更新通道配置
+
+在系统设置界面可配置更新通道：
+
+| 通道 | 说明 |
+|------|------|
+| **稳定版** | 经过充分测试的版本，推荐普通用户使用 |
+| **测试版** | 更新较快，可能包含新功能，适合尝鲜用户 |
+
+# 贡献指南
+
+## 代码贡献
+
+1. Fork 本项目
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
+
+## 问题反馈
+
+- 遇到问题请在 GitHub Issues 中提交
+- 请详细描述问题现象、复现步骤、系统环境
+- 附上相关截图或日志文件
 
 ## 免责声明
 

@@ -88,6 +88,64 @@ def _version_key(version):
         rank = 0
     return (nums, rank, n)
 
+def _extract_relaxed_json_string(text, key):
+    pattern = rf'"{re.escape(key)}"\s*:\s*"'
+    m = re.search(pattern, text, re.S)
+    if not m:
+        return None
+
+    i = m.end()
+    buf = []
+    escaped = False
+    while i < len(text):
+        ch = text[i]
+        if escaped:
+            buf.append(ch)
+            escaped = False
+            i += 1
+            continue
+        if ch == "\\":
+            buf.append(ch)
+            escaped = True
+            i += 1
+            continue
+        if ch == '"':
+            tail = text[i + 1:]
+            if re.match(r"\s*(,|\})", tail, re.S):
+                raw = "".join(buf)
+                try:
+                    return json.loads(f'"{raw}"')
+                except Exception:
+                    return raw.replace("\\n", "\n").replace('\\"', '"')
+            # 宽松模式：把未转义的内部引号视为正文内容
+            buf.append('\\"')
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    return None
+
+def _extract_relaxed_json_bool(text, key):
+    m = re.search(rf'"{re.escape(key)}"\s*:\s*(true|false)', text, re.I | re.S)
+    if not m:
+        return None
+    return m.group(1).lower() == "true"
+
+def _load_update_payload(text):
+    try:
+        return json.loads(text)
+    except Exception:
+        # 兼容 update.json 中 changelog 混入未转义双引号的情况
+        fallback = {}
+        for key in ("version", "tag", "name", "url", "download_url", "download", "changelog", "notes", "desc"):
+            val = _extract_relaxed_json_string(text, key)
+            if val is not None:
+                fallback[key] = val
+        prerelease = _extract_relaxed_json_bool(text, "prerelease")
+        if prerelease is not None:
+            fallback["prerelease"] = prerelease
+        return fallback if fallback else None
+
 class FluentOnlyCheckDelegate(TableItemDelegate):
     def paint(self, painter, option, index):
         painter.save()
@@ -1603,7 +1661,7 @@ class MoreCleanPage(ScrollArea):
         self.cb_mode.setFixedWidth(200); self.cb_mode.currentIndexChanged.connect(self._on_mode_change)
         dl.addWidget(StrongBodyLabel("扫描类型:")); dl.addWidget(self.cb_mode); dl.addSpacing(20)
 
-        self.drives = [d for d in get_available_drives() if not d.upper().startswith("C")]
+        self.drives = get_available_drives()
         self.drive_actions = []
         self.drive_states = {d: False for d in self.drives}
         self._menu_last_close = 0
@@ -1612,9 +1670,10 @@ class MoreCleanPage(ScrollArea):
         for d in self.drives:
             action = Action(d); action.setData(d); action.triggered.connect(lambda checked=False, a=action: self._toggle_drive(a))
             self.menu_drives.addAction(action); self.drive_actions.append(action)
-        self.btn_drives.clicked.connect(self._show_drives_menu); self._update_drive_btn_text()
+        self.btn_drives.clicked.connect(self._show_drives_menu)
         
         self.lbl_disk_req = StrongBodyLabel("选择范围:"); dl.addWidget(self.lbl_disk_req); dl.addWidget(self.btn_drives); dl.addStretch(); v.addLayout(dl)
+        self._on_mode_change()
 
         pr = QHBoxLayout(); pr.setSpacing(10)
         self.chk_perm=CheckBox("永久删除(文件不进回收站)"); self.chk_perm.setChecked(True); pr.addWidget(self.chk_perm); pr.addStretch(); v.addLayout(pr)
@@ -1656,8 +1715,17 @@ class MoreCleanPage(ScrollArea):
             self.btn_sel_all.setText("全选"); self.btn_sel_all.setIcon(FIF.ACCEPT)
 
     def _on_mode_change(self):
-        is_reg = self.cb_mode.currentIndex() in (3, 4)
+        mode_idx = self.cb_mode.currentIndex()
+        is_reg = mode_idx in (3, 4)
         self.btn_drives.setVisible(not is_reg); self.lbl_disk_req.setVisible(not is_reg)
+        hide_c_drive = mode_idx == 0
+        for d in self.drives:
+            if hide_c_drive and d.upper().startswith("C"):
+                self.drive_states[d] = False
+        for a in self.drive_actions:
+            is_c_drive = str(a.data()).upper().startswith("C")
+            a.setVisible(not (hide_c_drive and is_c_drive))
+        self._update_drive_btn_text()
 
     def _show_drives_menu(self):
         if time.time() - self._menu_last_close < 0.2: return
@@ -1665,7 +1733,8 @@ class MoreCleanPage(ScrollArea):
     def _toggle_drive(self, action):
         d = action.data(); self.drive_states[d] = not self.drive_states[d]; self._update_drive_btn_text()
     def _update_drive_btn_text(self):
-        sel = [a.data() for a in self.drive_actions if self.drive_states[a.data()]]
+        visible_actions = [a for a in self.drive_actions if a.isVisible()]
+        sel = [a.data() for a in visible_actions if self.drive_states[a.data()]]
         for a in self.drive_actions: a.setText(f"{a.data()} √" if self.drive_states[a.data()] else a.data())
         if not sel:
             txt = "磁盘: (未选择)"
@@ -2078,8 +2147,12 @@ class MainWindow(FluentWindow):
     def _check_update_worker(self):
         try:
             with urllib.request.urlopen(UPDATE_JSON_URL, timeout=8) as r:
-                payload = json.loads(r.read().decode("utf-8"))
+                raw_text = r.read().decode("utf-8")
         except:
+            return
+
+        payload = _load_update_payload(raw_text)
+        if not payload:
             return
 
         def _extract_entries(obj):

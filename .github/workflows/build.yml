@@ -2,9 +2,11 @@ name: Build and Release Windows EXE
 
 # 触发条件：
 on:
+  # 1. 当你推送 v 开头的 tag 时自动触发 (例如 v0.2.3 或 v0.2.4-alpha)
   push:
     tags:
       - 'v*'
+  # 2. 允许在 GitHub 网页上纯手动点击触发
   workflow_dispatch: 
     inputs:
       version_tag:
@@ -12,19 +14,20 @@ on:
         required: true
         default: 'v0.2.4-alpha'
 
+# 赋予 GitHub Action 创建 Release 和上传文件的权限
 permissions:
   contents: write
 
 jobs:
   build:
     name: Package Windows Executable
-    runs-on: windows-latest
+    runs-on: windows-latest  # 使用微软提供的 Windows Server 云环境
 
     steps:
     - name: 1. 检出代码 (Checkout code)
       uses: actions/checkout@v4
       with:
-        # 必须设为 0，拉取所有历史记录，否则无法对比历史 Commit
+        # 设为 0 以拉取所有历史记录，确保能够回溯和对比历史 Commit
         fetch-depth: 0 
 
     - name: 2. 设置 Python 环境 (Set up Python)
@@ -38,15 +41,17 @@ jobs:
         pip install -r requirements.txt
 
     - name: 4. 安装 UPX 压缩工具 (Install UPX)
+      # 利用 Windows 云服务器自带的 choco 包管理器一键安装 UPX
       run: choco install upx
 
     - name: 5. 执行 Spec 打包 (Build executable)
       run: pyinstaller c_cleaner_plus.spec --clean
       env:
+        # 强制 Python 终端使用 UTF-8 编码，防止中文输出报错
         PYTHONIOENCODING: utf8  
 
-    - name: 6. 提取 main.py 的专属更新日志 (Extract main.py commits)
-      # 强制在 Windows 上使用 bash 运行，避免语法报错
+    - name: 6. 提取 main.py 的专属完整更新日志 (Extract main.py commits)
+      # 强制在 Windows 上使用 bash 运行，兼容 Linux 风格的文本处理命令
       shell: bash 
       run: |
         echo "### \`main.py\` 更新日志" > main_release_notes.txt
@@ -56,25 +61,28 @@ jobs:
         PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
         
         if [ -z "$PREV_TAG" ]; then
-          # 如果找不到上一个 Tag (比如这是第一次发布)，就拉取 main.py 所有的历史留言
-          git log --format="- %s" -- main.py >> main_release_notes.txt
+          # 如果找不到上一个 Tag (首次发布)，拉取 main.py 所有的历史完整留言 (%B)
+          git log --format="**💡 提交更新:**%n%B%n---" -- main.py >> main_release_notes.txt
         else
-          # 如果找到了上一个 Tag，只拉取这两个版本之间 main.py 的留言
-          git log --format="- %s" $PREV_TAG..HEAD -- main.py >> main_release_notes.txt
+          # 如果找到了上一个 Tag，只拉取这两个版本之间 main.py 的完整留言 (%B)
+          git log --format="**💡 提交更新:**%n%B%n---" $PREV_TAG..HEAD -- main.py >> main_release_notes.txt
         fi
         
-        # 如果检测到这段时间内 main.py 没有发生过提交，给个友好的提示
+        # 如果检测到 main.py 没有发生过提交 (文件只有标题那两行)
         if [ $(wc -l < main_release_notes.txt) -le 2 ]; then
-          echo "- 本次版本更新中，\`main.py\` 没有代码变动或提交记录。" >> main_release_notes.txt
+          echo "- 本次版本更新中，\`main.py\` 没有代码变动或详细提交记录。" >> main_release_notes.txt
         fi
 
     - name: 7. 自动创建 GitHub Release 并上传 (Create Release)
       uses: softprops/action-gh-release@v2
       with:
+        # 捕获 dist 目录下的所有 exe 文件
         files: dist/*.exe
+        # 智能命名：如果是手动触发就用输入框的版本号，如果是 push tag 触发就用 tag 名称
         tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
-        # 【核心修改】读取我们刚刚动态生成的 main_release_notes.txt 文件
+        # 【核心修改】读取第 6 步动态生成的纯文本日志文件
         body_path: main_release_notes.txt  
+        # 自动检测版本号中是否包含 "alpha" 或 "beta"，如果包含则自动打上 Pre-release 标记
         prerelease: ${{ contains(github.event.inputs.version_tag || github.ref_name, 'alpha') || contains(github.event.inputs.version_tag || github.ref_name, 'beta') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -26,6 +26,9 @@ jobs:
     steps:
     - name: 1. 检出代码 (Checkout code)
       uses: actions/checkout@v4
+      with:
+        # 【新增】设为 0 表示拉取所有历史记录，这样 GitHub 才能对比新旧 tag 之间的 commits
+        fetch-depth: 0 
 
     - name: 2. 设置 Python 环境 (Set up Python)
       uses: actions/setup-python@v5
@@ -38,25 +41,21 @@ jobs:
         pip install -r requirements.txt
 
     - name: 4. 安装 UPX 压缩工具 (Install UPX)
-      # 利用 Windows 云服务器自带的 choco 包管理器一键安装 UPX
       run: choco install upx
 
     - name: 5. 执行 Spec 打包 (Build executable)
       run: pyinstaller c_cleaner_plus.spec --clean
       env:
-        # 强制 Python 终端使用 UTF-8 编码，防止中文输出报错
         PYTHONIOENCODING: utf8  
 
     - name: 6. 自动创建 GitHub Release 并上传 (Create Release)
       uses: softprops/action-gh-release@v2
       with:
-        # 捕获 dist 目录下的所有 exe 文件
         files: dist/*.exe
-        # 智能命名：如果是手动触发就用输入框的版本号，如果是 push tag 触发就用 tag 名称
         tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
-        # 读取同目录下的 release_notes.md 作为更新日志
-        body_path: release_notes.md  
-        # 【核心新增】自动检测版本号中是否包含 "alpha" 或 "beta"，如果包含则自动打上 Pre-release 标记
+        # 【核心修改 1】删除原来的 body_path: release_notes.md
+        # 【核心修改 2】开启自动生成 Release 描述，它会自动提取这段时间内的 commit 留言
+        generate_release_notes: true  
         prerelease: ${{ contains(github.event.inputs.version_tag || github.ref_name, 'alpha') || contains(github.event.inputs.version_tag || github.ref_name, 'beta') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

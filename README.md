@@ -16,6 +16,9 @@
   <a href="https://docs.cus.cc.cd/">
     <img src="https://img.shields.io/badge/_文档-docs.cus.cc.cd-12B7F5?style=flat-square&logo=read-the-docs&logoColor=white" alt="Documentation">
   </a>
+  <a href="https://t.me/kyu649">
+    <img src="https://img.shields.io/badge/Telegram-交流群-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram">
+  </a>
   <a href="https://qm.qq.com/q/xE1xw9wP7M">
     <img src="https://img.shields.io/badge/QQ 交流群 - 点击加入-12B7F5?style=flat-square&logo=tencent-qq&logoColor=white" alt="QQ Group">
   </a>

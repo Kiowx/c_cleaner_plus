@@ -2,11 +2,9 @@ name: Build and Release Windows EXE
 
 # 触发条件：
 on:
-  # 1. 当你推送 v 开头的 tag 时自动触发 (例如 v0.2.3 或 v0.2.4-alpha)
   push:
     tags:
       - 'v*'
-  # 2. 允许在 GitHub 网页上纯手动点击触发
   workflow_dispatch: 
     inputs:
       version_tag:
@@ -14,20 +12,19 @@ on:
         required: true
         default: 'v0.2.4-alpha'
 
-# 赋予 GitHub Action 创建 Release 和上传文件的权限
 permissions:
   contents: write
 
 jobs:
   build:
     name: Package Windows Executable
-    runs-on: windows-latest  # 使用微软提供的 Windows Server 云环境
+    runs-on: windows-latest
 
     steps:
     - name: 1. 检出代码 (Checkout code)
       uses: actions/checkout@v4
       with:
-        # 【新增】设为 0 表示拉取所有历史记录，这样 GitHub 才能对比新旧 tag 之间的 commits
+        # 必须设为 0，拉取所有历史记录，否则无法对比历史 Commit
         fetch-depth: 0 
 
     - name: 2. 设置 Python 环境 (Set up Python)
@@ -48,14 +45,36 @@ jobs:
       env:
         PYTHONIOENCODING: utf8  
 
-    - name: 6. 自动创建 GitHub Release 并上传 (Create Release)
+    - name: 6. 提取 main.py 的专属更新日志 (Extract main.py commits)
+      # 强制在 Windows 上使用 bash 运行，避免语法报错
+      shell: bash 
+      run: |
+        echo "### \`main.py\` 更新日志" > main_release_notes.txt
+        echo "" >> main_release_notes.txt
+        
+        # 尝试寻找上一个版本 Tag
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        
+        if [ -z "$PREV_TAG" ]; then
+          # 如果找不到上一个 Tag (比如这是第一次发布)，就拉取 main.py 所有的历史留言
+          git log --format="- %s" -- main.py >> main_release_notes.txt
+        else
+          # 如果找到了上一个 Tag，只拉取这两个版本之间 main.py 的留言
+          git log --format="- %s" $PREV_TAG..HEAD -- main.py >> main_release_notes.txt
+        fi
+        
+        # 如果检测到这段时间内 main.py 没有发生过提交，给个友好的提示
+        if [ $(wc -l < main_release_notes.txt) -le 2 ]; then
+          echo "- 本次版本更新中，\`main.py\` 没有代码变动或提交记录。" >> main_release_notes.txt
+        fi
+
+    - name: 7. 自动创建 GitHub Release 并上传 (Create Release)
       uses: softprops/action-gh-release@v2
       with:
         files: dist/*.exe
         tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
-        # 【核心修改 1】删除原来的 body_path: release_notes.md
-        # 【核心修改 2】开启自动生成 Release 描述，它会自动提取这段时间内的 commit 留言
-        generate_release_notes: true  
+        # 【核心修改】读取我们刚刚动态生成的 main_release_notes.txt 文件
+        body_path: main_release_notes.txt  
         prerelease: ${{ contains(github.event.inputs.version_tag || github.ref_name, 'alpha') || contains(github.event.inputs.version_tag || github.ref_name, 'beta') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

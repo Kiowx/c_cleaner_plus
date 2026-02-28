@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.2.3 
+C盘强力清理工具 v0.2.5
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式
-新增：全局设置页面（一键刷新系统缓存、一键恢复默认配置清空自定义规则）
-修复：退出自动保存(拖拽排序、勾选状态、自定义规则完美记忆)、系统还原点功能
+新增
+- 应用强力卸载支持多选批量操作。
+- 标准卸载支持多选顺序执行，单个软件卸载完成后可继续选择是否扫描残留。
+- 强力卸载支持多选后统一清理，自动合并并去重残留文件与注册表项。
+优化
+- 大文件扫描页将“类型 / 线程”信息移动到标题右侧，信息展示更集中。
+- 卸载与强力清理流程日志更清晰，完成提示更明确。
+- 优化“选择范围”可读性与多盘显示体验
 """
 
 import os, sys, time, ctypes, threading, subprocess, queue, json, hashlib, winreg, re
@@ -37,7 +43,7 @@ from qfluentwidgets import (
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.2.3"
+CURRENT_VERSION = "0.2.5"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 
 from qfluentwidgets.components.widgets.table_view import TableItemDelegate
@@ -123,6 +129,32 @@ class FluentOnlyCheckDelegate(TableItemDelegate):
         if orig_check is not None: model.setData(index, None, Qt.ItemDataRole.CheckStateRole)
         QStyledItemDelegate.paint(self, painter, option, index)
         if orig_check is not None: model.setData(index, orig_check, Qt.ItemDataRole.CheckStateRole)
+
+
+class LeftAlignedPushButton(PushButton):
+    """Keep Fluent button style, but render text left-aligned."""
+    def __init__(self, text="", parent=None):
+        try:
+            super().__init__(parent=parent)
+        except TypeError:
+            super().__init__("", parent)
+        self._display_text = ""
+        self.setText(text)
+
+    def setText(self, text):
+        self._display_text = text or ""
+        super().setText("")
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self._display_text:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        painter.setPen(self.palette().buttonText().color())
+        rect = self.rect().adjusted(12, 0, -12, 0)
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), self._display_text)
 
 # ══════════════════════════════════════════════════════════
 #  支持完美拖拽排序的 TableWidget
@@ -561,6 +593,16 @@ def make_title_row(icon: FIF, text: str):
     lbl = TitleLabel(text); setFont(lbl, 22, QFont.Weight.Bold); row.addWidget(lbl)
     row.addStretch(); return row
 
+def make_rule_key(nm, pa, tp):
+    return (nm, pa, tp)
+
+def load_rule_keys(raw_items):
+    keys = set()
+    for item in raw_items or []:
+        if isinstance(item, (list, tuple)) and len(item) >= 3:
+            keys.add((item[0], item[1], item[2]))
+    return keys
+
 class AddRuleDialog(MessageBoxBase):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -635,26 +677,25 @@ class SettingPage(ScrollArea):
         cv_save.addLayout(h_save)
         v.addWidget(card_save)
 
-        # 2. 更新通道卡片
-        card_update = CardWidget(self.view)
-        cv_update = QVBoxLayout(card_update)
-        h_update = QHBoxLayout()
-        text_v_update = QVBoxLayout(); text_v_update.setSpacing(2)
-        lbl_up1 = StrongBodyLabel("更新通道")
-        _smooth_title_font(lbl_up1)
-        lbl_up2 = CaptionLabel("选择稳定版仅接收正式版本推送；测试版会接收 alpha/beta/rc 等预发布版本。")
-        lbl_up2.setTextColor(QColor(128, 128, 128))
-        text_v_update.addWidget(lbl_up1); text_v_update.addWidget(lbl_up2)
-        h_update.addLayout(text_v_update); h_update.addStretch()
+        # 2. 内置规则保护卡片
+        card_protect = CardWidget(self.view)
+        cv_protect = QVBoxLayout(card_protect)
+        h_protect = QHBoxLayout()
+        text_v_protect = QVBoxLayout(); text_v_protect.setSpacing(2)
+        lbl_protect1 = StrongBodyLabel("内置默认规则保护")
+        _smooth_title_font(lbl_protect1)
+        lbl_protect2 = CaptionLabel("开启后，常规清理中的内置默认规则无法删除；关闭后可删除，且删除结果会保留到下次启动。")
+        lbl_protect2.setTextColor(QColor(128, 128, 128))
+        text_v_protect.addWidget(lbl_protect1); text_v_protect.addWidget(lbl_protect2)
+        h_protect.addLayout(text_v_protect); h_protect.addStretch()
 
-        self.cb_update_channel = ComboBox()
-        self.cb_update_channel.addItems(["稳定版", "测试版"])
-        saved_channel = self.main_win.global_settings.get("update_channel", "stable")
-        self.cb_update_channel.setCurrentIndex(1 if saved_channel == "beta" else 0)
-        self.cb_update_channel.currentIndexChanged.connect(self._on_update_channel_changed)
-        h_update.addWidget(self.cb_update_channel)
-        cv_update.addLayout(h_update)
-        v.addWidget(card_update)
+        self.switch_protect_builtin = SwitchButton()
+        self.switch_protect_builtin.setOnText("开启"); self.switch_protect_builtin.setOffText("关闭")
+        self.switch_protect_builtin.setChecked(self.main_win.global_settings.get("protect_builtin_rules", True))
+        self.switch_protect_builtin.checkedChanged.connect(self._on_protect_builtin_changed)
+        h_protect.addWidget(self.switch_protect_builtin)
+        cv_protect.addLayout(h_protect)
+        v.addWidget(card_protect)
 
         # 3. 刷新缓存卡片
         card_cache = CardWidget(self.view)
@@ -692,10 +733,35 @@ class SettingPage(ScrollArea):
         cv_reset.addLayout(h_reset)
         v.addWidget(card_reset)
 
+        # 5. 更新通道卡片
+        card_update = CardWidget(self.view)
+        cv_update = QVBoxLayout(card_update)
+        h_update = QHBoxLayout()
+        text_v_update = QVBoxLayout(); text_v_update.setSpacing(2)
+        lbl_up1 = StrongBodyLabel("更新通道")
+        _smooth_title_font(lbl_up1)
+        lbl_up2 = CaptionLabel("选择稳定版仅接收正式版本推送；测试版会接收 alpha/beta/rc 等预发布版本。")
+        lbl_up2.setTextColor(QColor(128, 128, 128))
+        text_v_update.addWidget(lbl_up1); text_v_update.addWidget(lbl_up2)
+        h_update.addLayout(text_v_update); h_update.addStretch()
+
+        self.cb_update_channel = ComboBox()
+        self.cb_update_channel.addItems(["稳定版", "测试版"])
+        saved_channel = self.main_win.global_settings.get("update_channel", "stable")
+        self.cb_update_channel.setCurrentIndex(1 if saved_channel == "beta" else 0)
+        self.cb_update_channel.currentIndexChanged.connect(self._on_update_channel_changed)
+        h_update.addWidget(self.cb_update_channel)
+        cv_update.addLayout(h_update)
+        v.addWidget(card_update)
+
         v.addStretch()
 
     def _on_auto_save_changed(self, is_checked):
         self.main_win.global_settings["auto_save"] = is_checked
+        self.main_win.save_global_settings()
+
+    def _on_protect_builtin_changed(self, is_checked):
+        self.main_win.global_settings["protect_builtin_rules"] = is_checked
         self.main_win.save_global_settings()
 
     def _on_update_channel_changed(self, _):
@@ -727,6 +793,9 @@ class SettingPage(ScrollArea):
                     os.remove(self.main_win.config_path)
                 if os.path.exists(self.main_win.custom_rules_path):
                     os.remove(self.main_win.custom_rules_path)
+                self.main_win.deleted_builtin_rule_keys = set()
+                self.main_win.global_settings["deleted_builtin_rules"] = []
+                self.main_win.save_global_settings()
                     
                 InfoBar.success("恢复成功", "所有配置已完全恢复为默认初始状态！", parent=self.main_win)
             except Exception as e:
@@ -872,16 +941,95 @@ class CleanPage(ScrollArea):
             InfoBar.success("成功", f"规则 '{nm}' 已添加！", parent=self.window())
 
     def do_del_rule(self):
-        r = self.tbl.currentRow()
-        if r < 0: InfoBar.warning("提示", "请先在列表中选中一行！", parent=self.window()); return
-        
-        self._sync()
-        if not self.targets[r][5]:  
-            InfoBar.error("拒绝操作", "软件内置规则处于保护状态，无法删除！", parent=self.window())
+        # 优先使用“选中行”，若用户只勾选复选框也允许删除
+        sel_rows = []
+        try:
+            sel_rows = [idx.row() for idx in self.tbl.selectionModel().selectedRows()]
+        except Exception:
+            sel_rows = []
+
+        if not sel_rows:
+            cur = self.tbl.currentRow()
+            if cur >= 0:
+                sel_rows = [cur]
+
+        checked_rows = [r for r in range(self.tbl.rowCount()) if is_row_checked(self.tbl, r)]
+        candidate_rows = sel_rows if sel_rows else checked_rows
+        candidate_rows = sorted(set(candidate_rows))
+
+        if not candidate_rows:
+            InfoBar.warning("提示", "请先选中一行，或勾选至少一条规则！", parent=self.window())
             return
-            
-        if MessageBox("确认", f"永久删除自定义规则 '{self.targets[r][0]}'？", self.window()).exec():
-            self.targets.pop(r); self.tbl.removeRow(r); self.save_custom_rules()
+
+        self._sync()
+        builtin_keys = getattr(self.window(), "builtin_rule_keys", set())
+        protect_builtin = self.window().global_settings.get("protect_builtin_rules", True)
+        deleted_builtin_now = []
+
+        deletable_keys = []
+        protected_count = 0
+        for row in candidate_rows:
+            item = self.tbl.item(row, 1)
+            if not item:
+                continue
+            user_data = item.data(Qt.ItemDataRole.UserRole)
+            if not user_data:
+                continue
+            nm, pa, tp, is_c = user_data
+            rule_key = make_rule_key(nm, pa, tp)
+            if protect_builtin and rule_key in builtin_keys:
+                protected_count += 1
+                continue
+            if rule_key in builtin_keys:
+                deleted_builtin_now.append(rule_key)
+            deletable_keys.append((nm, pa, tp, is_c))
+
+        # 去重，避免重复删除同一规则
+        deletable_keys = list(dict.fromkeys(deletable_keys))
+
+        if not deletable_keys:
+            InfoBar.error("拒绝操作", "所选规则均为内置默认规则，无法删除！(系统设置可更改)", parent=self.window())
+            return
+
+        tip = f"永久删除 {len(deletable_keys)} 条自定义规则？"
+        if protected_count > 0:
+            tip += f"\n（将自动跳过 {protected_count} 条内置受保护规则）"
+        if not MessageBox("确认", tip, self.window()).exec():
+            return
+
+        del_key_set = set(deletable_keys)
+
+        # 先删数据源，避免行号变化导致错删
+        for i in range(len(self.targets) - 1, -1, -1):
+            nm, pa, tp, _, _, is_c = self.targets[i]
+            if (nm, pa, tp, is_c) in del_key_set:
+                self.targets.pop(i)
+
+        # 再删表格行（倒序）
+        for r in range(self.tbl.rowCount() - 1, -1, -1):
+            it = self.tbl.item(r, 1)
+            if not it:
+                continue
+            ud = it.data(Qt.ItemDataRole.UserRole)
+            if ud and tuple(ud) in del_key_set:
+                self.tbl.removeRow(r)
+
+        if deleted_builtin_now:
+            deleted_keys = getattr(self.window(), "deleted_builtin_rule_keys", set())
+            deleted_keys.update(deleted_builtin_now)
+            self.window().deleted_builtin_rule_keys = deleted_keys
+            self.window().global_settings["deleted_builtin_rules"] = [list(k) for k in sorted(deleted_keys)]
+            self.window().save_global_settings()
+
+        self.save_custom_rules()
+        if protected_count > 0:
+            InfoBar.success(
+                "已清除",
+                f"已清除 {len(deletable_keys)} 条规则，已跳过 {protected_count} 条内置规则。",
+                parent=self.window()
+            )
+        else:
+            InfoBar.success("已清除", f"已清除 {len(deletable_keys)} 条规则。", parent=self.window())
 
     def do_export_rules(self):
         self._sync()
@@ -911,7 +1059,7 @@ class CleanPage(ScrollArea):
                         self.tbl.setItem(r, 2, QTableWidgetItem(pa)); self.tbl.setItem(r, 3, QTableWidgetItem(nt)); self.tbl.setItem(r, 4, QTableWidgetItem(""))
                         added += 1
                 if added > 0:
-                    self.save_custom_rules(); InfoBar.success("导入成功", f"成功追加 {added} 条自定义规则", parent=self.window())
+                    self.save_custom_rules(); InfoBar.success("导入成功", f"成功导入 {added} 条自定义规则", parent=self.window())
                 else: InfoBar.warning("提示", "未导入任何规则（可能存在重复）", parent=self.window())
             except Exception as e: InfoBar.error("导入失败", f"文件读取错误: {e}", parent=self.window())
 
@@ -1193,58 +1341,106 @@ class UninstallPage(ScrollArea):
     def do_std_uninstall(self):
         data = self._get_checked_rows_data()
         if not data:
-            self.sig.log.emit("请先勾选一个要卸载的软件！"); return
-        if len(data) > 1:
-            self.sig.log.emit("标准卸载一次只能进行一个，请只勾选一个目标。"); return
-            
-        r, nm, pub, loc, cmd, reg = data[0]
-        if not cmd:
-            self.sig.log.emit("该软件未提供标准卸载命令，请直接使用强力清除。"); return
-            
-        self.sig.log.emit(f"[标准卸载] 正在调用官方卸载程序: {nm}")
-        self._current_uninstalling = (r, nm, pub, loc, reg)
-        
-        def run_and_wait():
-            try: 
+            self.sig.log.emit("请先勾选至少一个要卸载的软件！"); return
+        self.stop.clear()
+        threading.Thread(target=self._std_uninstall_w, args=(data,), daemon=True).start()
+
+    def _std_uninstall_w(self, data):
+        t0 = time.time()
+        ok = fl = sk = 0
+        tot = len(data)
+        for i, (r, nm, pub, loc, cmd, reg) in enumerate(data, 1):
+            if self.stop.is_set():
+                self.sig.done.emit(f"标准卸载已取消：成功 {ok}，失败 {fl}，跳过 {sk}，耗时 {time.time()-t0:.1f} 秒")
+                return
+
+            if not cmd:
+                self.sig.log.emit(f"[标准卸载] 跳过 {nm}：未提供卸载命令，请改用强力卸载。")
+                sk += 1
+                self.sig.prog.emit(i, tot)
+                continue
+
+            self.sig.log.emit(f"[标准卸载] 正在调用官方卸载程序: {nm}")
+            try:
                 proc = subprocess.Popen(cmd, shell=True)
-                proc.wait() 
+                proc.wait()
+                ok += 1
+
+                # 串行等待用户处理“是否扫描残留”的弹窗，避免多选时上下文错位
+                self._current_uninstalling = (r, nm, pub, loc, reg)
+                self._leftover_prompt_done = threading.Event()
+                self._leftover_prompt_done.clear()
                 QMetaObject.invokeMethod(self, "prompt_leftover_scan", Qt.ConnectionType.QueuedConnection)
+                self._leftover_prompt_done.wait()
             except Exception as e:
-                self.sig.log.emit(f"启动卸载程序失败: {e}")
-                
-        threading.Thread(target=run_and_wait, daemon=True).start()
+                fl += 1
+                self.sig.log.emit(f"[标准卸载] 启动失败: {nm} -> {e}")
+
+            self.sig.prog.emit(i, tot)
+
+        self.sig.done.emit(f"标准卸载流程结束：成功 {ok}，失败 {fl}，跳过 {sk}，耗时 {time.time()-t0:.1f} 秒")
 
     @Slot()
     def prompt_leftover_scan(self):
-        if not hasattr(self, "_current_uninstalling") or not self._current_uninstalling: return
+        if not hasattr(self, "_current_uninstalling") or not self._current_uninstalling:
+            if hasattr(self, "_leftover_prompt_done"):
+                self._leftover_prompt_done.set()
+            return
         r, nm, pub, loc, reg = self._current_uninstalling
         if MessageBox("卸载程序已退出", f"标准卸载流程已结束。是否立刻进行深度扫描，清理 '{nm}' 可能遗留的注册表和文件残留？", self.window()).exec():
             self._trigger_leftover_scan(r, nm, pub, loc, reg)
         self._current_uninstalling = None
+        if hasattr(self, "_leftover_prompt_done"):
+            self._leftover_prompt_done.set()
 
     def do_force_uninstall(self):
         data = self._get_checked_rows_data()
         if not data:
             self.sig.log.emit("请先勾选目标软件！"); return
-        if len(data) > 1:
-            self.sig.log.emit("强力清除一次只能进行一个，请只勾选一个目标。"); return
-            
-        r, nm, pub, loc, cmd, reg = data[0]
-        self._trigger_leftover_scan(r, nm, pub, loc, reg)
 
-    def _trigger_leftover_scan(self, r, nm, pub, loc, reg):
+        all_files, all_regs = [], []
+        chosen_apps = 0
+        for r, nm, pub, loc, cmd, reg in data:
+            picked = self._pick_leftovers(nm, pub, loc, reg)
+            if picked is None:
+                continue
+            del_files, del_regs = picked
+            if not del_files and not del_regs:
+                continue
+            chosen_apps += 1
+            all_files.extend(del_files)
+            all_regs.extend(del_regs)
+
+        if chosen_apps == 0:
+            self.sig.log.emit("未选择任何残留项，操作已取消。")
+            return
+
+        # 去重并保持顺序，避免重复删除同一路径/注册表键
+        all_files = list(dict.fromkeys(all_files))
+        all_regs = list(dict.fromkeys(all_regs))
+        self.sig.log.emit(f"[强力清除] 批量任务已确认：软件 {chosen_apps} 个，文件/目录 {len(all_files)} 项，注册表 {len(all_regs)} 项。")
+        self.stop.clear()
+        threading.Thread(target=self._force_uninst_w, args=(all_files, all_regs), daemon=True).start()
+
+    def _pick_leftovers(self, nm, pub, loc, reg):
         dialog = LeftoversDialog(self.window(), nm, pub, loc, reg)
         if dialog.tree.topLevelItemCount() == 0:
-            InfoBar.success("扫描完毕", "没有发现任何明显的残留文件或注册表项。", parent=self.window())
+            InfoBar.success("扫描完毕", f"未发现 '{nm}' 的明显残留。", parent=self.window())
+            return [], []
+        if not dialog.exec():
+            return None
+        return dialog.get_selected_items()
+
+    def _trigger_leftover_scan(self, r, nm, pub, loc, reg):
+        picked = self._pick_leftovers(nm, pub, loc, reg)
+        if picked is None:
             return
-            
-        if dialog.exec():
-            del_files, del_regs = dialog.get_selected_items()
-            if not del_files and not del_regs: return
-            
-            self.sig.log.emit(f"[强力清除] 开始清理 {nm} 的残留...")
-            self.stop.clear()
-            threading.Thread(target=self._force_uninst_w, args=(del_files, del_regs), daemon=True).start()
+        del_files, del_regs = picked
+        if not del_files and not del_regs:
+            return
+        self.sig.log.emit(f"[强力清除] 开始清理 {nm} 的残留...")
+        self.stop.clear()
+        threading.Thread(target=self._force_uninst_w, args=(del_files, del_regs), daemon=True).start()
 
     def _force_uninst_w(self, files, regs):
         t0 = time.time()
@@ -1269,26 +1465,33 @@ class UninstallPage(ScrollArea):
             else:
                 self.sig.log.emit(f"[强删文件] 失败(可能仍有驱动级锁定): {f}")
             
-        elapsed = time.time() - t0
-        QMetaObject.invokeMethod(self, "_refresh_after_delete", Qt.ConnectionType.QueuedConnection, elapsed)
+        self.sig.done.emit(f"强力清理完成，耗时 {time.time()-t0:.1f} 秒")
 
 class BigFilePage(ScrollArea):
     def __init__(self, sig, stop, parent=None):
         super().__init__(parent); self.sig=sig; self.stop=stop
         self.view=QWidget(); self.setWidget(self.view); self.setWidgetResizable(True); self.setObjectName("bigFilePage"); self.enableTransparentBackground()
         v=QVBoxLayout(self.view); v.setContentsMargins(28,12,28,20); v.setSpacing(8)
-        v.addLayout(make_title_row(FIF.ZOOM, "大文件扫描"))
+        self._disk_threads = 4; self._disk_type = "检测中..."; self.lbl_disk = CaptionLabel("类型：检测中...  线程：4")
+        self.lbl_disk.setTextColor(QColor(128, 128, 128))
+        self.lbl_disk.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.lbl_disk.setContentsMargins(0, 0, 0, 0)
+
+        title_row = make_title_row(FIF.ZOOM, "大文件扫描")
+        title_row.insertWidget(2, self.lbl_disk, 0, Qt.AlignmentFlag.AlignBottom)
+        v.addLayout(title_row)
         
         self.drives = get_available_drives(); self.drive_actions = []; self.drive_states = {d: (True if d.startswith("C") else False) for d in self.drives}; self._menu_last_close = 0
         dl = QHBoxLayout(); dl.setSpacing(10); dl.addWidget(StrongBodyLabel("选择范围:"))
-        self.btn_drives = PushButton("磁盘: C:\\"); self.menu_drives = RoundMenu(parent=self)
+        self.btn_drives = LeftAlignedPushButton("磁盘: C:\\"); self.menu_drives = RoundMenu(parent=self)
+        self.btn_drives.setMinimumWidth(220)
         for d in self.drives:
             action = Action(d); action.setData(d); action.triggered.connect(lambda checked=False, a=action: self._toggle_drive(a))
             self.menu_drives.addAction(action); self.drive_actions.append(action)
-        self.btn_drives.clicked.connect(self._show_drives_menu); dl.addWidget(self.btn_drives); dl.addStretch(); v.addLayout(dl)
+        self.btn_drives.clicked.connect(self._show_drives_menu); dl.addWidget(self.btn_drives)
+        dl.addStretch(); v.addLayout(dl)
         self._update_drive_btn_text()
 
-        self._disk_threads = 4; self._disk_type = "检测中..."; self.lbl_disk = CaptionLabel(f"类型: 检测中...  |  线程: 4"); v.addWidget(self.lbl_disk)
         self.sig.disk_ready.connect(self._on_disk_ready)
 
         pr=QHBoxLayout(); pr.setSpacing(10); pr.addWidget(CaptionLabel("最小文件MB:"))
@@ -1340,9 +1543,16 @@ class BigFilePage(ScrollArea):
     def _update_drive_btn_text(self):
         sel = [a.data() for a in self.drive_actions if self.drive_states[a.data()]]
         for a in self.drive_actions: a.setText(f"{a.data()} √" if self.drive_states[a.data()] else a.data())
-        self.btn_drives.setText(f"磁盘: {', '.join(sel)}" if sel else "磁盘: (未选择)")
+        if not sel:
+            txt = "磁盘: (未选择)"
+        elif len(sel) == 1:
+            txt = f"磁盘: {sel[0]}"
+        else:
+            txt = f"磁盘: {sel[0]} 等 {len(sel)} 个"
+        self.btn_drives.setText(txt)
+        self.btn_drives.setToolTip(f"已选磁盘: {', '.join(sel)}" if sel else "未选择磁盘")
 
-    def _on_disk_ready(self, dtype, threads): self._disk_type = dtype; self._disk_threads = threads; self.lbl_disk.setText(f"类型: {dtype}  |  线程: {threads}")
+    def _on_disk_ready(self, dtype, threads): self._disk_type = dtype; self._disk_threads = threads; self.lbl_disk.setText(f"类型：{dtype}  线程：{threads}")
 
     def do_scan(self):
         self.stop.clear(); self.btn_sel_all.setText("全选"); self.btn_sel_all.setIcon(FIF.ACCEPT)
@@ -1393,8 +1603,12 @@ class MoreCleanPage(ScrollArea):
         self.cb_mode.setFixedWidth(200); self.cb_mode.currentIndexChanged.connect(self._on_mode_change)
         dl.addWidget(StrongBodyLabel("扫描类型:")); dl.addWidget(self.cb_mode); dl.addSpacing(20)
 
-        self.drives = get_available_drives(); self.drive_actions = []; self.drive_states = {d: (True if d.startswith("C") else False) for d in self.drives}; self._menu_last_close = 0
-        self.btn_drives = PushButton("磁盘: C:\\"); self.menu_drives = RoundMenu(parent=self)
+        self.drives = [d for d in get_available_drives() if not d.upper().startswith("C")]
+        self.drive_actions = []
+        self.drive_states = {d: False for d in self.drives}
+        self._menu_last_close = 0
+        self.btn_drives = LeftAlignedPushButton("磁盘: (未选择)"); self.menu_drives = RoundMenu(parent=self)
+        self.btn_drives.setMinimumWidth(220)
         for d in self.drives:
             action = Action(d); action.setData(d); action.triggered.connect(lambda checked=False, a=action: self._toggle_drive(a))
             self.menu_drives.addAction(action); self.drive_actions.append(action)
@@ -1453,7 +1667,14 @@ class MoreCleanPage(ScrollArea):
     def _update_drive_btn_text(self):
         sel = [a.data() for a in self.drive_actions if self.drive_states[a.data()]]
         for a in self.drive_actions: a.setText(f"{a.data()} √" if self.drive_states[a.data()] else a.data())
-        self.btn_drives.setText(f"磁盘: {', '.join(sel)}" if sel else "磁盘: (未选择)")
+        if not sel:
+            txt = "磁盘: (未选择)"
+        elif len(sel) == 1:
+            txt = f"磁盘: {sel[0]}"
+        else:
+            txt = f"磁盘: {sel[0]} 等 {len(sel)} 个"
+        self.btn_drives.setText(txt)
+        self.btn_drives.setToolTip(f"已选磁盘: {', '.join(sel)}" if sel else "未选择磁盘")
 
     def do_scan(self):
         idx = self.cb_mode.currentIndex(); roots = [d for d, state in self.drive_states.items() if state]
@@ -1660,7 +1881,36 @@ class MoreCleanPage(ScrollArea):
     def do_del(self):
         paths=[self.tbl.item(r,4).text() for r in range(self.tbl.rowCount()) if is_row_checked(self.tbl, r)]
         if not paths: return
-        is_reg = self.cb_mode.currentIndex() in (3, 4)
+        mode_idx = self.cb_mode.currentIndex()
+        is_reg = mode_idx in (3, 4)
+
+        # 为避免误删系统盘内容，重复文件模式禁止清理 C 盘文件
+        if mode_idx == 0:
+            blocked = []
+            allowed = []
+            for p in paths:
+                drive = os.path.splitdrive(norm_path(p))[0].upper()
+                if drive == "C:":
+                    blocked.append(p)
+                else:
+                    allowed.append(p)
+
+            if blocked:
+                self.sig.log.emit(f"[保护] 已阻止清理 {len(blocked)} 个位于 C 盘的重复文件。")
+                InfoBar.warning(
+                    "已阻止",
+                    f"重复文件模式禁止清理 C 盘文件，已跳过 {len(blocked)} 项。",
+                    orient=Qt.Orientation.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3500,
+                    parent=self.window()
+                )
+                paths = allowed
+
+            if not paths:
+                return
+
         if not MessageBox("确认",f"确定清理这 {len(paths)} 个项目？不可恢复。",self.window()).exec(): return
         self.stop.clear()
         if is_reg: threading.Thread(target=self._del_reg_w, args=(paths,), daemon=True).start()
@@ -1705,7 +1955,12 @@ class MainWindow(FluentWindow):
 
         # 1. 加载全局设置
         self.global_settings_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "cdisk_cleaner_global_settings.json")
-        self.global_settings = {"auto_save": True, "update_channel": "stable"}
+        self.global_settings = {
+            "auto_save": True,
+            "update_channel": "stable",
+            "protect_builtin_rules": True,
+            "deleted_builtin_rules": []
+        }
         if os.path.exists(self.global_settings_path):
             try:
                 with open(self.global_settings_path, "r", encoding="utf-8") as f:
@@ -1713,15 +1968,25 @@ class MainWindow(FluentWindow):
             except: pass
 
         self.targets = default_clean_targets()
+        # 记录内置默认规则身份，后续删除保护只针对这批规则
+        self.builtin_rule_keys = {make_rule_key(t[0], t[1], t[2]) for t in self.targets}
+        self.deleted_builtin_rule_keys = load_rule_keys(self.global_settings.get("deleted_builtin_rules", []))
+        if self.deleted_builtin_rule_keys:
+            self.targets = [t for t in self.targets if make_rule_key(t[0], t[1], t[2]) not in self.deleted_builtin_rule_keys]
         self.custom_rules_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "cdisk_cleaner_custom_rules.json")
         
         # 2. 附加自定义规则
         if os.path.exists(self.custom_rules_path):
             try:
                 with open(self.custom_rules_path, "r", encoding="utf-8") as f: customs = json.load(f)
+                # 兼容历史/外部规则文件：
+                # 只要是从 custom_rules_path 读入，都视为“自定义规则”，强制 is_custom=True，
+                # 这样仅内置 default_clean_targets() 会保持受保护状态。
                 for c in customs:
-                    if len(c) == 6: self.targets.append(tuple(c))
-                    elif len(c) == 5: self.targets.append(tuple(c) + (True,)) 
+                    if not isinstance(c, (list, tuple)) or len(c) < 5:
+                        continue
+                    nm, pa, tp, en, nt = c[0], c[1], c[2], c[3], c[4]
+                    self.targets.append((nm, pa, tp, en, nt, True))
             except: pass
 
         # 3. 恢复排序与勾选状态

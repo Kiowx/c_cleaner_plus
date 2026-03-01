@@ -34,6 +34,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11' 
+        cache: 'pip' # 开启 pip 缓存，提升后续自动构建的速度
 
     - name: 3. 安装依赖库 (Install dependencies)
       run: |
@@ -54,24 +55,33 @@ jobs:
       # 强制在 Windows 上使用 bash 运行，兼容 Linux 风格的文本处理命令
       shell: bash 
       run: |
-        echo "### \`main.py\` 更新日志" > main_release_notes.txt
-        echo "" >> main_release_notes.txt
-        
         # 尝试寻找上一个版本 Tag
         PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
         
+        # 提取 Extended description (%b) 到临时文件
         if [ -z "$PREV_TAG" ]; then
-          # 如果找不到上一个 Tag (首次发布)，拉取 main.py 所有的历史完整留言 (%B)
-          git log --format="**💡 提交更新:**%n%B%n---" -- main.py >> main_release_notes.txt
+          git log --format="%b" -- main.py > temp_log.txt
         else
-          # 如果找到了上一个 Tag，只拉取这两个版本之间 main.py 的完整留言 (%B)
-          git log --format="**💡 提交更新:**%n%B%n---" $PREV_TAG..HEAD -- main.py >> main_release_notes.txt
+          git log --format="%b" $PREV_TAG..HEAD -- main.py > temp_log.txt
         fi
         
-        # 如果检测到 main.py 没有发生过提交 (文件只有标题那两行)
-        if [ $(wc -l < main_release_notes.txt) -le 2 ]; then
-          echo "- 本次版本更新中，\`main.py\` 没有代码变动或详细提交记录。" >> main_release_notes.txt
+        # 写入正式日志文件的 Markdown 标题
+        echo "### \`main.py\` 更新日志" > main_release_notes.txt
+        echo "" >> main_release_notes.txt
+        
+        # 过滤掉临时文件中的完全空白行，并将内容追加到正式日志中
+        # 这样原生的 "- 新增xxx" 列表格式就会完美无缝地拼接在一起
+        if [ -s temp_log.txt ]; then
+          grep -v '^[[:space:]]*$' temp_log.txt >> main_release_notes.txt
         fi
+        
+        # 如果检测到正式日志文件只有标题（即没有实质的详细描述）
+        if [ $(wc -l < main_release_notes.txt) -le 2 ]; then
+          echo "- 本次版本更新中，\`main.py\` 没有详细的扩展描述提交记录。" >> main_release_notes.txt
+        fi
+        
+        # 清理临时文件
+        rm temp_log.txt
 
     - name: 7. 自动创建 GitHub Release 并上传 (Create Release)
       uses: softprops/action-gh-release@v2
@@ -80,7 +90,7 @@ jobs:
         files: dist/*.exe
         # 智能命名：如果是手动触发就用输入框的版本号，如果是 push tag 触发就用 tag 名称
         tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
-        # 【核心修改】读取第 6 步动态生成的纯文本日志文件
+        # 读取第 6 步动态生成的纯文本日志文件
         body_path: main_release_notes.txt  
         # 自动检测版本号中是否包含 "alpha" 或 "beta"，如果包含则自动打上 Pre-release 标记
         prerelease: ${{ contains(github.event.inputs.version_tag || github.ref_name, 'alpha') || contains(github.event.inputs.version_tag || github.ref_name, 'beta') }}

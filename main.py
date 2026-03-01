@@ -1,24 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.2.5
+C盘强力清理工具 v0.2.6
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式
-新增
-- 应用强力卸载支持多选批量操作。
-- 标准卸载支持多选顺序执行，单个软件卸载完成后可继续选择是否扫描残留。
-- 强力卸载支持多选后统一清理，自动合并并去重残留文件与注册表项。
-优化
-- 大文件扫描页将“类型 / 线程”信息移动到标题右侧，信息展示更集中。
-- 卸载与强力清理流程日志更清晰，完成提示更明确。
-- 优化“选择范围”可读性与多盘显示体验
 """
 
-import os, sys, time, ctypes, threading, subprocess, queue, json, hashlib, winreg, re
+import os, sys, time, ctypes, threading, subprocess, queue, json, hashlib, winreg, re, heapq
 import urllib.request
 import webbrowser
 from collections import defaultdict
 
-from PySide6.QtCore import Qt, Signal, QObject, QPoint, QMetaObject, Slot, QFileInfo, QSize
+from PySide6.QtCore import Qt, Signal, QObject, QPoint, QMetaObject, Slot, QFileInfo, QSize, QTimer
 from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QDrag, QPixmap, QRegion
 from qfluentwidgets import isDarkTheme, themeColor
 from PySide6.QtWidgets import (
@@ -43,7 +35,7 @@ from qfluentwidgets import (
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.2.5"
+CURRENT_VERSION = "0.2.6"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 
 from qfluentwidgets.components.widgets.table_view import TableItemDelegate
@@ -461,16 +453,34 @@ def get_scan_threads(drive_letter="C"):
     return {"SSD": 16, "HDD": 2, "Unknown": 4}.get(dtype, 4), dtype
 
 def get_scan_threads_cached(drive_letter="C"):
+    drive_letter = str(drive_letter or "C").upper().replace("\\", "").replace(":", "")[:1] or "C"
+    cache_key = f"{drive_letter}:"
     try:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
                 cache = json.load(f)
-            if time.time() - cache.get("ts", 0) < 86400:
+            if isinstance(cache.get("drives"), dict):
+                entry = cache["drives"].get(cache_key)
+                if entry and time.time() - entry.get("ts", 0) < 86400:
+                    return entry["threads"], entry["dtype"]
+            elif time.time() - cache.get("ts", 0) < 86400:
                 return cache["threads"], cache["dtype"]
     except: pass
     threads, dtype = get_scan_threads(drive_letter)
     try:
-        with open(CACHE_FILE, "w", encoding="utf-8") as f: json.dump({"threads": threads, "dtype": dtype, "ts": time.time()}, f)
+        cache = {}
+        if os.path.exists(CACHE_FILE):
+            try:
+                with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                    cache = json.load(f)
+            except:
+                cache = {}
+        drives_cache = cache.get("drives", {}) if isinstance(cache, dict) else {}
+        if not isinstance(drives_cache, dict):
+            drives_cache = {}
+        drives_cache[cache_key] = {"threads": threads, "dtype": dtype, "ts": time.time()}
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"drives": drives_cache}, f)
     except: pass
     return threads, dtype
 
@@ -539,7 +549,7 @@ def should_exclude(p, prefixes):
 # ══════════════════════════════════════════════════════════
 _SENTINEL = None
 
-def _dir_worker(dir_queue, min_b, excl, stop_flag, results, counter, lock):
+def _dir_worker(dir_queue, min_b, excl, stop_flag, results, counter, lock, limit=None):
     while not stop_flag.is_set():
         try: dirpath = dir_queue.get(timeout=0.05)
         except queue.Empty: continue
@@ -563,15 +573,48 @@ def _dir_worker(dir_queue, min_b, excl, stop_flag, results, counter, lock):
             try: entries.close()
             except: pass
         if local_res or local_count:
-            with lock: results.extend(local_res); counter[0] += local_count
+            with lock:
+                if limit and limit > 0:
+                    for item in local_res:
+                        _push_top_file(results, item, limit)
+                else:
+                    results.extend(local_res)
+                counter[0] += local_count
         dir_queue.task_done()
 
-def scan_big_files(roots, min_b, excl, stop, cb, workers=4):
+def _push_top_file(results, item, limit):
+    if limit and limit > 0:
+        if len(results) < limit:
+            heapq.heappush(results, item)
+        elif item[0] > results[0][0]:
+            heapq.heapreplace(results, item)
+    else:
+        results.append(item)
+
+def get_drive_scan_profile(roots):
+    info = []
+    for root in roots or []:
+        drive = os.path.splitdrive(str(root))[0].upper().replace(":", "")
+        if not drive:
+            continue
+        threads, dtype = get_scan_threads_cached(drive)
+        info.append((drive, threads, dtype))
+    if not info:
+        return 4, "Unknown"
+    if len(info) == 1:
+        _, threads, dtype = info[0]
+        return threads, dtype
+    workers = max(item[1] for item in info)
+    dtypes = {item[2] for item in info}
+    dtype = "混合" if len(dtypes) > 1 else next(iter(dtypes))
+    return workers, dtype
+
+def scan_big_files(roots, min_b, excl, stop, cb, workers=4, limit=None):
     dir_queue = queue.Queue(); results = []; counter = [0]; lock = threading.Lock()
     for root in roots: dir_queue.put(root)
     threads = []
     for _ in range(workers):
-        t = threading.Thread(target=_dir_worker, args=(dir_queue, min_b, excl, stop, results, counter, lock), daemon=True)
+        t = threading.Thread(target=_dir_worker, args=(dir_queue, min_b, excl, stop, results, counter, lock, limit), daemon=True)
         t.start(); threads.append(t)
     tk = time.time()
     while not stop.is_set():
@@ -608,6 +651,14 @@ def norm_path(text):
     p=expand_env(p).replace("/","\\")
     try: p=os.path.normpath(p)
     except: pass
+    return p
+
+def display_path(text):
+    if not text:
+        return ""
+    p = str(text)
+    if len(p) >= 2 and p[1] == ":":
+        p = p[0].upper() + p[1:]
     return p
 
 def open_explorer(p):
@@ -661,6 +712,11 @@ def load_rule_keys(raw_items):
             keys.add((item[0], item[1], item[2]))
     return keys
 
+def app_root_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
 class AddRuleDialog(MessageBoxBase):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -697,6 +753,36 @@ class AddRuleDialog(MessageBoxBase):
         t_map = {0: "dir", 1: "file", 2: "glob"}
         return (self.nameInput.text().strip(), self.pathInput.text().strip(), t_map[self.typeCombo.currentIndex()], True, self.descInput.text().strip() or "自定义附加规则", True)
 
+class LegacyMigrationDialog(MessageBoxBase):
+    def __init__(self, old_dir, new_dir, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("发现旧版配置")
+        self.customTitle = TitleLabel("发现旧版配置")
+        setFont(self.customTitle, 16, QFont.Weight.Bold)
+        self.viewLayout.addWidget(self.customTitle)
+        self.viewLayout.addSpacing(10)
+
+        desc = CaptionLabel(
+            f"检测到旧版本配置仍保存在系统目录\n\n旧位置：{display_path(old_dir)}\n新位置：{display_path(new_dir)}\n\n请选择迁移方式："
+        )
+        desc.setWordWrap(True)
+        self.viewLayout.addWidget(desc)
+
+        self.mode_combo = ComboBox()
+        self.mode_combo.addItems([
+            "迁移后自动清理旧配置",
+            "迁移后保留旧配置",
+            "不迁移"
+        ])
+        self.viewLayout.addWidget(self.mode_combo)
+
+        self.yesButton.setText("确定")
+        self.cancelButton.setText("取消")
+        self.widget.setMinimumWidth(520)
+
+    def selected_mode(self):
+        return self.mode_combo.currentIndex()
+
 # ══════════════════════════════════════════════════════════
 #  页面：全局设置 (SettingPage)
 # ══════════════════════════════════════════════════════════
@@ -705,7 +791,7 @@ class SettingPage(ScrollArea):
         super().__init__(parent)
         self.main_win = main_win
         self.view = QWidget(); self.setWidget(self.view); self.setWidgetResizable(True); self.setObjectName("settingPage"); self.enableTransparentBackground()
-        v = QVBoxLayout(self.view); v.setContentsMargins(28, 12, 28, 20); v.setSpacing(16)
+        v = QVBoxLayout(self.view); v.setContentsMargins(28, 12, 28, 20); v.setSpacing(2)
         v.addLayout(make_title_row(FIF.SETTING, "系统设置"))
 
         def _smooth_title_font(label):
@@ -715,6 +801,14 @@ class SettingPage(ScrollArea):
             f.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
             label.setFont(f)
 
+        def _add_category_label(text):
+            lbl = CaptionLabel(text)
+            setFont(lbl, 12, QFont.Weight.Medium) #灰色小字体大小
+            lbl.setTextColor(QColor(128, 128, 128))
+            v.addSpacing(9) #灰色小字体上方留白
+            v.addWidget(lbl)
+
+        _add_category_label("基础设置")
         # 1. 自动保存设置卡片
         card_save = CardWidget(self.view)
         cv_save = QVBoxLayout(card_save)
@@ -722,7 +816,7 @@ class SettingPage(ScrollArea):
         text_v_save = QVBoxLayout(); text_v_save.setSpacing(2)
         lbl1 = StrongBodyLabel("退出时自动保存配置")
         _smooth_title_font(lbl1)
-        lbl2 = CaptionLabel("开启后，将自动保存常规清理中的勾选状态、自定义规则以及你所拖动的排序结果。")
+        lbl2 = CaptionLabel("开启后，将自动保存常规清理中的勾选状态、自定义规则以及你所拖动的排序结果")
         lbl2.setTextColor(QColor(128, 128, 128))
         text_v_save.addWidget(lbl1); text_v_save.addWidget(lbl2)
         h_save.addLayout(text_v_save); h_save.addStretch()
@@ -742,7 +836,7 @@ class SettingPage(ScrollArea):
         text_v_protect = QVBoxLayout(); text_v_protect.setSpacing(2)
         lbl_protect1 = StrongBodyLabel("内置默认规则保护")
         _smooth_title_font(lbl_protect1)
-        lbl_protect2 = CaptionLabel("开启后，常规清理中的内置默认规则无法删除；关闭后可删除，且删除结果会保留到下次启动。")
+        lbl_protect2 = CaptionLabel("开启后，常规清理中的内置默认规则无法删除；关闭后可删除，且删除结果会保留到下次启动")
         lbl_protect2.setTextColor(QColor(128, 128, 128))
         text_v_protect.addWidget(lbl_protect1); text_v_protect.addWidget(lbl_protect2)
         h_protect.addLayout(text_v_protect); h_protect.addStretch()
@@ -762,7 +856,7 @@ class SettingPage(ScrollArea):
         text_v_cache = QVBoxLayout(); text_v_cache.setSpacing(2)
         lbl_cache1 = StrongBodyLabel("刷新系统扫描缓存")
         _smooth_title_font(lbl_cache1)
-        lbl_cache2 = CaptionLabel("刷新自身软件对硬盘类型的检测缓存，当更换或添加硬盘后建议执行。")
+        lbl_cache2 = CaptionLabel("刷新自身软件对硬盘类型的检测缓存，当更换或添加硬盘后建议执行")
         lbl_cache2.setTextColor(QColor(128, 128, 128))
         text_v_cache.addWidget(lbl_cache1); text_v_cache.addWidget(lbl_cache2)
         h_cache.addLayout(text_v_cache); h_cache.addStretch()
@@ -773,6 +867,7 @@ class SettingPage(ScrollArea):
         cv_cache.addLayout(h_cache)
         v.addWidget(card_cache)
 
+        _add_category_label("配置")
         # 4. 恢复默认配置卡片
         card_reset = CardWidget(self.view)
         cv_reset = QVBoxLayout(card_reset)
@@ -780,7 +875,7 @@ class SettingPage(ScrollArea):
         text_v_reset = QVBoxLayout(); text_v_reset.setSpacing(2)
         lbl_reset1 = StrongBodyLabel("恢复默认配置")
         _smooth_title_font(lbl_reset1)
-        lbl_reset2 = CaptionLabel("将常规清理的勾选项、拖拽排序恢复为初始状态，并清除所有自定义规则。")
+        lbl_reset2 = CaptionLabel("将常规清理的勾选项、拖拽排序恢复为初始状态，并清除所有自定义规则")
         lbl_reset2.setTextColor(QColor(128, 128, 128))
         text_v_reset.addWidget(lbl_reset1); text_v_reset.addWidget(lbl_reset2)
         h_reset.addLayout(text_v_reset); h_reset.addStretch()
@@ -790,15 +885,55 @@ class SettingPage(ScrollArea):
         h_reset.addWidget(btn_reset)
         cv_reset.addLayout(h_reset)
         v.addWidget(card_reset)
+        # 5. 迁移旧版配置卡片
+        card_migrate = CardWidget(self.view)
+        cv_migrate = QVBoxLayout(card_migrate)
+        h_migrate = QHBoxLayout()
+        text_v_migrate = QVBoxLayout(); text_v_migrate.setSpacing(2)
+        lbl_migrate1 = StrongBodyLabel("迁移旧版配置文件")
+        _smooth_title_font(lbl_migrate1)
+        lbl_migrate2 = CaptionLabel("检测 LOCALAPPDATA 中的旧版配置文件，并按你的选择迁移到当前配置目录")
+        lbl_migrate2.setTextColor(QColor(128, 128, 128))
+        text_v_migrate.addWidget(lbl_migrate1); text_v_migrate.addWidget(lbl_migrate2)
+        h_migrate.addLayout(text_v_migrate); h_migrate.addStretch()
 
-        # 5. 更新通道卡片
+        btn_migrate = PushButton(FIF.SYNC, "检测")
+        btn_migrate.clicked.connect(self._detect_legacy_config)
+        h_migrate.addWidget(btn_migrate)
+        cv_migrate.addLayout(h_migrate)
+        v.addWidget(card_migrate)
+
+        # 6. 配置目录卡片
+        card_cfg_dir = CardWidget(self.view)
+        cv_cfg_dir = QVBoxLayout(card_cfg_dir)
+        h_cfg_dir = QHBoxLayout()
+        text_v_cfg_dir = QVBoxLayout(); text_v_cfg_dir.setSpacing(2)
+        lbl_cfg1 = StrongBodyLabel("配置保存目录")
+        _smooth_title_font(lbl_cfg1)
+        self.lbl_config_dir = CaptionLabel("")
+        self.lbl_config_dir.setTextColor(QColor(128, 128, 128))
+        text_v_cfg_dir.addWidget(lbl_cfg1); text_v_cfg_dir.addWidget(self.lbl_config_dir)
+        h_cfg_dir.addLayout(text_v_cfg_dir); h_cfg_dir.addStretch()
+
+        btn_cfg_browse = PushButton(FIF.FOLDER, "更改")
+        btn_cfg_browse.clicked.connect(self._choose_config_dir)
+        h_cfg_dir.addWidget(btn_cfg_browse)
+        btn_cfg_reset = PushButton(FIF.UPDATE, "默认")
+        btn_cfg_reset.clicked.connect(self._reset_config_dir)
+        h_cfg_dir.addWidget(btn_cfg_reset)
+        cv_cfg_dir.addLayout(h_cfg_dir)
+        v.addWidget(card_cfg_dir)
+        self._refresh_config_dir_text()
+
+        _add_category_label("更新")
+        # 7. 更新通道卡片
         card_update = CardWidget(self.view)
         cv_update = QVBoxLayout(card_update)
         h_update = QHBoxLayout()
         text_v_update = QVBoxLayout(); text_v_update.setSpacing(2)
         lbl_up1 = StrongBodyLabel("更新通道")
         _smooth_title_font(lbl_up1)
-        lbl_up2 = CaptionLabel("选择稳定版仅接收正式版本推送；测试版会接收 alpha/beta/rc 等预发布版本。")
+        lbl_up2 = CaptionLabel("选择稳定版仅接收正式版本推送；测试版会接收 alpha/beta/rc 等预发布版本")
         lbl_up2.setTextColor(QColor(128, 128, 128))
         text_v_update.addWidget(lbl_up1); text_v_update.addWidget(lbl_up2)
         h_update.addLayout(text_v_update); h_update.addStretch()
@@ -821,6 +956,37 @@ class SettingPage(ScrollArea):
     def _on_protect_builtin_changed(self, is_checked):
         self.main_win.global_settings["protect_builtin_rules"] = is_checked
         self.main_win.save_global_settings()
+
+    def _refresh_config_dir_text(self):
+        cur_dir = self.main_win.config_dir
+        default_dir = self.main_win.default_config_dir
+        text = f"当前: {display_path(cur_dir)}"
+        if os.path.normcase(os.path.abspath(cur_dir)) != os.path.normcase(os.path.abspath(default_dir)):
+            text += f"\n默认: {display_path(default_dir)}"
+        self.lbl_config_dir.setText(text)
+        self.lbl_config_dir.setToolTip(display_path(cur_dir))
+
+    def _choose_config_dir(self):
+        folder = QFileDialog.getExistingDirectory(self, "选择配置保存目录", self.main_win.config_dir)
+        if not folder:
+            return
+        ok, msg = self.main_win.set_config_dir(folder)
+        if ok:
+            self._refresh_config_dir_text()
+            InfoBar.success("已更新", f"配置已切换到: {self.main_win.config_dir}", parent=self.main_win)
+        else:
+            InfoBar.error("修改失败", msg, parent=self.main_win)
+
+    def _reset_config_dir(self):
+        ok, msg = self.main_win.set_config_dir(self.main_win.default_config_dir)
+        if ok:
+            self._refresh_config_dir_text()
+            InfoBar.success("已恢复", "配置保存目录已恢复为软件当前目录下的 configs 文件夹", parent=self.main_win)
+        else:
+            InfoBar.error("恢复失败", msg, parent=self.main_win)
+
+    def _detect_legacy_config(self):
+        self.main_win.prompt_legacy_config_migration(manual=True)
 
     def _on_update_channel_changed(self, _):
         self.main_win.global_settings["update_channel"] = "beta" if self.cb_update_channel.currentIndex() == 1 else "stable"
@@ -974,8 +1140,9 @@ class CleanPage(ScrollArea):
     def save_custom_rules(self):
         self._sync() 
         customs = [t for t in self.targets if t[5]]
-        path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "cdisk_cleaner_custom_rules.json")
+        path = self.window().custom_rules_path
         try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, 'w', encoding='utf-8') as f: json.dump(customs, f, ensure_ascii=False, indent=2)
         except: pass
 
@@ -1083,11 +1250,11 @@ class CleanPage(ScrollArea):
         if protected_count > 0:
             InfoBar.success(
                 "已清除",
-                f"已清除 {len(deletable_keys)} 条规则，已跳过 {protected_count} 条内置规则。",
+                f"已清除 {len(deletable_keys)} 条规则，已跳过 {protected_count} 条内置规则",
                 parent=self.window()
             )
         else:
-            InfoBar.success("已清除", f"已清除 {len(deletable_keys)} 条规则。", parent=self.window())
+            InfoBar.success("已清除", f"已清除 {len(deletable_keys)} 条规则", parent=self.window())
 
     def do_export_rules(self):
         self._sync()
@@ -1153,7 +1320,7 @@ class CleanPage(ScrollArea):
         self.tbl.setDragEnabled(False)
         self._sync()
         if self.chk_perm.isChecked():
-            if not MessageBox("确认", "当前为强力模式，删除后无法恢复。继续？", self.window()).exec(): 
+            if not MessageBox("确认", "当前为强力模式，删除后无法恢复继续？", self.window()).exec(): 
                 self.tbl.setDragEnabled(True)
                 return
         self.stop.clear(); threading.Thread(target=self._cln_w, daemon=True).start()
@@ -1282,7 +1449,7 @@ class UninstallPage(ScrollArea):
         self.view=QWidget(); self.setWidget(self.view); self.setWidgetResizable(True); self.setObjectName("uninstallPage"); self.enableTransparentBackground()
         v=QVBoxLayout(self.view); v.setContentsMargins(28,12,28,20); v.setSpacing(8)
         v.addLayout(make_title_row(FIF.APPLICATION, "应用强力卸载"))
-        v.addWidget(CaptionLabel("标准卸载后自动扫描残留，或直接强力摧毁顽固软件的目录与注册表。"))
+        v.addWidget(CaptionLabel("标准卸载后自动扫描残留，或直接强力摧毁顽固软件的目录与注册表"))
 
         search_layout = QHBoxLayout()
         self.search_input = SearchLineEdit()
@@ -1333,7 +1500,7 @@ class UninstallPage(ScrollArea):
         
         for hkey, subkey_str in keys:
             if self.stop.is_set():
-                self.sig.done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒。")
+                self.sig.done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒")
                 return
             try:
                 key = winreg.OpenKey(hkey, subkey_str)
@@ -1382,7 +1549,7 @@ class UninstallPage(ScrollArea):
         for n, v, p, c, l, r, ic in unique: 
             self.sig.uninst_add.emit(n, v, p, l, r, c, ic)
             
-        self.sig.done.emit(f"成功扫描出 {len(unique)} 个软件，耗时 {time.time()-t0:.1f} 秒。")
+        self.sig.done.emit(f"成功扫描出 {len(unique)} 个软件，耗时 {time.time()-t0:.1f} 秒")
 
     def _get_checked_rows_data(self):
         rows = []
@@ -1413,7 +1580,7 @@ class UninstallPage(ScrollArea):
                 return
 
             if not cmd:
-                self.sig.log.emit(f"[标准卸载] 跳过 {nm}：未提供卸载命令，请改用强力卸载。")
+                self.sig.log.emit(f"[标准卸载] 跳过 {nm}：未提供卸载命令，请改用强力卸载")
                 sk += 1
                 self.sig.prog.emit(i, tot)
                 continue
@@ -1445,7 +1612,7 @@ class UninstallPage(ScrollArea):
                 self._leftover_prompt_done.set()
             return
         r, nm, pub, loc, reg = self._current_uninstalling
-        if MessageBox("卸载程序已退出", f"标准卸载流程已结束。是否立刻进行深度扫描，清理 '{nm}' 可能遗留的注册表和文件残留？", self.window()).exec():
+        if MessageBox("卸载程序已退出", f"标准卸载流程已结束是否立刻进行深度扫描，清理 '{nm}' 可能遗留的注册表和文件残留？", self.window()).exec():
             self._trigger_leftover_scan(r, nm, pub, loc, reg)
         self._current_uninstalling = None
         if hasattr(self, "_leftover_prompt_done"):
@@ -1470,20 +1637,20 @@ class UninstallPage(ScrollArea):
             all_regs.extend(del_regs)
 
         if chosen_apps == 0:
-            self.sig.log.emit("未选择任何残留项，操作已取消。")
+            self.sig.log.emit("未选择任何残留项，操作已取消")
             return
 
         # 去重并保持顺序，避免重复删除同一路径/注册表键
         all_files = list(dict.fromkeys(all_files))
         all_regs = list(dict.fromkeys(all_regs))
-        self.sig.log.emit(f"[强力清除] 批量任务已确认：软件 {chosen_apps} 个，文件/目录 {len(all_files)} 项，注册表 {len(all_regs)} 项。")
+        self.sig.log.emit(f"[强力清除] 批量任务已确认：软件 {chosen_apps} 个，文件/目录 {len(all_files)} 项，注册表 {len(all_regs)} 项")
         self.stop.clear()
         threading.Thread(target=self._force_uninst_w, args=(all_files, all_regs), daemon=True).start()
 
     def _pick_leftovers(self, nm, pub, loc, reg):
         dialog = LeftoversDialog(self.window(), nm, pub, loc, reg)
         if dialog.tree.topLevelItemCount() == 0:
-            InfoBar.success("扫描完毕", f"未发现 '{nm}' 的明显残留。", parent=self.window())
+            InfoBar.success("扫描完毕", f"未发现 '{nm}' 的明显残留", parent=self.window())
             return [], []
         if not dialog.exec():
             return None
@@ -1613,6 +1780,11 @@ class BigFilePage(ScrollArea):
     def _on_disk_ready(self, dtype, threads): self._disk_type = dtype; self._disk_threads = threads; self.lbl_disk.setText(f"类型：{dtype}  线程：{threads}")
 
     def do_scan(self):
+        roots = [d for d, state in self.drive_states.items() if state]
+        if not roots:
+            return
+        self._disk_threads, self._disk_type = get_drive_scan_profile(roots)
+        self.lbl_disk.setText(f"类型：{self._disk_type}  线程：{self._disk_threads}")
         self.stop.clear(); self.btn_sel_all.setText("全选"); self.btn_sel_all.setIcon(FIF.ACCEPT)
         threading.Thread(target=self._scan_w,daemon=True).start()
 
@@ -1622,18 +1794,18 @@ class BigFilePage(ScrollArea):
         roots = [d for d, state in self.drive_states.items() if state]
         if not roots: return
         self.sig.log.emit(f"扫描 (≥{mb}MB) | 线程: {w}"); self.sig.big_clr.emit()
-        res = scan_big_files(roots, mb*1024*1024, DEFAULT_EXCLUDES, self.stop, lambda n: self.sig.prog.emit(n % 100, 100), workers=w)
+        res = scan_big_files(roots, mb*1024*1024, DEFAULT_EXCLUDES, self.stop, lambda n: self.sig.prog.emit(n % 100, 100), workers=w, limit=mx)
         if self.stop.is_set():
             self.sig.done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒")
             return
-        for sz,pa in res[:mx]: self.sig.big_add.emit(str(sz), pa)
-        self.sig.done.emit(f"扫描完成，找到 {len(res[:mx])} 条，耗时 {time.time()-t0:.1f} 秒")
+        for sz,pa in res: self.sig.big_add.emit(str(sz), pa)
+        self.sig.done.emit(f"扫描完成，找到 {len(res)} 条，耗时 {time.time()-t0:.1f} 秒")
 
     def do_del(self):
         paths=[self.tbl.item(r,3).text() for r in range(self.tbl.rowCount()) if is_row_checked(self.tbl, r) and self.tbl.item(r,3)]
         if not paths: return
         pm=self.chk_perm.isChecked()
-        if pm and not MessageBox("确认",f"将永久删除 {len(paths)} 个文件。继续？",self.window()).exec(): return
+        if pm and not MessageBox("确认",f"将永久删除 {len(paths)} 个文件继续？",self.window()).exec(): return
         self.stop.clear(); threading.Thread(target=self._del_w,args=(paths,pm),daemon=True).start()
 
     def _del_w(self, paths, pm):
@@ -1808,42 +1980,72 @@ class MoreCleanPage(ScrollArea):
         if self.stop.is_set():
             self.sig.done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒")
             return
+
         size_dict = defaultdict(list)
         for sz, p in files:
-            if sz > 0: size_dict[sz].append(p)
-        suspects = [paths for paths in size_dict.values() if len(paths) > 1]
-        def _get_hash(path, limit=None):
+            if sz > 0:
+                size_dict[sz].append(p)
+
+        suspects = [(sz, paths) for sz, paths in size_dict.items() if len(paths) > 1]
+
+        def _get_hash(path, head_bytes=None, tail_bytes=0):
             m = hashlib.md5()
             try:
                 with open(path, 'rb') as f:
-                    if limit: m.update(f.read(limit))
+                    if head_bytes is not None:
+                        head = f.read(head_bytes)
+                        m.update(head)
+                        if tail_bytes > 0:
+                            try:
+                                file_size = os.path.getsize(path)
+                            except Exception:
+                                file_size = len(head)
+                            if file_size > len(head):
+                                f.seek(max(0, file_size - tail_bytes))
+                                m.update(f.read(tail_bytes))
                     else:
-                        for chunk in iter(lambda: f.read(8192), b''): m.update(chunk)
+                        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                            m.update(chunk)
                 return m.hexdigest()
-            except: return None
-        results = []; tot = len(suspects)
-        for i, paths in enumerate(suspects):
+            except:
+                return None
+
+        # 先按文件大小筛，再用首尾分块签名做快速分桶，最后只对疑似组做全量哈希。
+        results = []
+        tot = len(suspects)
+        for i, (file_size, paths) in enumerate(suspects, 1):
             if self.stop.is_set(): break
             self.sig.prog.emit(i, tot)
-            h4_dict = defaultdict(list)
+
+            quick_dict = defaultdict(list)
             for p in paths:
-                h = _get_hash(p, 4096)
-                if h: h4_dict[h].append(p)
-            for h4_paths in h4_dict.values():
-                if len(h4_paths) > 1:
-                    full_dict = defaultdict(list)
-                    for p in h4_paths:
-                        fh = _get_hash(p)
-                        if fh: full_dict[fh].append(p)
-                    for duplicates in full_dict.values():
-                        if len(duplicates) > 1: results.append(duplicates)
+                if file_size <= 8192:
+                    sig = _get_hash(p)
+                else:
+                    sig = _get_hash(p, head_bytes=4096, tail_bytes=4096)
+                if sig:
+                    quick_dict[sig].append(p)
+
+            for quick_paths in quick_dict.values():
+                if len(quick_paths) < 2:
+                    continue
+                full_dict = defaultdict(list)
+                for p in quick_paths:
+                    fh = _get_hash(p)
+                    if fh:
+                        full_dict[fh].append(p)
+                for duplicates in full_dict.values():
+                    if len(duplicates) > 1:
+                        results.append((file_size, duplicates))
+
         if self.stop.is_set():
             self.sig.done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒")
             return
+
         cnt = 0
-        for grp_id, dup_list in enumerate(results, 1):
+        for grp_id, (file_size, dup_list) in enumerate(results, 1):
             for idx, p in enumerate(dup_list):
-                self.sig.more_add.emit((idx > 0), "重复文件", f"组 {grp_id}", human_size(os.path.getsize(p)), p); cnt += 1
+                self.sig.more_add.emit((idx > 0), "重复文件", f"组 {grp_id}", human_size(file_size), p); cnt += 1
         self.sig.done.emit(f"扫描完成，找到 {cnt} 个重复文件，耗时 {time.time()-t0:.1f} 秒")
 
     def _scan_empty_dirs(self, roots, workers):
@@ -1965,10 +2167,10 @@ class MoreCleanPage(ScrollArea):
                     allowed.append(p)
 
             if blocked:
-                self.sig.log.emit(f"[保护] 已阻止清理 {len(blocked)} 个位于 C 盘的重复文件。")
+                self.sig.log.emit(f"[保护] 已阻止清理 {len(blocked)} 个位于 C 盘的重复文件")
                 InfoBar.warning(
                     "已阻止",
-                    f"重复文件模式禁止清理 C 盘文件，已跳过 {len(blocked)} 项。",
+                    f"重复文件模式禁止清理 C 盘文件，已跳过 {len(blocked)} 项",
                     orient=Qt.Orientation.Horizontal,
                     isClosable=True,
                     position=InfoBarPosition.TOP,
@@ -1980,7 +2182,7 @@ class MoreCleanPage(ScrollArea):
             if not paths:
                 return
 
-        if not MessageBox("确认",f"确定清理这 {len(paths)} 个项目？不可恢复。",self.window()).exec(): return
+        if not MessageBox("确认",f"确定清理这 {len(paths)} 个项目？不可恢复",self.window()).exec(): return
         self.stop.clear()
         if is_reg: threading.Thread(target=self._del_reg_w, args=(paths,), daemon=True).start()
         else: threading.Thread(target=self._del_files_w, args=(paths,self.chk_perm.isChecked()), daemon=True).start()
@@ -2022,8 +2224,15 @@ class MainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
 
-        # 1. 加载全局设置
-        self.global_settings_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "cdisk_cleaner_global_settings.json")
+        # 1. 加载配置目录与全局设置
+        self.app_dir = app_root_dir()
+        self.default_config_dir = os.path.join(self.app_dir, "configs")
+        self.config_locator_path = os.path.join(self.app_dir, "cdisk_cleaner_bootstrap.json")
+        self.skip_legacy_migration = False
+        self.legacy_migration_acknowledged = False
+        self.config_dir = self._load_config_dir()
+        self._refresh_config_paths()
+        self.legacy_config_dir = os.environ.get("LOCALAPPDATA", "")
         self.global_settings = {
             "auto_save": True,
             "update_channel": "stable",
@@ -2042,7 +2251,6 @@ class MainWindow(FluentWindow):
         self.deleted_builtin_rule_keys = load_rule_keys(self.global_settings.get("deleted_builtin_rules", []))
         if self.deleted_builtin_rule_keys:
             self.targets = [t for t in self.targets if make_rule_key(t[0], t[1], t[2]) not in self.deleted_builtin_rule_keys]
-        self.custom_rules_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "cdisk_cleaner_custom_rules.json")
         
         # 2. 附加自定义规则
         if os.path.exists(self.custom_rules_path):
@@ -2050,7 +2258,7 @@ class MainWindow(FluentWindow):
                 with open(self.custom_rules_path, "r", encoding="utf-8") as f: customs = json.load(f)
                 # 兼容历史/外部规则文件：
                 # 只要是从 custom_rules_path 读入，都视为“自定义规则”，强制 is_custom=True，
-                # 这样仅内置 default_clean_targets() 会保持受保护状态。
+                # 这样仅内置 default_clean_targets() 会保持受保护状态
                 for c in customs:
                     if not isinstance(c, (list, tuple)) or len(c) < 5:
                         continue
@@ -2059,7 +2267,6 @@ class MainWindow(FluentWindow):
             except: pass
 
         # 3. 恢复排序与勾选状态
-        self.config_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "cdisk_cleaner_config.json")
         if os.path.exists(self.config_path):
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f: saved_state = json.load(f)
@@ -2097,9 +2304,200 @@ class MainWindow(FluentWindow):
         self._init_nav(); self._init_win(); self._conn()
         threading.Thread(target=self._async_detect, daemon=True).start()
         threading.Timer(2.0, self._check_update_worker).start()
+        self._pending_legacy_migration = self._should_offer_legacy_migration()
+        if self._pending_legacy_migration:
+            QTimer.singleShot(800, self._prompt_legacy_config_migration)
+
+    def _load_config_dir(self):
+        default_dir = self.default_config_dir
+        try:
+            if os.path.exists(self.config_locator_path):
+                with open(self.config_locator_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self.skip_legacy_migration = bool(data.get("skip_legacy_migration", False))
+                self.legacy_migration_acknowledged = bool(data.get("legacy_migration_acknowledged", False))
+                cfg_dir = data.get("config_dir", "")
+                if cfg_dir:
+                    return os.path.abspath(os.path.expandvars(cfg_dir))
+        except:
+            pass
+        return default_dir
+
+    def _save_config_locator(self):
+        try:
+            with open(self.config_locator_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "config_dir": self.config_dir,
+                    "skip_legacy_migration": self.skip_legacy_migration,
+                    "legacy_migration_acknowledged": self.legacy_migration_acknowledged
+                }, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+
+    def _legacy_config_paths(self):
+        base = self.legacy_config_dir
+        return {
+            "global": os.path.join(base, "cdisk_cleaner_global_settings.json"),
+            "custom": os.path.join(base, "cdisk_cleaner_custom_rules.json"),
+            "config": os.path.join(base, "cdisk_cleaner_config.json")
+        }
+
+    def _has_any_current_config(self):
+        return any(os.path.exists(p) for p in (self.global_settings_path, self.custom_rules_path, self.config_path))
+
+    def _should_offer_legacy_migration(self):
+        if not self.legacy_config_dir:
+            return False
+        if self.skip_legacy_migration:
+            return False
+        if self.legacy_migration_acknowledged:
+            return False
+        return any(os.path.exists(p) for p in self._legacy_config_paths().values())
+
+    def _prompt_legacy_config_migration(self):
+        if not getattr(self, "_pending_legacy_migration", False):
+            return
+        self._pending_legacy_migration = False
+        self.prompt_legacy_config_migration(manual=False)
+
+    def has_legacy_config_files(self):
+        if not self.legacy_config_dir:
+            return False
+        return any(os.path.exists(p) for p in self._legacy_config_paths().values())
+
+    def prompt_legacy_config_migration(self, manual=False):
+        if not self.has_legacy_config_files():
+            if manual:
+                InfoBar.warning("提示", "未找到旧版配置文件", parent=self)
+            return False
+
+        dialog = LegacyMigrationDialog(self.legacy_config_dir, self.config_dir, self)
+        if not dialog.exec():
+            return False
+
+        mode = dialog.selected_mode()
+        if mode == 2:
+            self.skip_legacy_migration = True
+            self.legacy_migration_acknowledged = True
+            self._save_config_locator()
+            InfoBar.success("已跳过", "本次未迁移旧版配置", parent=self)
+            return True
+
+        cleanup_old = mode == 0
+        ok, detail = self._migrate_legacy_config(cleanup_old=cleanup_old)
+        if ok:
+            self.skip_legacy_migration = False
+            self.legacy_migration_acknowledged = True
+            self._save_config_locator()
+            if cleanup_old:
+                InfoBar.success("迁移完成", "旧版配置已迁移并清理旧文件，重启软件后生效", parent=self)
+            else:
+                InfoBar.success("迁移完成", "旧版配置已迁移，旧文件已保留，重启软件后生效", parent=self)
+            return True
+
+        InfoBar.error("迁移失败", detail, parent=self)
+        return False
+
+    def _migrate_legacy_config(self, cleanup_old=False):
+        import shutil
+
+        try:
+            os.makedirs(self.config_dir, exist_ok=True)
+            legacy_paths = self._legacy_config_paths()
+            current_paths = {
+                "global": self.global_settings_path,
+                "custom": self.custom_rules_path,
+                "config": self.config_path
+            }
+
+            copied = False
+            for key, src in legacy_paths.items():
+                dst = current_paths[key]
+                if os.path.exists(src):
+                    shutil.copy2(src, dst)
+                    copied = True
+
+            if not copied:
+                return False, "未找到可迁移的旧版配置文件"
+
+            if cleanup_old:
+                for src in legacy_paths.values():
+                    try:
+                        if os.path.exists(src):
+                            os.remove(src)
+                    except:
+                        pass
+
+            self._save_config_locator()
+            return True, ""
+        except Exception as e:
+            return False, f"迁移配置文件失败: {e}"
+
+    def _refresh_config_paths(self):
+        self.global_settings_path = os.path.join(self.config_dir, "cdisk_cleaner_global_settings.json")
+        self.custom_rules_path = os.path.join(self.config_dir, "cdisk_cleaner_custom_rules.json")
+        self.config_path = os.path.join(self.config_dir, "cdisk_cleaner_config.json")
+
+    def save_order_state(self):
+        try:
+            self.pg_clean._sync()
+            order = [t[0] for t in self.targets]
+            states = {t[0]: t[3] for t in self.targets}
+            os.makedirs(self.config_dir, exist_ok=True)
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump({"order": order, "states": states}, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+
+    def set_config_dir(self, new_dir):
+        import shutil
+
+        if not new_dir:
+            return False, "配置目录不能为空"
+
+        try:
+            target_dir = os.path.abspath(os.path.expandvars(new_dir))
+            os.makedirs(target_dir, exist_ok=True)
+        except Exception as e:
+            return False, f"无法创建配置目录: {e}"
+
+        old_global = self.global_settings_path
+        old_custom = self.custom_rules_path
+        old_config = self.config_path
+
+        try:
+            self.save_global_settings()
+            if hasattr(self, "pg_clean"):
+                self.pg_clean.save_custom_rules()
+            if self.global_settings.get("auto_save", True) and hasattr(self, "pg_clean"):
+                self.save_order_state()
+        except:
+            pass
+
+        new_global = os.path.join(target_dir, "cdisk_cleaner_global_settings.json")
+        new_custom = os.path.join(target_dir, "cdisk_cleaner_custom_rules.json")
+        new_config = os.path.join(target_dir, "cdisk_cleaner_config.json")
+
+        for src, dst in ((old_global, new_global), (old_custom, new_custom), (old_config, new_config)):
+            try:
+                if os.path.exists(src) and os.path.abspath(src) != os.path.abspath(dst):
+                    shutil.copy2(src, dst)
+            except Exception as e:
+                return False, f"迁移配置文件失败: {e}"
+
+        self.config_dir = target_dir
+        self._refresh_config_paths()
+        self._save_config_locator()
+        self.save_global_settings()
+        if hasattr(self, "pg_clean"):
+            self.pg_clean.save_custom_rules()
+        if self.global_settings.get("auto_save", True) and hasattr(self, "pg_clean"):
+            self.save_order_state()
+        return True, ""
 
     def save_global_settings(self):
         try:
+            os.makedirs(self.config_dir, exist_ok=True)
             with open(self.global_settings_path, "w", encoding="utf-8") as f:
                 json.dump(self.global_settings, f, ensure_ascii=False, indent=2)
         except: pass
@@ -2107,12 +2505,8 @@ class MainWindow(FluentWindow):
     def closeEvent(self, event):
         if self.global_settings.get("auto_save", True):
             try:
-                self.pg_clean._sync()
                 self.pg_clean.save_custom_rules()
-                order = [t[0] for t in self.targets]
-                states = {t[0]: t[3] for t in self.targets}
-                with open(self.config_path, "w", encoding="utf-8") as f: 
-                    json.dump({"order": order, "states": states}, f, ensure_ascii=False, indent=2)
+                self.save_order_state()
             except: pass
         super().closeEvent(event)
 
@@ -2251,8 +2645,21 @@ class MainWindow(FluentWindow):
         MessageBox("关于", f"C盘强力清理工具 v{CURRENT_VERSION}\nQQ交流群：670804369\nUI：Fluent Widgets\nby Kio",self).exec()
 
 def relaunch_as_admin():
-    try: ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(f'"{a}"' for a in sys.argv), None, 1)
-    except: pass
+    try:
+        if getattr(sys, "frozen", False):
+            params = subprocess.list2cmdline(sys.argv[1:])
+        else:
+            params = subprocess.list2cmdline(sys.argv)
+        ctypes.windll.shell32.ShellExecuteW(
+            None,
+            "runas",
+            sys.executable,
+            params or None,
+            None,
+            1
+        )
+    except:
+        pass
     sys.exit(0)
 
 def main():

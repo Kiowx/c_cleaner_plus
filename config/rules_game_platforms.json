@@ -1,0 +1,142 @@
+[
+  [
+    "Steam 日志",
+    "%LOCALAPPDATA%\\Steam\\logs",
+    "dir",
+    false,
+    "Steam 客户端日志"
+  ],
+  [
+    "Steam 崩溃转储",
+    "%LOCALAPPDATA%\\Steam\\dumps",
+    "dir",
+    false,
+    "Steam 崩溃转储与异常信息"
+  ],
+  [
+    "WeGame 日志",
+    "%APPDATA%\\Tencent\\WeGame\\logs",
+    "dir",
+    false,
+    "WeGame 客户端日志"
+  ],
+  [
+    "WeGame 缓存",
+    "%APPDATA%\\Tencent\\WeGame\\Cache",
+    "dir",
+    false,
+    "WeGame 普通缓存"
+  ],
+  [
+    "GOG Galaxy 日志",
+    "%PROGRAMDATA%\\GOG.com\\Galaxy\\logs",
+    "dir",
+    false,
+    "GOG Galaxy 运行日志"
+  ],
+  [
+    "CurseForge 缓存",
+    "%APPDATA%\\CurseForge\\Cache",
+    "dir",
+    false,
+    "CurseForge 普通缓存"
+  ],
+  [
+    "CurseForge 代码缓存",
+    "%APPDATA%\\CurseForge\\Code Cache",
+    "dir",
+    false,
+    "CurseForge 脚本缓存"
+  ],
+  [
+    "CurseForge GPU 缓存",
+    "%APPDATA%\\CurseForge\\GPUCache",
+    "dir",
+    false,
+    "CurseForge 图形渲染缓存"
+  ],
+  [
+    "CurseForge 日志",
+    "%APPDATA%\\CurseForge\\Logs",
+    "dir",
+    false,
+    "CurseForge 运行日志"
+  ],
+  [
+    "Overwolf 日志",
+    "%LOCALAPPDATA%\\Overwolf\\Log",
+    "dir",
+    false,
+    "Overwolf 日志"
+  ],
+  [
+    "Overwolf 缓存",
+    "%LOCALAPPDATA%\\Overwolf\\Cache",
+    "dir",
+    false,
+    "Overwolf 缓存"
+  ],
+  [
+    "Roblox 日志",
+    "%LOCALAPPDATA%\\Roblox\\logs",
+    "dir",
+    false,
+    "Roblox 客户端日志"
+  ],
+  [
+    "HoYoPlay 日志",
+    "%APPDATA%\\Cognosphere\\HYP\\logs",
+    "dir",
+    false,
+    "HoYoPlay 启动器日志"
+  ],
+  [
+    "HoYoPlay 网页缓存",
+    "%APPDATA%\\Cognosphere\\HYP\\webCaches",
+    "dir",
+    false,
+    "HoYoPlay 内置网页缓存"
+  ],
+  [
+    "Playnite 日志",
+    "%APPDATA%\\Playnite\\Logs",
+    "dir",
+    false,
+    "Playnite 运行日志"
+  ],
+  [
+    "Vortex 缓存",
+    "%APPDATA%\\Vortex\\Cache",
+    "dir",
+    false,
+    "Nexus Mods Vortex 普通缓存"
+  ],
+  [
+    "Vortex GPU 缓存",
+    "%APPDATA%\\Vortex\\GPUCache",
+    "dir",
+    false,
+    "Nexus Mods Vortex 图形渲染缓存"
+  ],
+  [
+    "Minecraft 启动器日志",
+    "%APPDATA%\\.minecraft\\logs",
+    "dir",
+    false,
+    "Minecraft 启动器与游戏日志"
+  ],
+  [
+    "Minecraft 崩溃报告",
+    "%APPDATA%\\.minecraft\\crash-reports",
+    "dir",
+    false,
+    "Minecraft 崩溃报告"
+  ],
+  [
+    "PP 平台日志",
+    "%APPDATA%\\Perfect World\\PWP\\logs",
+    "dir",
+    false,
+    "完美平台日志"
+  ]
+]

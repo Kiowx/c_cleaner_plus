@@ -1,0 +1,142 @@
+[
+  [
+    "企业微信日志",
+    "%APPDATA%\\Tencent\\WXWork\\log",
+    "dir",
+    false,
+    "企业微信客户端日志"
+  ],
+  [
+    "QQ 浏览器缓存",
+    "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\Default\\Cache",
+    "dir",
+    false,
+    "QQ 浏览器普通缓存"
+  ],
+  [
+    "QQ 浏览器代码缓存",
+    "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\Default\\Code Cache",
+    "dir",
+    false,
+    "QQ 浏览器脚本缓存"
+  ],
+  [
+    "QQ 浏览器 GPU 缓存",
+    "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "QQ 浏览器图形渲染缓存"
+  ],
+  [
+    "QQ 音乐缓存",
+    "%APPDATA%\\Tencent\\QQMusic\\Cache",
+    "dir",
+    false,
+    "QQ 音乐缓存目录"
+  ],
+  [
+    "腾讯会议日志",
+    "%APPDATA%\\Tencent\\WeMeet\\logs",
+    "dir",
+    false,
+    "腾讯会议运行日志"
+  ],
+  [
+    "钉钉日志",
+    "%APPDATA%\\DingTalk\\logs",
+    "dir",
+    false,
+    "钉钉运行日志"
+  ],
+  [
+    "飞书日志",
+    "%APPDATA%\\LarkShell\\logs",
+    "dir",
+    false,
+    "飞书运行日志"
+  ],
+  [
+    "WPS 日志",
+    "%LOCALAPPDATA%\\Kingsoft\\WPS Office\\logs",
+    "dir",
+    false,
+    "WPS Office 运行日志"
+  ],
+  [
+    "WPS 缓存",
+    "%LOCALAPPDATA%\\Kingsoft\\WPS Office\\cache",
+    "dir",
+    false,
+    "WPS Office 缓存"
+  ],
+  [
+    "夸克浏览器缓存",
+    "%LOCALAPPDATA%\\Quark\\User Data\\Default\\Cache",
+    "dir",
+    false,
+    "夸克浏览器普通缓存"
+  ],
+  [
+    "夸克浏览器代码缓存",
+    "%LOCALAPPDATA%\\Quark\\User Data\\Default\\Code Cache",
+    "dir",
+    false,
+    "夸克浏览器脚本缓存"
+  ],
+  [
+    "夸克浏览器 GPU 缓存",
+    "%LOCALAPPDATA%\\Quark\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "夸克浏览器图形渲染缓存"
+  ],
+  [
+    "360 浏览器缓存",
+    "%LOCALAPPDATA%\\360Chrome\\Chrome\\User Data\\Default\\Cache",
+    "dir",
+    false,
+    "360 安全浏览器普通缓存"
+  ],
+  [
+    "360 浏览器代码缓存",
+    "%LOCALAPPDATA%\\360Chrome\\Chrome\\User Data\\Default\\Code Cache",
+    "dir",
+    false,
+    "360 安全浏览器脚本缓存"
+  ],
+  [
+    "360 浏览器 GPU 缓存",
+    "%LOCALAPPDATA%\\360Chrome\\Chrome\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "360 安全浏览器图形渲染缓存"
+  ],
+  [
+    "搜狗浏览器缓存",
+    "%LOCALAPPDATA%\\SogouExplorer\\Webkit\\Default\\Cache",
+    "dir",
+    false,
+    "搜狗浏览器普通缓存"
+  ],
+  [
+    "迅雷日志",
+    "%PROGRAMDATA%\\Thunder Network\\Thunder\\logs",
+    "dir",
+    false,
+    "迅雷运行日志"
+  ],
+  [
+    "百度网盘日志",
+    "%APPDATA%\\BaiduNetdisk\\users\\default\\log",
+    "dir",
+    false,
+    "百度网盘运行日志"
+  ],
+  [
+    "剪映日志",
+    "%LOCALAPPDATA%\\JianyingPro\\User Data\\Default\\logs",
+    "dir",
+    false,
+    "剪映桌面版日志"
+  ]
+]

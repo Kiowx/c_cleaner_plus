@@ -1,0 +1,219 @@
+[
+  [
+    "VS Code Insiders 缓存",
+    "%APPDATA%\\Code - Insiders\\Cache",
+    "dir",
+    false,
+    "VS Code Insiders 普通缓存"
+  ],
+  [
+    "VS Code Insiders 编译缓存",
+    "%APPDATA%\\Code - Insiders\\CachedData",
+    "dir",
+    false,
+    "VS Code Insiders 扩展与脚本缓存"
+  ],
+  [
+    "VS Code Insiders GPU 缓存",
+    "%APPDATA%\\Code - Insiders\\GPUCache",
+    "dir",
+    false,
+    "VS Code Insiders 图形渲染缓存"
+  ],
+  [
+    "VS Code Insiders Service Worker",
+    "%APPDATA%\\Code - Insiders\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "VS Code Insiders Service Worker 缓存"
+  ],
+  [
+    "VS Code Insiders 日志",
+    "%APPDATA%\\Code - Insiders\\logs",
+    "dir",
+    false,
+    "VS Code Insiders 运行日志"
+  ],
+  [
+    "VSCodium 缓存",
+    "%APPDATA%\\VSCodium\\Cache",
+    "dir",
+    false,
+    "VSCodium 普通缓存"
+  ],
+  [
+    "VSCodium 编译缓存",
+    "%APPDATA%\\VSCodium\\CachedData",
+    "dir",
+    false,
+    "VSCodium 扩展与脚本缓存"
+  ],
+  [
+    "VSCodium GPU 缓存",
+    "%APPDATA%\\VSCodium\\GPUCache",
+    "dir",
+    false,
+    "VSCodium 图形渲染缓存"
+  ],
+  [
+    "VSCodium 日志",
+    "%APPDATA%\\VSCodium\\logs",
+    "dir",
+    false,
+    "VSCodium 运行日志"
+  ],
+  [
+    "Windsurf 缓存",
+    "%APPDATA%\\Windsurf\\Cache",
+    "dir",
+    false,
+    "Windsurf 普通缓存"
+  ],
+  [
+    "Windsurf 编译缓存",
+    "%APPDATA%\\Windsurf\\CachedData",
+    "dir",
+    false,
+    "Windsurf 扩展与脚本缓存"
+  ],
+  [
+    "Windsurf GPU 缓存",
+    "%APPDATA%\\Windsurf\\GPUCache",
+    "dir",
+    false,
+    "Windsurf 图形渲染缓存"
+  ],
+  [
+    "Windsurf 日志",
+    "%APPDATA%\\Windsurf\\logs",
+    "dir",
+    false,
+    "Windsurf 运行日志"
+  ],
+  [
+    "Trae 缓存",
+    "%APPDATA%\\Trae\\Cache",
+    "dir",
+    false,
+    "Trae 普通缓存"
+  ],
+  [
+    "Trae 编译缓存",
+    "%APPDATA%\\Trae\\CachedData",
+    "dir",
+    false,
+    "Trae 扩展与脚本缓存"
+  ],
+  [
+    "Trae GPU 缓存",
+    "%APPDATA%\\Trae\\GPUCache",
+    "dir",
+    false,
+    "Trae 图形渲染缓存"
+  ],
+  [
+    "Trae 日志",
+    "%APPDATA%\\Trae\\logs",
+    "dir",
+    false,
+    "Trae 运行日志"
+  ],
+  [
+    "GitHub Desktop 缓存",
+    "%APPDATA%\\GitHub Desktop\\Cache",
+    "dir",
+    false,
+    "GitHub Desktop 普通缓存"
+  ],
+  [
+    "GitHub Desktop 代码缓存",
+    "%APPDATA%\\GitHub Desktop\\Code Cache",
+    "dir",
+    false,
+    "GitHub Desktop 脚本缓存"
+  ],
+  [
+    "GitHub Desktop GPU 缓存",
+    "%APPDATA%\\GitHub Desktop\\GPUCache",
+    "dir",
+    false,
+    "GitHub Desktop 图形渲染缓存"
+  ],
+  [
+    "GitHub Desktop 日志",
+    "%APPDATA%\\GitHub Desktop\\logs",
+    "dir",
+    false,
+    "GitHub Desktop 运行日志"
+  ],
+  [
+    "Insomnia 缓存",
+    "%APPDATA%\\Insomnia\\Cache",
+    "dir",
+    false,
+    "Insomnia 普通缓存"
+  ],
+  [
+    "Insomnia 代码缓存",
+    "%APPDATA%\\Insomnia\\Code Cache",
+    "dir",
+    false,
+    "Insomnia 脚本缓存"
+  ],
+  [
+    "Insomnia GPU 缓存",
+    "%APPDATA%\\Insomnia\\GPUCache",
+    "dir",
+    false,
+    "Insomnia 图形渲染缓存"
+  ],
+  [
+    "Insomnia 日志",
+    "%APPDATA%\\Insomnia\\logs",
+    "dir",
+    false,
+    "Insomnia 运行日志"
+  ],
+  [
+    "Bruno 缓存",
+    "%APPDATA%\\Bruno\\Cache",
+    "dir",
+    false,
+    "Bruno 普通缓存"
+  ],
+  [
+    "Bruno 代码缓存",
+    "%APPDATA%\\Bruno\\Code Cache",
+    "dir",
+    false,
+    "Bruno 脚本缓存"
+  ],
+  [
+    "Bruno GPU 缓存",
+    "%APPDATA%\\Bruno\\GPUCache",
+    "dir",
+    false,
+    "Bruno 图形渲染缓存"
+  ],
+  [
+    "Bruno 日志",
+    "%APPDATA%\\Bruno\\logs",
+    "dir",
+    false,
+    "Bruno 运行日志"
+  ],
+  [
+    "DBeaver 日志",
+    "%APPDATA%\\DBeaverData\\logs",
+    "dir",
+    false,
+    "DBeaver 运行日志"
+  ],
+  [
+    "SourceTree 日志",
+    "%LOCALAPPDATA%\\Atlassian\\SourceTree\\logs",
+    "dir",
+    false,
+    "SourceTree 运行日志"
+  ]
+]

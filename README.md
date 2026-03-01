@@ -194,15 +194,15 @@ python main.py
 
 ## 📁 配置文件说明
 
-常见配置文件位于本机以下路径
+常见配置文件位于软件所在路径内
 
-* `%LOCALAPPDATA%\cdisk_cleaner_config.json`
+* `configs\cdisk_cleaner_config.json`
   用于保存常规清理的勾选状态与拖拽排序记忆
 
-* `%LOCALAPPDATA%\cdisk_cleaner_custom_rules.json`
+* `configs\cdisk_cleaner_custom_rules.json`
   用于保存自定义清理规则，独立于界面偏好
 
-* `%LOCALAPPDATA%\cdisk_cleaner_global_settings.json`
+* `configs\cdisk_cleaner_global_settings.json`
   用于保存全局设置，例如自动保存与更新通道
 
 * `%TEMP%\cdisk_cleaner_cache.json`

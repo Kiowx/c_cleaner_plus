@@ -5,7 +5,7 @@
 <h1 align="center">C Cleaner Plus</h1>
 
 <p align="center">
-  Windows C 盘强力清理工具 · 基于 Python + Fluent 2 Design
+  Windows 全盘强力清理工具 · 基于 Python + Fluent 2 Design
 </p>
 
 

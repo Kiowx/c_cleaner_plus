@@ -91,7 +91,8 @@ jobs:
       shell: bash
       run: |
         # 只取最近 1 次涉及 main.py 的 commit 的 Extended description（%b）
-        git log --format="%b" -1 -- main.py | grep -v '^[[:space:]]*$' > main_release_notes.txt
+        # 末尾加 || true 防止 grep 无匹配时返回退出码 1 导致报错
+        git log --format="%b" -1 -- main.py | grep -v '^[[:space:]]*$' > main_release_notes.txt || true
 
         # 如果为空则写入默认内容
         if [ ! -s main_release_notes.txt ]; then

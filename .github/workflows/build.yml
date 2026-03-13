@@ -12,6 +12,11 @@ on:
   # 2. 允许在 GitHub 网页上纯手动点击触发
   workflow_dispatch:
 
+# 同一时间只运行一个，新的触发会自动取消正在进行的旧任务
+concurrency:
+  group: build-release
+  cancel-in-progress: true
+
 # 赋予 GitHub Action 创建 Release 和上传文件的权限
 permissions:
   contents: write
@@ -30,6 +35,10 @@ jobs:
     - name: 2. 从 main.py 提取版本号并自动创建 Tag (Extract version & create tag)
       shell: bash
       run: |
+        # 先打印原文，确认 checkout 到的代码是哪个版本
+        echo "🔍 main.py 中的版本行："
+        grep 'CURRENT_VERSION' main.py
+
         # 从 main.py 中提取版本号
         VERSION=$(grep -oE 'CURRENT_VERSION\s*=\s*"[^"]+"' main.py | grep -oE '"[^"]+"' | tr -d '"')
         if [ -z "$VERSION" ]; then
@@ -43,35 +52,42 @@ jobs:
 
         # 检查该 tag 是否已存在
         if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
-          echo "⚠️ Tag ${RELEASE_TAG} 已存在，跳过创建"
+          echo "⚠️ Tag ${RELEASE_TAG} 已存在，该版本已发布过，跳过本次构建"
+          echo "SKIP_BUILD=true" >> $GITHUB_ENV
         else
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$RELEASE_TAG" -m "Release ${RELEASE_TAG}"
           git push origin "$RELEASE_TAG"
           echo "✅ 已自动创建并推送 Tag: ${RELEASE_TAG}"
+          echo "SKIP_BUILD=false" >> $GITHUB_ENV
         fi
 
     - name: 3. 设置 Python 环境 (Set up Python)
+      if: env.SKIP_BUILD != 'true'
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         cache: 'pip'
 
     - name: 4. 安装依赖库 (Install dependencies)
+      if: env.SKIP_BUILD != 'true'
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
     - name: 5. 安装 UPX 压缩工具 (Install UPX)
+      if: env.SKIP_BUILD != 'true'
       run: choco install upx
 
     - name: 6. 执行 Spec 打包 (Build executable)
+      if: env.SKIP_BUILD != 'true'
       run: pyinstaller c_cleaner_plus.spec --clean
       env:
         PYTHONIOENCODING: utf8
 
     - name: 7. 提取最近一次 main.py 的 commit 日志 (Extract latest main.py commit)
+      if: env.SKIP_BUILD != 'true'
       shell: bash
       run: |
         # 只取最近 1 次涉及 main.py 的 commit，标题 + 正文
@@ -89,6 +105,7 @@ jobs:
         cat main_release_notes.txt
 
     - name: 8. 自动创建 GitHub Release 并上传 (Create Release)
+      if: env.SKIP_BUILD != 'true'
       uses: softprops/action-gh-release@v2
       with:
         files: dist/*.exe

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.3.1
+C盘强力清理工具 v0.3.2-alpha01
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式
 """
@@ -35,7 +35,7 @@ from qfluentwidgets import (
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.3.1"
+CURRENT_VERSION = "0.3.2-alpha01"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 
 from qfluentwidgets.components.widgets.table_view import TableItemDelegate
@@ -450,6 +450,51 @@ def force_delete_registry(full_path, log_fn):
     except Exception as e:
         log_fn(f"[强删注册表] 异常: {e}")
         return False
+
+def _set_registry_value(root, subkey, name, value, value_type=winreg.REG_SZ):
+    with winreg.CreateKey(root, subkey) as key:
+        winreg.SetValueEx(key, name, 0, value_type, value)
+
+def restore_default_explorer_associations(log_fn):
+    """恢复常见的资源管理器打开动作和可执行文件关联。"""
+    try:
+        assoc_values = [
+            (winreg.HKEY_CLASSES_ROOT, r".exe", "", "exefile"),
+            (winreg.HKEY_CLASSES_ROOT, r".exe", "Content Type", "application/x-msdownload"),
+            (winreg.HKEY_CLASSES_ROOT, r".bat", "", "batfile"),
+            (winreg.HKEY_CLASSES_ROOT, r".cmd", "", "cmdfile"),
+            (winreg.HKEY_CLASSES_ROOT, r".com", "", "comfile"),
+            (winreg.HKEY_CLASSES_ROOT, r".lnk", "", "lnkfile"),
+            (winreg.HKEY_CLASSES_ROOT, r"exefile\shell\open\command", "", '"%1" %*'),
+            (winreg.HKEY_CLASSES_ROOT, r"exefile\shell\runas\command", "", '"%1" %*'),
+            (winreg.HKEY_CLASSES_ROOT, r"batfile\shell\open\command", "", '"%1" %*'),
+            (winreg.HKEY_CLASSES_ROOT, r"cmdfile\shell\open\command", "", '"%1" %*'),
+            (winreg.HKEY_CLASSES_ROOT, r"comfile\shell\open\command", "", '"%1" %*'),
+            (winreg.HKEY_CLASSES_ROOT, r"lnkfile", "IsShortcut", ""),
+            (winreg.HKEY_CLASSES_ROOT, r"Directory\shell", "", "none"),
+            (winreg.HKEY_CLASSES_ROOT, r"Folder\shell", "", "none"),
+            (winreg.HKEY_CLASSES_ROOT, r"Drive\shell", "", "none"),
+        ]
+
+        for root, subkey, name, value in assoc_values:
+            _set_registry_value(root, subkey, name, value)
+            label = f"{subkey}\\{name}" if name else subkey
+            log_fn(f"[恢复关联] 已写入: {label}")
+
+        for path in (
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.exe\UserChoice",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.bat\UserChoice",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.cmd\UserChoice",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.com\UserChoice",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.lnk\UserChoice",
+        ):
+            force_delete_registry(path, log_fn)
+
+        log_fn("[恢复关联] 默认资源管理器关联已恢复，建议重启资源管理器或重新登录系统")
+        return True, "默认资源管理器关联已恢复"
+    except Exception as e:
+        log_fn(f"[恢复关联] 失败: {e}")
+        return False, f"恢复默认资源管理器关联失败: {e}"
     
 def kill_app_processes(install_dir, log_fn):
     """强力猎杀目标目录下的所有运行中进程、Windows服务 以及 内核驱动"""
@@ -1915,8 +1960,11 @@ class SettingPage(ScrollArea):
         self.view = QWidget(); self.setWidget(self.view); self.setWidgetResizable(True); self.setObjectName("settingPage"); self.enableTransparentBackground()
         self._apply_setting_style()
 
-        v = QVBoxLayout(self.view); v.setContentsMargins(28, 12, 28, 24); v.setSpacing(12)
-        v.addWidget(self._make_header_box())
+        v = QVBoxLayout(self.view); v.setContentsMargins(28, 12, 28, 24); v.setSpacing(10)
+        v.addLayout(make_title_row(FIF.SETTING, "系统设置"))
+        top_hint = CaptionLabel("管理保存策略、配置目录和更新通道")
+        top_hint.setTextColor(QColor(128, 128, 128))
+        v.addWidget(top_hint)
 
         self.switch_save = SwitchButton()
         self.switch_save.setOnText("开启"); self.switch_save.setOffText("关闭")
@@ -1966,6 +2014,7 @@ class SettingPage(ScrollArea):
         self.lbl_latest_version.setTextColor(QColor(128, 128, 128))
         self.lbl_latest_version.setWordWrap(True)
 
+        v.addSpacing(4)
         v.addWidget(self._make_section_label("基础设置"))
         v.addWidget(self._make_group_card([
             self._make_setting_row(
@@ -1988,6 +2037,7 @@ class SettingPage(ScrollArea):
             )
         ]))
 
+        v.addSpacing(6)
         v.addWidget(self._make_section_label("配置"))
         v.addWidget(self._make_group_card([
             self._make_setting_row(
@@ -2011,6 +2061,7 @@ class SettingPage(ScrollArea):
             )
         ]))
 
+        v.addSpacing(6)
         v.addWidget(self._make_section_label("更新"))
         v.addWidget(self._make_group_card([
             self._make_setting_row(
@@ -2034,70 +2085,50 @@ class SettingPage(ScrollArea):
     def _apply_setting_style(self):
         if isDarkTheme():
             self.view.setStyleSheet("""
-                QWidget#settingHeader {
-                    background: rgba(32, 32, 32, 0.92);
-                    border: 1px solid rgba(255, 255, 255, 0.08);
-                    border-radius: 16px;
-                }
                 CardWidget#settingGroup {
-                    background: rgba(28, 28, 28, 0.96);
-                    border: 1px solid rgba(255, 255, 255, 0.07);
-                    border-radius: 18px;
+                    background: rgba(24, 24, 24, 0.82);
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    border-radius: 12px;
                 }
                 QWidget#settingRow {
                     background: transparent;
-                    border-radius: 12px;
+                    border-radius: 8px;
                 }
                 QWidget#settingRow:hover {
-                    background: rgba(255, 255, 255, 0.04);
+                    background: rgba(255, 255, 255, 0.03);
                 }
                 QWidget#settingIconTile {
                     background: transparent;
                     border: none;
-                    border-radius: 12px;
                 }
                 QWidget#settingDivider {
                     background: rgba(255, 255, 255, 0.08);
                     min-height: 1px;
                     max-height: 1px;
                 }
-                QWidget#settingChip {
-                    background: rgba(255, 255, 255, 0.06);
-                    border-radius: 10px;
-                }
             """)
         else:
             self.view.setStyleSheet("""
-                QWidget#settingHeader {
-                    background: rgba(255, 255, 255, 0.78);
-                    border: 1px solid rgba(0, 0, 0, 0.07);
-                    border-radius: 16px;
-                }
                 CardWidget#settingGroup {
-                    background: rgba(255, 255, 255, 0.92);
-                    border: 1px solid rgba(0, 0, 0, 0.07);
-                    border-radius: 18px;
+                    background: rgba(255, 255, 255, 0.84);
+                    border: 1px solid rgba(0, 0, 0, 0.06);
+                    border-radius: 12px;
                 }
                 QWidget#settingRow {
                     background: transparent;
-                    border-radius: 12px;
+                    border-radius: 8px;
                 }
                 QWidget#settingRow:hover {
-                    background: rgba(0, 120, 212, 0.045);
+                    background: rgba(0, 0, 0, 0.03);
                 }
                 QWidget#settingIconTile {
                     background: transparent;
                     border: none;
-                    border-radius: 12px;
                 }
                 QWidget#settingDivider {
                     background: rgba(0, 0, 0, 0.07);
                     min-height: 1px;
                     max-height: 1px;
-                }
-                QWidget#settingChip {
-                    background: rgba(0, 0, 0, 0.045);
-                    border-radius: 10px;
                 }
             """)
 
@@ -2111,53 +2142,6 @@ class SettingPage(ScrollArea):
         font = label.font()
         font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
         label.setFont(font)
-
-    def _make_header_chip(self, text):
-        chip = QWidget(self.view)
-        chip.setObjectName("settingChip")
-        layout = QHBoxLayout(chip)
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(0)
-        lbl = CaptionLabel(text)
-        lbl.setTextColor(QColor(96, 96, 96))
-        layout.addWidget(lbl)
-        return chip
-
-    def _make_header_box(self):
-        box = QWidget(self.view)
-        box.setObjectName("settingHeader")
-        layout = QVBoxLayout(box)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(10)
-
-        title_row = make_title_row(FIF.SETTING, "系统设置")
-        layout.addLayout(title_row)
-
-        chip_row = QHBoxLayout()
-        chip_row.setSpacing(8)
-        chip_row.addWidget(self._make_header_chip(f"当前版本 v{CURRENT_VERSION}"))
-        channel_text = "测试版" if self.main_win.global_settings.get("update_channel", "stable") == "beta" else "稳定版"
-        self.lbl_channel_chip = CaptionLabel(f"更新通道 {channel_text}")
-        self.lbl_channel_chip.setTextColor(QColor(96, 96, 96))
-        chip = QWidget(self.view)
-        chip.setObjectName("settingChip")
-        chip_layout = QHBoxLayout(chip)
-        chip_layout.setContentsMargins(10, 5, 10, 5)
-        chip_layout.setSpacing(0)
-        chip_layout.addWidget(self.lbl_channel_chip)
-        chip_row.addWidget(chip)
-        self.lbl_latest_chip = CaptionLabel("最新版本 获取中...")
-        self.lbl_latest_chip.setTextColor(QColor(96, 96, 96))
-        latest_chip = QWidget(self.view)
-        latest_chip.setObjectName("settingChip")
-        latest_chip_layout = QHBoxLayout(latest_chip)
-        latest_chip_layout.setContentsMargins(10, 5, 10, 5)
-        latest_chip_layout.setSpacing(0)
-        latest_chip_layout.addWidget(self.lbl_latest_chip)
-        chip_row.addWidget(latest_chip)
-        chip_row.addStretch()
-        layout.addLayout(chip_row)
-        return box
 
     def _make_section_label(self, text):
         lbl = CaptionLabel(text)
@@ -2196,22 +2180,22 @@ class SettingPage(ScrollArea):
         row = QWidget(self.view)
         row.setObjectName("settingRow")
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(10, 13, 10, 13)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 10, 8, 10)
+        layout.setSpacing(10)
 
         tile = QWidget(row)
         tile.setObjectName("settingIconTile")
-        tile.setFixedSize(40, 40)
+        tile.setFixedSize(28, 28)
         tile_layout = QHBoxLayout(tile)
         tile_layout.setContentsMargins(0, 0, 0, 0)
         tile_layout.setSpacing(0)
         icon_widget = IconWidget(icon)
-        icon_widget.setFixedSize(18, 18)
+        icon_widget.setFixedSize(16, 16)
         tile_layout.addWidget(icon_widget, 0, Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(tile, 0, Qt.AlignmentFlag.AlignTop)
 
         text_col = QVBoxLayout()
-        text_col.setSpacing(2)
+        text_col.setSpacing(1)
         title_lbl = StrongBodyLabel(title)
         self._smooth_title_font(title_lbl)
         text_col.addWidget(title_lbl)
@@ -3513,10 +3497,17 @@ class MoreCleanPage(ScrollArea):
         self.btn_drives.clicked.connect(self._show_drives_menu)
         
         self.lbl_disk_req = StrongBodyLabel("选择范围:"); dl.addWidget(self.lbl_disk_req); dl.addWidget(self.btn_drives); dl.addStretch(); v.addLayout(dl)
-        self._on_mode_change()
 
         pr = QHBoxLayout(); pr.setSpacing(10)
-        self.chk_perm=CheckBox("永久删除(文件不进回收站)"); self.chk_perm.setChecked(True); pr.addWidget(self.chk_perm); pr.addStretch(); v.addLayout(pr)
+        self.chk_perm=CheckBox("永久删除(文件不进回收站)"); self.chk_perm.setChecked(True); pr.addWidget(self.chk_perm)
+        pr.addStretch()
+        self.btn_restore_assoc = PushButton(FIF.SYNC, "恢复默认关联")
+        self.btn_restore_assoc.setFixedHeight(30)
+        self.btn_restore_assoc.setToolTip("恢复文件夹、磁盘和 .exe/.bat/.cmd/.lnk 等常见默认打开关联")
+        self.btn_restore_assoc.clicked.connect(self.do_restore_default_associations)
+        pr.addWidget(self.btn_restore_assoc)
+        v.addLayout(pr)
+        self._on_mode_change()
 
         self.tbl=TableWidget(); self.tbl.setColumnCount(5); self.tbl.setHorizontalHeaderLabels([" ","类型","名称","详细/大小","路径(注册表键)"])
         self.tbl.verticalHeader().setVisible(False); self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -3558,6 +3549,7 @@ class MoreCleanPage(ScrollArea):
         mode_idx = self.cb_mode.currentIndex()
         is_reg = mode_idx in (3, 4)
         self.btn_drives.setVisible(not is_reg); self.lbl_disk_req.setVisible(not is_reg)
+        self.btn_restore_assoc.setVisible(mode_idx == 4)
         hide_c_drive = mode_idx == 0
         for d in self.drives:
             if hide_c_drive and d.upper().startswith("C"):
@@ -3931,6 +3923,26 @@ class MoreCleanPage(ScrollArea):
             return
         for tp, nm, det, path in res: self.sig.more_add.emit(False, tp, nm, det, path)
         self.sig.more_done.emit(f"扫描完成，列出 {len(res)} 个右键菜单扩展，耗时 {time.time()-t0:.1f} 秒")
+
+    def do_restore_default_associations(self):
+        content = (
+            "这会恢复资源管理器常见默认关联：\n\n"
+            "- 文件夹、目录、磁盘的默认打开动作\n"
+            "- .exe / .bat / .cmd / .com / .lnk 的打开关联\n"
+            "- 清除当前用户异常的 UserChoice 记录\n\n"
+            "如果系统当前出现“没有与之关联的应用”或文件夹没有“打开”选项，这个修复项就是针对这些问题的。\n\n"
+            "是否继续？"
+        )
+        if not MessageBox("恢复默认资源管理器关联", content, self.window()).exec():
+            return
+        self.sig.more_log.emit("[恢复关联] 正在恢复默认资源管理器关联...")
+        threading.Thread(target=self._restore_default_associations_w, daemon=True).start()
+
+    def _restore_default_associations_w(self):
+        ok, msg = restore_default_explorer_associations(self.sig.more_log.emit)
+        level = "success" if ok else "error"
+        title = "恢复完成" if ok else "恢复失败"
+        self.sig.update_status.emit(level, title, msg)
 
     def do_del(self):
         paths=[self.tbl.item(r,4).text() for r in range(self.tbl.rowCount()) if is_row_checked(self.tbl, r)]

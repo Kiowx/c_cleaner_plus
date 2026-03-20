@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.3.4
+C盘强力清理工具 v0.3.6
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -35,7 +35,7 @@ from qfluentwidgets import (
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.3.4"
+CURRENT_VERSION = "0.3.6"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 
 from qfluentwidgets.components.widgets.table_view import TableItemDelegate
@@ -404,7 +404,7 @@ def send_to_recycle_bin(path):
 
 def is_admin():
     try: return ctypes.windll.shell32.IsUserAnAdmin()!=0
-    except: return False
+    except Exception: return False
 
 def human_size(n):
     s=float(n)
@@ -415,7 +415,7 @@ def human_size(n):
 
 def safe_getsize(p):
     try: return os.path.getsize(p)
-    except: return 0
+    except Exception: return 0
 
 def dir_size(path, stop_flag=None):
     t=0
@@ -514,20 +514,29 @@ def get_available_drives():
         if bitmask & (1 << i): drives.append(chr(65 + i) + ":\\")
     return drives
 
+_VALID_REGISTRY_PATH_RE = re.compile(
+    r"^(HKLM|HKCU|HKCR|HKU|HKCC|HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER|HKEY_CLASSES_ROOT|HKEY_USERS|HKEY_CURRENT_CONFIG)\\",
+    re.IGNORECASE
+)
+
 def force_delete_registry(full_path, log_fn):
     """使用 Windows 原生 reg delete 命令进行强制递归删除，穿透力更强"""
     try:
-        # full_path 格式如 "HKLM\SOFTWARE\Tencent"
-        cmd = ['reg', 'delete', full_path, '/f']
+        # 校验注册表路径格式，防止注入非法参数
+        path_text = str(full_path or "").strip()
+        if not path_text or not _VALID_REGISTRY_PATH_RE.match(path_text):
+            log_fn(f"[强删注册表] 路径格式非法，已拒绝: {full_path}")
+            return False
+        cmd = ['reg', 'delete', path_text, '/f']
         # creationflags=subprocess.CREATE_NO_WINDOW 防止弹黑框
         r = subprocess.run(cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
         if r.returncode == 0:
-            log_fn(f"[强删注册表] 成功: {full_path}")
+            log_fn(f"[强删注册表] 成功: {path_text}")
             return True
         else:
             # 如果依然失败，说明是 TrustedInstaller 或 SYSTEM 级死锁保护
             err_msg = r.stderr.strip().replace('\n', ' ')
-            log_fn(f"[强删注册表] 权限不足(可能受系统保护): {full_path} -> {err_msg}")
+            log_fn(f"[强删注册表] 权限不足(可能受系统保护): {path_text} -> {err_msg}")
             return False
     except Exception as e:
         log_fn(f"[强删注册表] 异常: {e}")
@@ -648,26 +657,29 @@ def kill_app_processes(install_dir, log_fn):
     if not install_dir or not os.path.exists(install_dir): return
     try:
         log_fn(f"[内核猎杀] 正在扫描并解除 '{install_dir}' 的进程与驱动锁定...")
-        ps_script = f"""
-        $target = [regex]::Escape("{install_dir}")
-        
+        # 通过环境变量传递路径，避免字符串拼接导致的 PowerShell 注入
+        ps_script = r"""
+        $target = [regex]::Escape($env:_KILL_TARGET)
+
         # 1. 杀常规进程
-        Get-Process -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -match $target }} | Stop-Process -Force -ErrorAction SilentlyContinue
-        
+        Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -match $target } | Stop-Process -Force -ErrorAction SilentlyContinue
+
         # 2. 停服务并删除
-        Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object {{ $_.PathName -match $target }} | ForEach-Object {{
+        Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object { $_.PathName -match $target } | ForEach-Object {
             Stop-Service -Name $_.Name -Force -ErrorAction SilentlyContinue
             & sc.exe delete $_.Name
-        }}
-        
+        }
+
         # 3. 停内核驱动并删除
-        Get-CimInstance Win32_SystemDriver -ErrorAction SilentlyContinue | Where-Object {{ $_.PathName -match $target }} | ForEach-Object {{
+        Get-CimInstance Win32_SystemDriver -ErrorAction SilentlyContinue | Where-Object { $_.PathName -match $target } | ForEach-Object {
             & sc.exe stop $_.Name
             & sc.exe delete $_.Name
-        }}
+        }
         """
+        env = os.environ.copy()
+        env["_KILL_TARGET"] = install_dir
         subprocess.run(["powershell", "-NoProfile", "-Command", ps_script],
-                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW, env=env)
     except Exception as e:
         log_fn(f"[内核猎杀] 异常: {e}")
 
@@ -1186,7 +1198,7 @@ def _dir_worker(dir_queue, min_b, excl, stop_flag, results, counter, lock, resul
             dir_queue.task_done()
             continue
         try: entries = os.scandir(dirpath)
-        except: dir_queue.task_done(); continue
+        except Exception: dir_queue.task_done(); continue
         local_count = 0
         local_results = []
         try:
@@ -1234,21 +1246,23 @@ def scan_big_files(roots, min_b, excl, stop, workers=4, result_limit=None, progr
     last_report = 0.0
     sent_stop_signal = False
 
-    while not join_done.wait(0.1):
-        now = time.time()
-        if progress_cb and now - last_report >= 0.3:
-            with lock:
-                scanned = counter[0]
-            progress_cb(scanned)
-            last_report = now
-        if stop.is_set() and not sent_stop_signal:
+    try:
+        while not join_done.wait(0.1):
+            now = time.time()
+            if progress_cb and now - last_report >= 0.3:
+                with lock:
+                    scanned = counter[0]
+                progress_cb(scanned)
+                last_report = now
+            if stop.is_set() and not sent_stop_signal:
+                for _ in threads:
+                    dir_queue.put(_SENTINEL)
+                sent_stop_signal = True
+    finally:
+        # 确保无论正常退出还是异常退出，worker 线程都能收到终止信号
+        if not sent_stop_signal:
             for _ in threads:
                 dir_queue.put(_SENTINEL)
-            sent_stop_signal = True
-
-    if not sent_stop_signal:
-        for _ in threads:
-            dir_queue.put(_SENTINEL)
     for t in threads:
         t.join(timeout=2)
     results.sort(key=lambda x: (-x[0], os.path.normcase(x[1])))
@@ -3057,22 +3071,30 @@ class CleanPage(ScrollArea):
                 return
             st+=1; p=expand_env(pa)
             try:
-                if tp=="dir" and os.path.isdir(p):
-                    for e in os.listdir(p):
+                if tp=="dir":
+                    try:
+                        entries = os.listdir(p)
+                    except OSError:
+                        entries = []
+                    for e in entries:
                         if self.stop.is_set(): break
                         if delete_path(os.path.join(p,e),pm,lf): ok+=1
                         else: fl+=1
-                elif tp=="glob" and os.path.isdir(p):
+                elif tp=="glob":
                     rule_pattern = normalize_rule_pattern(tp, pattern, nt)
-                    for f in os.listdir(p):
+                    try:
+                        entries = os.listdir(p)
+                    except OSError:
+                        entries = []
+                    for f in entries:
                         if self.stop.is_set(): break
                         if fnmatch.fnmatch(f.lower(), rule_pattern.lower()):
                             if delete_path(os.path.join(p,f),pm,lf): ok+=1
                             else: fl+=1
-                elif tp=="file" and os.path.exists(p):
+                elif tp=="file":
                     if delete_path(p,pm,lf): ok+=1
                     else: fl+=1
-            except: fl+=1
+            except Exception: fl+=1
             self.sig.clean_prog.emit(st,tot)
         self.sig.clean_done.emit(f"清理完成：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
 
@@ -3201,9 +3223,8 @@ class LeftoversDialog(MessageBoxBase):
         for base_key_str, hkey in [("HKCU\\Software", winreg.HKEY_CURRENT_USER), ("HKLM\\Software", winreg.HKEY_LOCAL_MACHINE)]:
             for kw in keywords:
                 try:
-                    k = winreg.OpenKey(hkey, f"Software\\{kw}")
-                    winreg.CloseKey(k)
-                    self._add_candidate(regs_to_check, f"{base_key_str}\\{kw}", source="keyword")
+                    with winreg.OpenKey(hkey, f"Software\\{kw}"):
+                        self._add_candidate(regs_to_check, f"{base_key_str}\\{kw}", source="keyword")
                 except OSError: pass
 
         services = scan_leftover_services(keywords, self.install_dir)
@@ -3370,53 +3391,50 @@ class UninstallPage(ScrollArea):
                 self.sig.uninst_done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒")
                 return
             try:
-                key = winreg.OpenKey(hkey, subkey_str)
-                for i in range(winreg.QueryInfoKey(key)[0]):
-                    try:
-                        sub_name = winreg.EnumKey(key, i)
-                        sub_key = winreg.OpenKey(key, sub_name)
+                with winreg.OpenKey(hkey, subkey_str) as key:
+                    for i in range(winreg.QueryInfoKey(key)[0]):
                         try:
-                            disp, _ = winreg.QueryValueEx(sub_key, "DisplayName")
-                            if disp:
-                                def get_val(name):
-                                    try: return winreg.QueryValueEx(sub_key, name)[0]
-                                    except OSError: return ""
-                                    
-                                ver = get_val("DisplayVersion")
-                                pub = get_val("Publisher")
-                                cmd = get_val("UninstallString")
-                                loc = get_val("InstallLocation")
-                                
-                                d_icon = get_val("DisplayIcon")
-                                icon_path = ""
-                                if d_icon:
-                                    icon_path = d_icon.split(',')[0].strip(' "')
-                                inferred_loc = infer_install_location(disp, pub, loc, cmd, d_icon)
-                                
-                                reg = f"{'HKLM' if hkey==winreg.HKEY_LOCAL_MACHINE else 'HKCU'}\\{subkey_str}\\{sub_name}"
-                                meta = classify_uninstall_entry(disp, pub, inferred_loc or loc, reg)
-                                software.append({
-                                    "name": disp,
-                                    "version": ver,
-                                    "publisher": pub,
-                                    "cmd": cmd,
-                                    "location": inferred_loc or loc,
-                                    "reg": reg,
-                                    "icon_path": icon_path,
-                                    "category": meta["category"],
-                                    "is_risky": meta["is_risky"],
-                                    "risk_kind": meta["risk_kind"],
-                                    "risk_reason": meta["risk_reason"]
-                                })
+                            sub_name = winreg.EnumKey(key, i)
+                            with winreg.OpenKey(key, sub_name) as sub_key:
+                                try:
+                                    disp, _ = winreg.QueryValueEx(sub_key, "DisplayName")
+                                    if disp:
+                                        def get_val(name):
+                                            try: return winreg.QueryValueEx(sub_key, name)[0]
+                                            except OSError: return ""
+
+                                        ver = get_val("DisplayVersion")
+                                        pub = get_val("Publisher")
+                                        cmd = get_val("UninstallString")
+                                        loc = get_val("InstallLocation")
+
+                                        d_icon = get_val("DisplayIcon")
+                                        icon_path = ""
+                                        if d_icon:
+                                            icon_path = d_icon.split(',')[0].strip(' "')
+                                        inferred_loc = infer_install_location(disp, pub, loc, cmd, d_icon)
+
+                                        reg = f"{'HKLM' if hkey==winreg.HKEY_LOCAL_MACHINE else 'HKCU'}\\{subkey_str}\\{sub_name}"
+                                        meta = classify_uninstall_entry(disp, pub, inferred_loc or loc, reg)
+                                        software.append({
+                                            "name": disp,
+                                            "version": ver,
+                                            "publisher": pub,
+                                            "cmd": cmd,
+                                            "location": inferred_loc or loc,
+                                            "reg": reg,
+                                            "icon_path": icon_path,
+                                            "category": meta["category"],
+                                            "is_risky": meta["is_risky"],
+                                            "risk_kind": meta["risk_kind"],
+                                            "risk_reason": meta["risk_reason"]
+                                        })
+                                except Exception as e:
+                                    error_count += 1
+                                    append_error_sample(scan_errors, f"{subkey_str}\\{sub_name} -> {format_exception_text(e)}")
                         except Exception as e:
                             error_count += 1
-                            append_error_sample(scan_errors, f"{subkey_str}\\{sub_name} -> {format_exception_text(e)}")
-                        finally: 
-                            winreg.CloseKey(sub_key)
-                    except Exception as e:
-                        error_count += 1
-                        append_error_sample(scan_errors, f"{subkey_str} 第 {i + 1} 项读取失败 -> {format_exception_text(e)}")
-                winreg.CloseKey(key)
+                            append_error_sample(scan_errors, f"{subkey_str} 第 {i + 1} 项读取失败 -> {format_exception_text(e)}")
             except Exception as e:
                 error_count += 1
                 append_error_sample(scan_errors, f"{subkey_str} 无法打开 -> {format_exception_text(e)}")
@@ -3555,7 +3573,11 @@ class UninstallPage(ScrollArea):
             run_cmd, mode_text = build_uninstall_command(cmd, prefer_silent=prefer_silent)
             self.sig.uninst_log.emit(f"[标准卸载] 正在调用{mode_text}卸载: {nm}")
             try:
-                proc = subprocess.Popen(run_cmd, shell=True)
+                # 使用 cmd /c 显式调用，避免 shell=True 的隐式解析风险
+                proc = subprocess.Popen(
+                    ["cmd", "/c", run_cmd],
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
                 try:
                     proc.wait(timeout=max(30, int(timeout_sec)))
                 except subprocess.TimeoutExpired:
@@ -3605,9 +3627,8 @@ class UninstallPage(ScrollArea):
             hkey = hive_map.get(hive_name)
             if hkey and subkey:
                 try:
-                    k = winreg.OpenKey(hkey, subkey)
-                    winreg.CloseKey(k)
-                    messages.append(f"[卸载校验] {app_name} 卸载注册表项仍存在")
+                    with winreg.OpenKey(hkey, subkey):
+                        messages.append(f"[卸载校验] {app_name} 卸载注册表项仍存在")
                 except OSError:
                     pass
         if not messages:
@@ -4137,15 +4158,16 @@ class MoreCleanPage(ScrollArea):
         threading.Thread(target=lambda: (dir_queue.join(), join_done.set()), daemon=True).start()
         sent_stop_signal = False
 
-        while not join_done.wait(0.1):
-            if self.stop.is_set() and not sent_stop_signal:
+        try:
+            while not join_done.wait(0.1):
+                if self.stop.is_set() and not sent_stop_signal:
+                    for _ in threads:
+                        dir_queue.put(_SENTINEL)
+                    sent_stop_signal = True
+        finally:
+            if not sent_stop_signal:
                 for _ in threads:
                     dir_queue.put(_SENTINEL)
-                sent_stop_signal = True
-
-        if not sent_stop_signal:
-            for _ in threads:
-                dir_queue.put(_SENTINEL)
         for t in threads:
             t.join(timeout=1)
         return res_files, res_dirs
@@ -4222,7 +4244,7 @@ class MoreCleanPage(ScrollArea):
                         for chunk in iter(lambda: f.read(1024 * 1024), b''):
                             m.update(chunk)
                 return m.hexdigest()
-            except:
+            except Exception:
                 return None
 
         def _get_quick_hash(path, file_size):
@@ -4310,7 +4332,7 @@ class MoreCleanPage(ScrollArea):
                     if item.is_file(follow_symlinks=False): is_empty = False; break
                     elif item.is_dir(follow_symlinks=False) and item.path not in empty_set: is_empty = False; break
                 if is_empty: empty_set.add(d); self.sig.more_add.emit(False, "空文件夹", os.path.basename(d), "无内容", d)
-            except: pass
+            except Exception: pass
         if self.stop.is_set():
             self.sig.more_done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒")
             return
@@ -4358,26 +4380,25 @@ class MoreCleanPage(ScrollArea):
         error_count = 0
         for hkey, subkey_str in keys_to_check:
             try:
-                key = winreg.OpenKey(hkey, subkey_str)
-                for i in range(winreg.QueryInfoKey(key)[0]):
-                    if self.stop.is_set(): break
-                    try:
-                        sub_name = winreg.EnumKey(key, i); sub_key = winreg.OpenKey(key, sub_name)
+                with winreg.OpenKey(hkey, subkey_str) as key:
+                    for i in range(winreg.QueryInfoKey(key)[0]):
+                        if self.stop.is_set(): break
                         try:
-                            install_loc, _ = winreg.QueryValueEx(sub_key, "InstallLocation")
-                            if install_loc and not os.path.exists(install_loc):
+                            sub_name = winreg.EnumKey(key, i)
+                            with winreg.OpenKey(key, sub_name) as sub_key:
                                 try:
-                                    disp_name = winreg.QueryValueEx(sub_key, "DisplayName")[0]
+                                    install_loc, _ = winreg.QueryValueEx(sub_key, "InstallLocation")
+                                    if install_loc and not os.path.exists(install_loc):
+                                        try:
+                                            disp_name = winreg.QueryValueEx(sub_key, "DisplayName")[0]
+                                        except OSError:
+                                            disp_name = sub_name
+                                        res.append(("无效卸载项", disp_name, "原目录已丢失", f"{'HKLM' if hkey==winreg.HKEY_LOCAL_MACHINE else 'HKCU'}\\{subkey_str}\\{sub_name}"))
                                 except OSError:
-                                    disp_name = sub_name
-                                res.append(("无效卸载项", disp_name, "原目录已丢失", f"{'HKLM' if hkey==winreg.HKEY_LOCAL_MACHINE else 'HKCU'}\\{subkey_str}\\{sub_name}"))
-                        except OSError:
-                            pass
-                        winreg.CloseKey(sub_key)
-                    except OSError as e:
-                        error_count += 1
-                        append_error_sample(scan_errors, f"{subkey_str} 第 {i + 1} 项读取失败 -> {format_exception_text(e)}")
-                winreg.CloseKey(key)
+                                    pass
+                        except OSError as e:
+                            error_count += 1
+                            append_error_sample(scan_errors, f"{subkey_str} 第 {i + 1} 项读取失败 -> {format_exception_text(e)}")
             except OSError as e:
                 error_count += 1
                 append_error_sample(scan_errors, f"{subkey_str} 无法打开 -> {format_exception_text(e)}")
@@ -4396,17 +4417,16 @@ class MoreCleanPage(ScrollArea):
         error_count = 0
         for t in targets:
             try:
-                key = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, t)
-                for i in range(winreg.QueryInfoKey(key)[0]):
-                    if self.stop.is_set(): break
-                    try:
-                        sub_name = winreg.EnumKey(key, i)
-                        category, detail = classify_context_menu_entry(t, sub_name)
-                        res.append((category, sub_name, detail, f"HKCR\\{t}\\{sub_name}"))
-                    except Exception as e:
-                        error_count += 1
-                        append_error_sample(scan_errors, f"{t} 第 {i + 1} 项读取失败 -> {format_exception_text(e)}")
-                winreg.CloseKey(key)
+                with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, t) as key:
+                    for i in range(winreg.QueryInfoKey(key)[0]):
+                        if self.stop.is_set(): break
+                        try:
+                            sub_name = winreg.EnumKey(key, i)
+                            category, detail = classify_context_menu_entry(t, sub_name)
+                            res.append((category, sub_name, detail, f"HKCR\\{t}\\{sub_name}"))
+                        except Exception as e:
+                            error_count += 1
+                            append_error_sample(scan_errors, f"{t} 第 {i + 1} 项读取失败 -> {format_exception_text(e)}")
             except Exception as e:
                 error_count += 1
                 append_error_sample(scan_errors, f"{t} 无法打开 -> {format_exception_text(e)}")
@@ -4745,7 +4765,7 @@ class MainWindow(FluentWindow):
                     try:
                         if os.path.exists(src):
                             os.remove(src)
-                    except:
+                    except Exception:
                         pass
 
             self._save_config_locator()
@@ -5169,7 +5189,7 @@ def relaunch_as_admin():
             None,
             1
         )
-    except:
+    except Exception:
         pass
     sys.exit(0)
 

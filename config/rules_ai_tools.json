@@ -1,0 +1,149 @@
+[
+  [
+    "Ollama 日志",
+    "%LOCALAPPDATA%\\Ollama\\logs",
+    "dir",
+    false,
+    "Ollama 本地运行日志"
+  ],
+  [
+    "LM Studio 缓存",
+    "%APPDATA%\\LM Studio\\Cache",
+    "dir",
+    false,
+    "LM Studio 普通缓存"
+  ],
+  [
+    "LM Studio 代码缓存",
+    "%APPDATA%\\LM Studio\\Code Cache",
+    "dir",
+    false,
+    "LM Studio 前端脚本缓存"
+  ],
+  [
+    "LM Studio GPU 缓存",
+    "%APPDATA%\\LM Studio\\GPUCache",
+    "dir",
+    false,
+    "LM Studio 图形渲染缓存"
+  ],
+  [
+    "LM Studio Service Worker",
+    "%APPDATA%\\LM Studio\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "LM Studio Service Worker 缓存"
+  ],
+  [
+    "LM Studio 日志",
+    "%APPDATA%\\LM Studio\\logs",
+    "dir",
+    false,
+    "LM Studio 运行日志"
+  ],
+  [
+    "Cherry Studio 缓存",
+    "%APPDATA%\\Cherry Studio\\Cache",
+    "dir",
+    false,
+    "Cherry Studio 普通缓存"
+  ],
+  [
+    "Cherry Studio 代码缓存",
+    "%APPDATA%\\Cherry Studio\\Code Cache",
+    "dir",
+    false,
+    "Cherry Studio 前端脚本缓存"
+  ],
+  [
+    "Cherry Studio GPU 缓存",
+    "%APPDATA%\\Cherry Studio\\GPUCache",
+    "dir",
+    false,
+    "Cherry Studio 图形渲染缓存"
+  ],
+  [
+    "Cherry Studio Service Worker",
+    "%APPDATA%\\Cherry Studio\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "Cherry Studio Service Worker 缓存"
+  ],
+  [
+    "Cherry Studio 日志",
+    "%APPDATA%\\Cherry Studio\\logs",
+    "dir",
+    false,
+    "Cherry Studio 运行日志"
+  ],
+  [
+    "Jan 缓存",
+    "%APPDATA%\\Jan\\Cache",
+    "dir",
+    false,
+    "Jan 普通缓存"
+  ],
+  [
+    "Jan 代码缓存",
+    "%APPDATA%\\Jan\\Code Cache",
+    "dir",
+    false,
+    "Jan 前端脚本缓存"
+  ],
+  [
+    "Jan GPU 缓存",
+    "%APPDATA%\\Jan\\GPUCache",
+    "dir",
+    false,
+    "Jan 图形渲染缓存"
+  ],
+  [
+    "Jan Service Worker",
+    "%APPDATA%\\Jan\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "Jan Service Worker 缓存"
+  ],
+  [
+    "Jan 日志",
+    "%APPDATA%\\Jan\\logs",
+    "dir",
+    false,
+    "Jan 运行日志"
+  ],
+  [
+    "Claude Desktop 缓存",
+    "%APPDATA%\\Claude\\Cache",
+    "dir",
+    false,
+    "Claude Desktop 普通缓存"
+  ],
+  [
+    "Claude Desktop 代码缓存",
+    "%APPDATA%\\Claude\\Code Cache",
+    "dir",
+    false,
+    "Claude Desktop 前端脚本缓存"
+  ],
+  [
+    "Claude Desktop GPU 缓存",
+    "%APPDATA%\\Claude\\GPUCache",
+    "dir",
+    false,
+    "Claude Desktop 图形渲染缓存"
+  ],
+  [
+    "Claude Desktop Service Worker",
+    "%APPDATA%\\Claude\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "Claude Desktop Service Worker 缓存"
+  ],
+  [
+    "Claude Desktop 日志",
+    "%APPDATA%\\Claude\\logs",
+    "dir",
+    false,
+    "Claude Desktop 运行日志"
+  ]
+]

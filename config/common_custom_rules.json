@@ -446,5 +446,327 @@
     "dir",
     false,
     "飞书图形渲染缓存"
+  ],
+  [
+    "Creative Cloud 日志",
+    "%LOCALAPPDATA%\\Adobe\\Creative Cloud\\Logs",
+    "dir",
+    false,
+    "Adobe Creative Cloud 运行日志"
+  ],
+  [
+    "Creative Cloud ACC 日志",
+    "%LOCALAPPDATA%\\Adobe\\Creative Cloud\\ACC\\logs",
+    "dir",
+    false,
+    "Creative Cloud ACC 组件日志"
+  ],
+  [
+    "Adobe 崩溃转储",
+    "%LOCALAPPDATA%\\Adobe\\CrashDumps",
+    "dir",
+    false,
+    "Adobe 应用崩溃转储"
+  ],
+  [
+    "Adobe UXP 日志(本地)",
+    "%LOCALAPPDATA%\\Adobe\\UXP\\Logs",
+    "dir",
+    false,
+    "Adobe UXP 插件本地日志"
+  ],
+  [
+    "Adobe UXP 日志(漫游)",
+    "%APPDATA%\\Adobe\\UXP\\Logs",
+    "dir",
+    false,
+    "Adobe UXP 插件漫游日志"
+  ],
+  [
+    "Adobe CEP 日志",
+    "%APPDATA%\\Adobe\\CEP\\logs",
+    "dir",
+    false,
+    "Adobe CEP 扩展日志"
+  ],
+  [
+    "Adobe 公共日志",
+    "%APPDATA%\\Adobe\\Common\\Logs",
+    "dir",
+    false,
+    "Adobe Common 公共日志"
+  ],
+  [
+    "Adobe 媒体缓存",
+    "%APPDATA%\\Adobe\\Common\\Media Cache",
+    "dir",
+    false,
+    "Premiere Pro / After Effects 媒体缓存"
+  ],
+  [
+    "Adobe 媒体缓存文件",
+    "%APPDATA%\\Adobe\\Common\\Media Cache Files",
+    "dir",
+    false,
+    "Premiere Pro / After Effects 媒体缓存文件"
+  ],
+  [
+    "Adobe 峰值文件",
+    "%APPDATA%\\Adobe\\Common\\Peak Files",
+    "dir",
+    false,
+    "音频峰值与波形缓存"
+  ],
+  [
+    "Camera Raw 缓存",
+    "%APPDATA%\\Adobe\\CameraRaw\\Cache",
+    "dir",
+    false,
+    "Adobe Camera Raw 缓存"
+  ],
+  [
+    "Bridge 缩略图缓存",
+    "%APPDATA%\\Adobe\\Bridge Cache",
+    "dir",
+    false,
+    "Adobe Bridge 缩略图与索引缓存"
+  ],
+  [
+    "Bridge 日志",
+    "%APPDATA%\\Adobe\\Bridge\\logs",
+    "dir",
+    false,
+    "Adobe Bridge 运行日志"
+  ],
+  [
+    "Creative Cloud 临时文件",
+    "%LOCALAPPDATA%\\Adobe\\Creative Cloud\\ACC\\Temp",
+    "dir",
+    false,
+    "Creative Cloud 临时文件"
+  ],
+  [
+    "Adobe Installer 日志",
+    "%TEMP%\\AdobeInstallers",
+    "dir",
+    false,
+    "Adobe 安装器与更新器临时日志"
+  ],
+  [
+    "Signal 缓存",
+    "%APPDATA%\\Signal\\Cache",
+    "dir",
+    false,
+    "Signal 普通缓存"
+  ],
+  [
+    "Signal 代码缓存",
+    "%APPDATA%\\Signal\\Code Cache",
+    "dir",
+    false,
+    "Signal 前端脚本缓存"
+  ],
+  [
+    "Signal GPU 缓存",
+    "%APPDATA%\\Signal\\GPUCache",
+    "dir",
+    false,
+    "Signal 图形渲染缓存"
+  ],
+  [
+    "Signal Service Worker",
+    "%APPDATA%\\Signal\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "Signal Service Worker 缓存"
+  ],
+  [
+    "Signal 日志",
+    "%APPDATA%\\Signal\\logs",
+    "dir",
+    false,
+    "Signal 运行日志"
+  ],
+  [
+    "WhatsApp 缓存",
+    "%APPDATA%\\WhatsApp\\Cache",
+    "dir",
+    false,
+    "WhatsApp Desktop 普通缓存"
+  ],
+  [
+    "WhatsApp 代码缓存",
+    "%APPDATA%\\WhatsApp\\Code Cache",
+    "dir",
+    false,
+    "WhatsApp Desktop 前端脚本缓存"
+  ],
+  [
+    "WhatsApp GPU 缓存",
+    "%APPDATA%\\WhatsApp\\GPUCache",
+    "dir",
+    false,
+    "WhatsApp Desktop 图形渲染缓存"
+  ],
+  [
+    "WhatsApp Service Worker",
+    "%APPDATA%\\WhatsApp\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "WhatsApp Desktop Service Worker 缓存"
+  ],
+  [
+    "WhatsApp 日志",
+    "%APPDATA%\\WhatsApp\\logs",
+    "dir",
+    false,
+    "WhatsApp Desktop 运行日志"
+  ],
+  [
+    "Skype 日志",
+    "%APPDATA%\\Microsoft\\Skype for Desktop\\logs",
+    "dir",
+    false,
+    "Skype for Desktop 运行日志"
+  ],
+  [
+    "Edge GPU 缓存",
+    "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "Microsoft Edge 图形渲染缓存"
+  ],
+  [
+    "Edge Service Worker",
+    "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "Microsoft Edge Service Worker 缓存"
+  ],
+  [
+    "Edge Crashpad 报告",
+    "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Crashpad\\reports",
+    "dir",
+    false,
+    "Microsoft Edge 崩溃报告"
+  ],
+  [
+    "Chrome GPU 缓存",
+    "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "Google Chrome 图形渲染缓存"
+  ],
+  [
+    "Chrome Service Worker",
+    "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "Google Chrome Service Worker 缓存"
+  ],
+  [
+    "Chrome Crashpad 报告",
+    "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Crashpad\\reports",
+    "dir",
+    false,
+    "Google Chrome 崩溃报告"
+  ],
+  [
+    "Brave 缓存",
+    "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Cache",
+    "dir",
+    false,
+    "Brave 普通缓存"
+  ],
+  [
+    "Brave 代码缓存",
+    "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Code Cache",
+    "dir",
+    false,
+    "Brave 前端脚本缓存"
+  ],
+  [
+    "Brave GPU 缓存",
+    "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "Brave 图形渲染缓存"
+  ],
+  [
+    "Brave Service Worker",
+    "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "Brave Service Worker 缓存"
+  ],
+  [
+    "Brave Crashpad 报告",
+    "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Crashpad\\reports",
+    "dir",
+    false,
+    "Brave 崩溃报告"
+  ],
+  [
+    "Vivaldi 缓存",
+    "%LOCALAPPDATA%\\Vivaldi\\User Data\\Default\\Cache",
+    "dir",
+    false,
+    "Vivaldi 普通缓存"
+  ],
+  [
+    "Vivaldi 代码缓存",
+    "%LOCALAPPDATA%\\Vivaldi\\User Data\\Default\\Code Cache",
+    "dir",
+    false,
+    "Vivaldi 前端脚本缓存"
+  ],
+  [
+    "Vivaldi GPU 缓存",
+    "%LOCALAPPDATA%\\Vivaldi\\User Data\\Default\\GPUCache",
+    "dir",
+    false,
+    "Vivaldi 图形渲染缓存"
+  ],
+  [
+    "Vivaldi Service Worker",
+    "%LOCALAPPDATA%\\Vivaldi\\User Data\\Default\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "Vivaldi Service Worker 缓存"
+  ],
+  [
+    "Opera 缓存",
+    "%APPDATA%\\Opera Software\\Opera Stable\\Cache",
+    "dir",
+    false,
+    "Opera 普通缓存"
+  ],
+  [
+    "Opera 代码缓存",
+    "%APPDATA%\\Opera Software\\Opera Stable\\Code Cache",
+    "dir",
+    false,
+    "Opera 前端脚本缓存"
+  ],
+  [
+    "Opera GPU 缓存",
+    "%APPDATA%\\Opera Software\\Opera Stable\\GPUCache",
+    "dir",
+    false,
+    "Opera 图形渲染缓存"
+  ],
+  [
+    "Opera GX 缓存",
+    "%APPDATA%\\Opera Software\\Opera GX Stable\\Cache",
+    "dir",
+    false,
+    "Opera GX 普通缓存"
+  ],
+  [
+    "Opera GX GPU 缓存",
+    "%APPDATA%\\Opera Software\\Opera GX Stable\\GPUCache",
+    "dir",
+    false,
+    "Opera GX 图形渲染缓存"
   ]
 ]

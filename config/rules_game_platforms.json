@@ -138,5 +138,131 @@
     "dir",
     false,
     "完美平台日志"
+  ],
+  [
+    "Epic 启动器日志",
+    "%LOCALAPPDATA%\\EpicGamesLauncher\\Saved\\Logs",
+    "dir",
+    false,
+    "Epic Games Launcher 运行日志"
+  ],
+  [
+    "Epic 启动器网页缓存",
+    "%LOCALAPPDATA%\\EpicGamesLauncher\\Saved\\webcache",
+    "dir",
+    false,
+    "Epic Games Launcher 内置网页缓存"
+  ],
+  [
+    "Epic 崩溃报告",
+    "%LOCALAPPDATA%\\EpicGamesLauncher\\Saved\\Crashes",
+    "dir",
+    false,
+    "Epic Games Launcher 崩溃报告"
+  ],
+  [
+    "Battle.net 日志",
+    "%PROGRAMDATA%\\Battle.net\\Agent\\Logs",
+    "dir",
+    false,
+    "Battle.net Agent 日志"
+  ],
+  [
+    "Battle.net 缓存",
+    "%PROGRAMDATA%\\Battle.net\\Agent\\Cache",
+    "dir",
+    false,
+    "Battle.net Agent 缓存"
+  ],
+  [
+    "EA app 日志",
+    "%LOCALAPPDATA%\\Electronic Arts\\EA Desktop\\Logs",
+    "dir",
+    false,
+    "EA app 运行日志"
+  ],
+  [
+    "EA app 缓存",
+    "%LOCALAPPDATA%\\Electronic Arts\\EA Desktop\\Cache",
+    "dir",
+    false,
+    "EA app 普通缓存"
+  ],
+  [
+    "Ubisoft Connect 日志",
+    "%LOCALAPPDATA%\\Ubisoft Game Launcher\\logs",
+    "dir",
+    false,
+    "Ubisoft Connect 运行日志"
+  ],
+  [
+    "Ubisoft Connect 缓存",
+    "%LOCALAPPDATA%\\Ubisoft Game Launcher\\cache",
+    "dir",
+    false,
+    "Ubisoft Connect 普通缓存"
+  ],
+  [
+    "Riot Client 日志",
+    "%LOCALAPPDATA%\\Riot Games\\Riot Client\\Logs",
+    "dir",
+    false,
+    "Riot Client 运行日志"
+  ],
+  [
+    "Riot Client 缓存",
+    "%LOCALAPPDATA%\\Riot Games\\Riot Client\\Cache",
+    "dir",
+    false,
+    "Riot Client 普通缓存"
+  ],
+  [
+    "Riot Client GPU 缓存",
+    "%LOCALAPPDATA%\\Riot Games\\Riot Client\\GPUCache",
+    "dir",
+    false,
+    "Riot Client 图形渲染缓存"
+  ],
+  [
+    "Riot Client Service Worker",
+    "%LOCALAPPDATA%\\Riot Games\\Riot Client\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "Riot Client Service Worker 缓存"
+  ],
+  [
+    "Heroic 缓存",
+    "%APPDATA%\\heroic\\Cache",
+    "dir",
+    false,
+    "Heroic Games Launcher 普通缓存"
+  ],
+  [
+    "Heroic 代码缓存",
+    "%APPDATA%\\heroic\\Code Cache",
+    "dir",
+    false,
+    "Heroic Games Launcher 前端脚本缓存"
+  ],
+  [
+    "Heroic GPU 缓存",
+    "%APPDATA%\\heroic\\GPUCache",
+    "dir",
+    false,
+    "Heroic Games Launcher 图形渲染缓存"
+  ],
+  [
+    "Heroic 日志",
+    "%APPDATA%\\heroic\\logs",
+    "dir",
+    false,
+    "Heroic Games Launcher 运行日志"
+  ],
+  [
+    "战网崩溃日志",
+    "%PROGRAMDATA%\\Battle.net\\Agent\\errors",
+    "dir",
+    false,
+    "Battle.net Agent 错误日志"
   ]
 ]

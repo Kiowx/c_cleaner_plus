@@ -215,5 +215,103 @@
     "dir",
     false,
     "SourceTree 运行日志"
+  ],
+  [
+    "GitHub Desktop 代码缓存",
+    "%APPDATA%\\GitHub Desktop\\Code Cache",
+    "dir",
+    false,
+    "GitHub Desktop 前端脚本缓存"
+  ],
+  [
+    "Postman 缓存",
+    "%APPDATA%\\Postman\\Cache",
+    "dir",
+    false,
+    "Postman 普通缓存"
+  ],
+  [
+    "Postman 代码缓存",
+    "%APPDATA%\\Postman\\Code Cache",
+    "dir",
+    false,
+    "Postman 前端脚本缓存"
+  ],
+  [
+    "Postman GPU 缓存",
+    "%APPDATA%\\Postman\\GPUCache",
+    "dir",
+    false,
+    "Postman 图形渲染缓存"
+  ],
+  [
+    "Postman Service Worker",
+    "%APPDATA%\\Postman\\Service Worker\\CacheStorage",
+    "dir",
+    false,
+    "Postman Service Worker 缓存"
+  ],
+  [
+    "Postman 日志",
+    "%APPDATA%\\Postman\\logs",
+    "dir",
+    false,
+    "Postman 运行日志"
+  ],
+  [
+    "Insomnia 代码缓存",
+    "%APPDATA%\\Insomnia\\Code Cache",
+    "dir",
+    false,
+    "Insomnia 前端脚本缓存"
+  ],
+  [
+    "Docker Desktop 日志",
+    "%APPDATA%\\Docker\\log",
+    "dir",
+    false,
+    "Docker Desktop 日志"
+  ],
+  [
+    "本地 Docker 日志",
+    "%LOCALAPPDATA%\\Docker\\log",
+    "dir",
+    false,
+    "Docker Desktop 本地日志"
+  ],
+  [
+    "JetBrains Toolbox 日志",
+    "%LOCALAPPDATA%\\JetBrains\\Toolbox\\logs",
+    "dir",
+    false,
+    "JetBrains Toolbox 运行日志"
+  ],
+  [
+    "Unity 缓存",
+    "%LOCALAPPDATA%\\Unity\\cache",
+    "dir",
+    false,
+    "Unity 通用缓存"
+  ],
+  [
+    "Unreal DerivedDataCache",
+    "%LOCALAPPDATA%\\UnrealEngine\\Common\\DerivedDataCache",
+    "dir",
+    false,
+    "Unreal Engine 派生数据缓存"
+  ],
+  [
+    "Godot 日志",
+    "%APPDATA%\\Godot\\logs",
+    "dir",
+    false,
+    "Godot 运行日志"
+  ],
+  [
+    "Rancher Desktop 日志",
+    "%LOCALAPPDATA%\\rancher-desktop\\logs",
+    "dir",
+    false,
+    "Rancher Desktop 运行日志"
   ]
 ]

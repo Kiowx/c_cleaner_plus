@@ -1,3 +1,6 @@
-PySide6
-PySide6-Fluent-Widgets
-pyinstaller
+PySide6==6.10.2
+PySide6-Fluent-Widgets==1.11.1
+PySideSix-Frameless-Window==0.8.0
+darkdetect==0.8.0
+pyinstaller==6.18.0
+pywin32==311

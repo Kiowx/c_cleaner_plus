@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.4.6
+C盘强力清理工具 v0.4.8
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -9,15 +9,16 @@ import os, sys, time, ctypes, threading, subprocess, queue, json, hashlib, winre
 import urllib.request
 import webbrowser
 from collections import defaultdict
+from dataclasses import dataclass
 
-from PySide6.QtCore import Qt, Signal, QObject, QPoint, QMetaObject, Slot, QFileInfo, QSize, QTimer, QAbstractTableModel, QModelIndex, QEvent
-from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QDrag, QPixmap, QRegion, QTextCursor
+from PySide6.QtCore import Qt, Signal, QObject, QPoint, QMetaObject, Slot, QFileInfo, QSize, QTimer, QAbstractTableModel, QModelIndex, QEvent, QMimeData
+from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QDrag, QPixmap, QRegion, QTextCursor, QAction
 from qfluentwidgets import isDarkTheme, themeColor, qconfig
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QAbstractItemView, QTableWidgetItem, QStyledItemDelegate,
     QTreeWidget, QTreeWidgetItem, QHeaderView,
-    QFileIconProvider, QFileDialog
+    QFileIconProvider, QFileDialog, QLabel, QSystemTrayIcon, QMenu
 )
 
 from qfluentwidgets import (
@@ -28,7 +29,7 @@ from qfluentwidgets import (
     CheckBox, SpinBox, ProgressBar,
     TitleLabel, CaptionLabel, StrongBodyLabel,
     IconWidget, TableWidget, TableView, TextEdit, CardWidget,
-    RoundMenu, Action, MessageBox, InfoBar, InfoBarPosition, ScrollArea,
+    RoundMenu, MenuAnimationType, Action, MessageBox, InfoBar, InfoBarPosition, ScrollArea,
     SearchLineEdit, MessageBoxBase, LineEdit, ToolButton
 )
 from qfluentwidgets.common.router import qrouter
@@ -36,7 +37,7 @@ from qfluentwidgets.common.router import qrouter
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.4.6"
+CURRENT_VERSION = "0.4.8"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -755,6 +756,184 @@ class DragSortTableWidget(TableWidget):
         
         self.removeRow(insert_source)
         self.selectRow(target_row if target_row < source_row else target_row - 1)
+
+
+class CleanRulesTableView(TableView):
+    MIME_TYPE = "application/x-cdisk-clean-rule-row"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._drag_enabled = True
+        self._press_pos = None
+        self._press_row = -1
+        self._drag_started = False
+        self._drag_shadow = None
+        self._drag_shadow_offset = QPoint(40, 18)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.setDragDropOverwriteMode(False)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+
+    def setDragEnabled(self, enable):
+        self._drag_enabled = bool(enable)
+        super().setDragEnabled(bool(enable))
+
+    def dragEnabled(self):
+        return self._drag_enabled
+
+    def _event_pos(self, event):
+        return event.position().toPoint() if hasattr(event, 'position') else event.pos()
+
+    def _build_drag_pixmap(self, row):
+        if self.model() is None or row < 0 or row >= self.model().rowCount():
+            return None
+        rect = self.visualRect(self.model().index(row, 0))
+        if not rect.isValid() or rect.height() <= 0:
+            return None
+        drag_width = min(self.viewport().width(), 550)
+        rect.setWidth(drag_width)
+
+        pixmap = QPixmap(rect.size())
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        bg_color = QColor(43, 43, 43, 230) if isDarkTheme() else QColor(255, 255, 255, 230)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(bg_color)
+        painter.drawRoundedRect(pixmap.rect(), 6, 6)
+        painter.setClipRect(pixmap.rect())
+        self.viewport().render(painter, QPoint(0, 0), QRegion(rect))
+        painter.setPen(themeColor())
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(0, 0, pixmap.width() - 1, pixmap.height() - 1, 6, 6)
+        painter.end()
+        return pixmap
+
+    def _show_drag_shadow(self, row, global_pos):
+        pixmap = self._build_drag_pixmap(row)
+        if pixmap is None:
+            return
+        if self._drag_shadow is None:
+            self._drag_shadow = QLabel(None)
+            self._drag_shadow.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+            self._drag_shadow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            self._drag_shadow.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self._drag_shadow.setPixmap(pixmap)
+        self._drag_shadow.resize(pixmap.size())
+        self._drag_shadow.move(global_pos - self._drag_shadow_offset)
+        self._drag_shadow.show()
+
+    def _update_drag_shadow(self, global_pos):
+        if self._drag_shadow is not None:
+            self._drag_shadow.move(global_pos - self._drag_shadow_offset)
+
+    def _hide_drag_shadow(self):
+        if self._drag_shadow is not None:
+            self._drag_shadow.hide()
+
+    def _move_row_by_pos(self, source_row, pos):
+        target_index = self.indexAt(pos)
+        if not target_index.isValid():
+            target_row = self.model().rowCount()
+        else:
+            target_row = target_index.row()
+            rect = self.visualRect(target_index)
+            if pos.y() > rect.center().y():
+                target_row += 1
+
+        if target_row in (source_row, source_row + 1):
+            return False
+
+        if self.model().moveRows(QModelIndex(), source_row, 1, QModelIndex(), target_row):
+            final_row = target_row if target_row <= source_row else target_row - 1
+            self.selectRow(final_row)
+            return True
+        return False
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            idx = self.indexAt(self._event_pos(event))
+            if idx.isValid() and idx.column() != 0 and self._drag_enabled:
+                self._press_pos = self._event_pos(event)
+                self._press_row = idx.row()
+                self._drag_started = False
+            else:
+                self._press_pos = None
+                self._press_row = -1
+                self._drag_started = False
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_enabled and self._press_pos is not None and self._press_row >= 0 and (event.buttons() & Qt.MouseButton.LeftButton):
+            pos = self._event_pos(event)
+            global_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else self.viewport().mapToGlobal(pos)
+            if (pos - self._press_pos).manhattanLength() >= QApplication.startDragDistance():
+                if not self._drag_started:
+                    self._drag_started = True
+                    anchor_col = 1 if self.model() is not None and self.model().columnCount() > 1 else 0
+                    if self.model() is not None and 0 <= self._press_row < self.model().rowCount():
+                        self.setCurrentIndex(self.model().index(self._press_row, anchor_col))
+                        self.selectRow(self._press_row)
+                        self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+                        self._show_drag_shadow(self._press_row, global_pos)
+                self._update_drag_shadow(global_pos)
+                event.accept()
+                return
+        if self._drag_started:
+            global_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else self.viewport().mapToGlobal(self._event_pos(event))
+            self._update_drag_shadow(global_pos)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        handled = False
+        if self._drag_enabled and self._drag_started and self._press_row >= 0:
+            handled = self._move_row_by_pos(self._press_row, self._event_pos(event))
+            self.viewport().unsetCursor()
+            self._hide_drag_shadow()
+            event.accept()
+        else:
+            self._hide_drag_shadow()
+        self._press_pos = None
+        self._press_row = -1
+        self._drag_started = False
+        if handled:
+            return
+        super().mouseReleaseEvent(event)
+
+    def startDrag(self, supportedActions):
+        return
+
+    def dragMoveEvent(self, event):
+        if self._drag_enabled and event.mimeData().hasFormat(self.MIME_TYPE):
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if not self._drag_enabled or event.source() != self or not event.mimeData().hasFormat(self.MIME_TYPE):
+            super().dropEvent(event)
+            return
+
+        try:
+            source_row = int(bytes(event.mimeData().data(self.MIME_TYPE)).decode("utf-8"))
+        except Exception:
+            source_row = self.currentIndex().row()
+        if source_row < 0:
+            event.ignore()
+            return
+
+        if self._move_row_by_pos(source_row, self._event_pos(event)):
+            event.acceptProposedAction()
+            return
+        event.ignore()
 
 # ══════════════════════════════════════════════════════════
 #  Windows API / 工具
@@ -1926,10 +2105,9 @@ def make_ctx(parent, table, pos, col):
     a1=Action(FIF.COPY,"复制");a1.triggered.connect(_copy_path);a1.setEnabled(bool(raw));m.addAction(a1); m.addSeparator()
     a2=Action(FIF.DOCUMENT,"打开"); a2.triggered.connect(lambda:subprocess.Popen(["explorer",n]) if n else None); a2.setEnabled(ex and os.path.isfile(n)); m.addAction(a2)
     a3=Action(FIF.FOLDER,"定位"); a3.triggered.connect(lambda:open_explorer(n)); a3.setEnabled(ex); m.addAction(a3)
-    try:
-        m.exec(table.viewport().mapToGlobal(pos))
-    finally:
-        m.deleteLater()
+    vp = table.viewport() if hasattr(table, "viewport") else table
+    gp = vp.mapToGlobal(pos)
+    QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
 
 def make_check_item(checked=False):
     item = QTableWidgetItem()
@@ -1975,6 +2153,243 @@ class PageFooterWidget(QWidget):
         self.sl.setText(display)
 
 
+@dataclass(slots=True)
+class CleanRuleRow:
+    src_idx: int
+    name: str
+    path: str
+    type: str
+    checked: bool
+    note: str
+    is_custom: bool
+    pattern: str
+    size: int = 0
+
+
+class CleanRulesTableModel(QAbstractTableModel):
+    headers = [" ", "项目", "路径", "说明", "大小"]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._rows = []
+        self._drag_enabled = True
+
+    def rowCount(self, parent=QModelIndex()):
+        if parent.isValid():
+            return 0
+        return len(self._rows)
+
+    def columnCount(self, parent=QModelIndex()):
+        if parent.isValid():
+            return 0
+        return 5
+
+    @staticmethod
+    def _display_name(row):
+        name = str(row.name or "")
+        return f"{name} (自定义)" if row.is_custom else name
+
+    @staticmethod
+    def _display_path(row):
+        return rule_display_target(
+            row.path,
+            row.type,
+            row.pattern
+        )
+
+    @staticmethod
+    def _size_text(row):
+        size_val = int(row.size or 0)
+        return human_size(size_val) if size_val > 0 else ""
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        row = self._rows[index.row()]
+        col = index.column()
+
+        if role == Qt.ItemDataRole.CheckStateRole and col == 0:
+            return Qt.CheckState.Checked if row.checked else Qt.CheckState.Unchecked
+
+        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+            if col == 1:
+                return self._display_name(row)
+            if col == 2:
+                return self._display_path(row)
+            if col == 3:
+                return row.note
+            if col == 4:
+                return self._size_text(row)
+            return ""
+
+        if role == Qt.ItemDataRole.TextAlignmentRole and col == 4:
+            return int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+
+        if role == Qt.ItemDataRole.ToolTipRole:
+            if col == 2:
+                return self._display_path(row)
+            if col == 3:
+                return row.note
+            if col == 1:
+                return self._display_name(row)
+
+        if role == Qt.ItemDataRole.UserRole:
+            return row
+
+        return None
+
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        if not index.isValid():
+            return False
+        row = self._rows[index.row()]
+        if role == Qt.ItemDataRole.CheckStateRole and index.column() == 0:
+            if isinstance(value, Qt.CheckState):
+                checked = value == Qt.CheckState.Checked
+            else:
+                try:
+                    checked = int(value) == int(Qt.CheckState.Checked)
+                except Exception:
+                    checked = bool(value)
+            row.checked = checked
+            self.dataChanged.emit(index, index, [Qt.ItemDataRole.CheckStateRole])
+            return True
+        return False
+
+    def flags(self, index):
+        if not index.isValid():
+            flags = Qt.ItemFlag.ItemIsDropEnabled
+            return flags if self._drag_enabled else Qt.ItemFlag.NoItemFlags
+
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if index.column() == 0:
+            flags |= Qt.ItemFlag.ItemIsUserCheckable
+        if self._drag_enabled:
+            flags |= Qt.ItemFlag.ItemIsDragEnabled | Qt.ItemFlag.ItemIsDropEnabled
+        return flags
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+            return self.headers[section]
+        return super().headerData(section, orientation, role)
+
+    def clear(self):
+        if not self._rows:
+            return
+        self.beginResetModel()
+        self._rows.clear()
+        self.endResetModel()
+
+    def set_rows(self, rows):
+        self.beginResetModel()
+        self._rows = list(rows)
+        self.endResetModel()
+
+    def row_at(self, row):
+        if 0 <= row < len(self._rows):
+            return self._rows[row]
+        return None
+
+    def all_checked(self, rows=None):
+        if rows is None:
+            rows = range(len(self._rows))
+        rows = list(rows)
+        return bool(rows) and all(self._rows[r].checked for r in rows if 0 <= r < len(self._rows))
+
+    def set_all_checked(self, checked, rows=None):
+        if not self._rows:
+            return
+        targets = list(range(len(self._rows))) if rows is None else [r for r in rows if 0 <= r < len(self._rows)]
+        if not targets:
+            return
+        state = bool(checked)
+        for r in targets:
+            self._rows[r].checked = state
+        top_left = self.index(min(targets), 0)
+        bottom_right = self.index(max(targets), 0)
+        self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.CheckStateRole])
+
+    def set_drag_enabled(self, enabled):
+        self._drag_enabled = bool(enabled)
+
+    def moveRows(self, sourceParent, sourceRow, count, destinationParent, destinationChild):
+        if count != 1 or sourceParent.isValid() or destinationParent.isValid():
+            return False
+        if not (0 <= sourceRow < len(self._rows)):
+            return False
+        if destinationChild < 0:
+            destinationChild = 0
+        if destinationChild > len(self._rows):
+            destinationChild = len(self._rows)
+        if destinationChild in (sourceRow, sourceRow + 1):
+            return False
+
+        self.beginMoveRows(QModelIndex(), sourceRow, sourceRow, QModelIndex(), destinationChild)
+        row = self._rows.pop(sourceRow)
+        if destinationChild > sourceRow:
+            destinationChild -= 1
+        self._rows.insert(destinationChild, row)
+        self.endMoveRows()
+        return True
+
+    def sort_by_mode(self, mode):
+        if mode == 0:
+            return
+        if mode == 1:
+            key_fn = lambda item: self._display_name(item).lower()
+            reverse = False
+        elif mode == 2:
+            key_fn = lambda item: self._display_path(item).lower()
+            reverse = False
+        elif mode == 3:
+            key_fn = lambda item: int(item.size or 0)
+            reverse = True
+        else:
+            return
+
+        self.layoutAboutToBeChanged.emit()
+        self._rows.sort(key=key_fn, reverse=reverse)
+        self.layoutChanged.emit()
+
+    def sync_targets(self, sort_mode):
+        if sort_mode == 0:
+            return [
+                (
+                    row.name,
+                    row.path,
+                    row.type,
+                    row.checked,
+                    row.note,
+                    row.is_custom,
+                    row.pattern,
+                )
+                for row in self._rows
+            ]
+        return [
+            (
+                row.src_idx,
+                (
+                    row.name,
+                    row.path,
+                    row.type,
+                    row.checked,
+                    row.note,
+                    row.is_custom,
+                    row.pattern,
+                ),
+            )
+            for row in self._rows
+        ]
+
+    def update_size_for_src_idx(self, src_idx, size_val):
+        for row_idx, row in enumerate(self._rows):
+            if row.src_idx != src_idx:
+                continue
+            row.size = size_val
+            idx = self.index(row_idx, 4)
+            self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+            break
+
+
 def build_uninstall_risk_tip(category, is_risky=False, risk_reason=""):
     category = str(category or "用户")
     reason = str(risk_reason or "").strip()
@@ -1989,6 +2404,33 @@ class LazyPagePlaceholder(QWidget):
     def __init__(self, route_key, parent=None):
         super().__init__(parent)
         self.setObjectName(route_key)
+
+
+class DeferredPageMixin:
+    def _init_deferred_stages(self, *stage_names):
+        for stage in stage_names:
+            setattr(self, f"_{stage}_initialized", False)
+            setattr(self, f"_{stage}_pending", False)
+
+    def _stage_ready(self, stage_name):
+        return bool(getattr(self, f"_{stage_name}_initialized", False))
+
+    def _ensure_stage(self, stage_name, immediate=False, delay=0, on_ready=None):
+        initialized_attr = f"_{stage_name}_initialized"
+        pending_attr = f"_{stage_name}_pending"
+        if getattr(self, initialized_attr, False):
+            return True
+        if getattr(self, pending_attr, False) and not immediate:
+            return False
+        if not immediate:
+            setattr(self, pending_attr, True)
+            QTimer.singleShot(delay, lambda: self._ensure_stage(stage_name, immediate=True, delay=delay, on_ready=on_ready))
+            return False
+        setattr(self, pending_attr, False)
+        setattr(self, initialized_attr, True)
+        if callable(on_ready):
+            on_ready()
+        return True
 
 
 class DriveSelector(QWidget):
@@ -3615,7 +4057,7 @@ class RulePackManagerDialog(MessageBoxBase):
         else:
             InfoBar.warning("部分完成", f"已清理 {ok} 个，失败 {fl} 个", parent=self.main_win)
 
-class RuleStorePage(ScrollArea):
+class RuleStorePage(DeferredPageMixin, ScrollArea):
     itemsLoaded = Signal(object, object)
 
     def __init__(self, main_win, parent=None):
@@ -3623,11 +4065,11 @@ class RuleStorePage(ScrollArea):
         self.main_win = main_win
         self.selected_item = None
         self.store_items = []
-        self._content_initialized = False
-        self._content_init_pending = False
+        self._init_deferred_stages("content")
         self._loading_items = False
         self._refresh_requested = False
         self._initial_load_requested = False
+        self._load_after_content = False
         self._detail_initialized = False
 
         self.view = QWidget()
@@ -3640,12 +4082,11 @@ class RuleStorePage(ScrollArea):
         self.root.setContentsMargins(28, 12, 28, 20)
         self.root.setSpacing(12)
         title_row = make_title_row(FIF.DOCUMENT, "规则商店")
+        self._title_row = title_row
         self.btn_refresh = PushButton(FIF.SYNC, "刷新列表")
         self.btn_refresh.clicked.connect(self._refresh_items)
         title_row.addWidget(self.btn_refresh)
-        self.btn_manage = PushButton(FIF.FOLDER, "规则包管理")
-        self.btn_manage.clicked.connect(self._open_pack_manager)
-        title_row.addWidget(self.btn_manage)
+        self.btn_manage = None
         self.root.addLayout(title_row)
 
         self.desc = CaptionLabel("从远程规则源选择规则包，一键下载并导入到当前自定义规则列表")
@@ -3681,20 +4122,23 @@ class RuleStorePage(ScrollArea):
         self.itemsLoaded.connect(self._apply_loaded_items)
 
     def _ensure_content(self, immediate=False, auto_load=True):
-        if self._content_initialized:
+        if self._stage_ready("content"):
+            self._ensure_manage_button()
             if auto_load and not self._initial_load_requested:
                 self._initial_load_requested = True
                 QTimer.singleShot(0, self._load_items)
             return
-        if self._content_init_pending and not immediate:
+        if auto_load:
+            self._load_after_content = True
+        if not self._ensure_stage("content", immediate=immediate, delay=0, on_ready=self._finish_content_init):
             return
-        if not immediate:
-            self._content_init_pending = True
-            QTimer.singleShot(0, lambda: self._ensure_content(immediate=True, auto_load=auto_load))
-            return
-        self._content_init_pending = False
-        self._content_initialized = True
+        if auto_load and not self._initial_load_requested:
+            self._initial_load_requested = True
+            QTimer.singleShot(0, self._load_items)
+
+    def _finish_content_init(self):
         self.loading_card.hide()
+        self._ensure_manage_button()
 
         content = QHBoxLayout()
         content.setSpacing(12)
@@ -3736,8 +4180,10 @@ class RuleStorePage(ScrollArea):
         right_layout.addWidget(placeholder)
         right_layout.addStretch()
         content.addWidget(self._right_panel, 2)
-
-        QTimer.singleShot(0, self._load_items)
+        if self._load_after_content and not self._initial_load_requested:
+            self._load_after_content = False
+            self._initial_load_requested = True
+            QTimer.singleShot(0, self._load_items)
 
     def showEvent(self, event):
         self._ensure_content(immediate=False, auto_load=True)
@@ -3745,6 +4191,13 @@ class RuleStorePage(ScrollArea):
 
     def prepare_lightweight(self):
         self._ensure_content(immediate=True, auto_load=False)
+
+    def _ensure_manage_button(self):
+        if self.btn_manage is not None:
+            return
+        self.btn_manage = PushButton(FIF.FOLDER, "规则包管理")
+        self.btn_manage.clicked.connect(self._open_pack_manager)
+        self._title_row.addWidget(self.btn_manage)
 
     def _ensure_detail_panel(self):
         if self._detail_initialized or self._right_panel is None:
@@ -4014,19 +4467,17 @@ class ScheduledUninstallDialog(MessageBoxBase):
                     })
         return rows
 
-class SchedulePage(ScrollArea):
+class SchedulePage(DeferredPageMixin, ScrollArea):
     tasksLoaded = Signal(object, object)
 
     def __init__(self, main_win, parent=None):
         super().__init__(parent)
         self.main_win = main_win
         self.uninstall_items = []
-        self._content_initialized = False
-        self._content_init_pending = False
-        self._heavy_content_initialized = False
-        self._heavy_content_pending = False
+        self._init_deferred_stages("content", "heavy")
         self._task_loading = False
         self._refresh_requested = False
+        self._load_heavy_after_content = False
         self.view = QWidget()
         self.setWidget(self.view)
         self.setWidgetResizable(True)
@@ -4064,6 +4515,7 @@ class SchedulePage(ScrollArea):
         self.chk_feat_registry = None
         self.chk_feat_uninstall_std = None
         self.uninstall_cfg_widget = None
+        self.uninstall_cfg_placeholder = None
         self.lbl_uninstall_summary = None
         self.btn_pick_uninstall = None
         self.chk_uninstall_silent = None
@@ -4077,18 +4529,18 @@ class SchedulePage(ScrollArea):
         self.tasksLoaded.connect(self._apply_task_list)
 
     def _ensure_content(self, immediate=False, skip_heavy=False):
-        if self._content_initialized:
+        if self._stage_ready("content"):
             if not skip_heavy:
                 self._ensure_heavy_content(immediate=immediate)
             return
-        if self._content_init_pending and not immediate:
+        if not skip_heavy:
+            self._load_heavy_after_content = True
+        if not self._ensure_stage("content", immediate=immediate, delay=0, on_ready=self._finish_content_init):
             return
-        if not immediate:
-            self._content_init_pending = True
-            QTimer.singleShot(0, lambda: self._ensure_content(immediate=True, skip_heavy=skip_heavy))
-            return
-        self._content_init_pending = False
-        self._content_initialized = True
+        if not skip_heavy:
+            self._ensure_heavy_content(immediate=immediate)
+
+    def _finish_content_init(self):
 
         form = CardWidget(self.view)
         form_layout = QVBoxLayout(form)
@@ -4164,31 +4616,9 @@ class SchedulePage(ScrollArea):
         row_feat.addStretch()
         form_layout.addLayout(row_feat)
 
-        self.uninstall_cfg_widget = QWidget()
-        row_uninstall = QHBoxLayout(self.uninstall_cfg_widget)
-        row_uninstall.setContentsMargins(0, 0, 0, 0)
-        row_uninstall.setSpacing(8)
-        row_uninstall.addWidget(StrongBodyLabel("卸载预设:"))
-        self.lbl_uninstall_summary = CaptionLabel("未配置应用卸载任务")
-        self.lbl_uninstall_summary.setTextColor(QColor(128, 128, 128))
-        row_uninstall.addWidget(self.lbl_uninstall_summary)
-        self.btn_pick_uninstall = PushButton(FIF.APPLICATION, "选择应用")
-        self.btn_pick_uninstall.clicked.connect(self._pick_uninstall_items)
-        row_uninstall.addWidget(self.btn_pick_uninstall)
-        row_uninstall.addSpacing(12)
-        self.chk_uninstall_silent = CheckBox("优先静默卸载")
-        row_uninstall.addWidget(self.chk_uninstall_silent)
-        timeout_label = CaptionLabel("超时")
-        timeout_label.setTextColor(QColor(128, 128, 128))
-        row_uninstall.addWidget(timeout_label)
-        self.sp_uninstall_timeout = SpinBox()
-        self.sp_uninstall_timeout.setRange(1, 120)
-        self.sp_uninstall_timeout.setValue(20)
-        self.sp_uninstall_timeout.setFixedWidth(110)
-        row_uninstall.addWidget(self.sp_uninstall_timeout)
-        row_uninstall.addWidget(CaptionLabel("分钟"))
-        row_uninstall.addStretch(1)
-        form_layout.addWidget(self.uninstall_cfg_widget)
+        self.uninstall_cfg_placeholder = QWidget()
+        self.uninstall_cfg_placeholder.setVisible(False)
+        form_layout.addWidget(self.uninstall_cfg_placeholder)
 
         row3 = QHBoxLayout()
         row3.setSpacing(8)
@@ -4213,23 +4643,20 @@ class SchedulePage(ScrollArea):
 
         self._sync_trigger_widgets()
         self._sync_uninstall_widgets()
-        if not skip_heavy:
+        if self._load_heavy_after_content:
+            self._load_heavy_after_content = False
             self._ensure_heavy_content(immediate=False)
 
     def prepare_lightweight(self):
         self._ensure_content(immediate=True, skip_heavy=True)
 
     def _ensure_heavy_content(self, immediate=False):
-        if self._heavy_content_initialized:
+        if self._stage_ready("heavy"):
             return
-        if self._heavy_content_pending and not immediate:
+        if not self._ensure_stage("heavy", immediate=immediate, delay=30, on_ready=self._finish_heavy_content_init):
             return
-        if not immediate:
-            self._heavy_content_pending = True
-            QTimer.singleShot(30, lambda: self._ensure_heavy_content(immediate=True))
-            return
-        self._heavy_content_pending = False
-        self._heavy_content_initialized = True
+
+    def _finish_heavy_content_init(self):
         self.loading.hide()
 
         self.tbl = TableWidget()
@@ -4297,6 +4724,10 @@ class SchedulePage(ScrollArea):
     def _sync_uninstall_widgets(self):
         self._ensure_content()
         enabled = self.chk_feat_uninstall_std.isChecked()
+        if enabled and self.uninstall_cfg_widget is None:
+            self._ensure_uninstall_cfg_widget()
+        if self.uninstall_cfg_widget is None:
+            return
         self.uninstall_cfg_widget.setVisible(enabled)
         self.btn_pick_uninstall.setEnabled(enabled)
         self.chk_uninstall_silent.setEnabled(enabled)
@@ -4307,6 +4738,45 @@ class SchedulePage(ScrollArea):
             self.lbl_uninstall_summary.setText(f"已选择 {len(self.uninstall_items)} 个应用")
         else:
             self.lbl_uninstall_summary.setText("尚未选择待卸载应用")
+
+    def _ensure_uninstall_cfg_widget(self):
+        if self.uninstall_cfg_widget is not None:
+            return
+        self.uninstall_cfg_widget = QWidget()
+        row_uninstall = QHBoxLayout(self.uninstall_cfg_widget)
+        row_uninstall.setContentsMargins(0, 0, 0, 0)
+        row_uninstall.setSpacing(8)
+        row_uninstall.addWidget(StrongBodyLabel("卸载预设:"))
+        self.lbl_uninstall_summary = CaptionLabel("未配置应用卸载任务")
+        self.lbl_uninstall_summary.setTextColor(QColor(128, 128, 128))
+        row_uninstall.addWidget(self.lbl_uninstall_summary)
+        self.btn_pick_uninstall = PushButton(FIF.APPLICATION, "选择应用")
+        self.btn_pick_uninstall.clicked.connect(self._pick_uninstall_items)
+        row_uninstall.addWidget(self.btn_pick_uninstall)
+        row_uninstall.addSpacing(12)
+        self.chk_uninstall_silent = CheckBox("优先静默卸载")
+        row_uninstall.addWidget(self.chk_uninstall_silent)
+        timeout_label = CaptionLabel("超时")
+        timeout_label.setTextColor(QColor(128, 128, 128))
+        row_uninstall.addWidget(timeout_label)
+        self.sp_uninstall_timeout = SpinBox()
+        self.sp_uninstall_timeout.setRange(1, 120)
+        self.sp_uninstall_timeout.setValue(20)
+        self.sp_uninstall_timeout.setFixedWidth(110)
+        row_uninstall.addWidget(self.sp_uninstall_timeout)
+        row_uninstall.addWidget(CaptionLabel("分钟"))
+        row_uninstall.addStretch(1)
+
+        parent_layout = self.uninstall_cfg_placeholder.parentWidget().layout() if self.uninstall_cfg_placeholder and self.uninstall_cfg_placeholder.parentWidget() else None
+        if parent_layout is not None:
+            idx = parent_layout.indexOf(self.uninstall_cfg_placeholder)
+            if idx >= 0:
+                parent_layout.insertWidget(idx, self.uninstall_cfg_widget)
+            else:
+                parent_layout.addWidget(self.uninstall_cfg_widget)
+        self.uninstall_cfg_widget.setVisible(False)
+        if self.uninstall_cfg_placeholder is not None:
+            self.uninstall_cfg_placeholder.hide()
 
     def _pick_uninstall_items(self):
         self._ensure_content()
@@ -4505,6 +4975,16 @@ class SettingPage(ScrollArea):
         self.switch_auto_start.setChecked(self.main_win.global_settings.get("auto_start", False))
         self.switch_auto_start.checkedChanged.connect(self._on_auto_start_changed)
 
+        self.switch_tray = SwitchButton()
+        self.switch_tray.setOnText("开启"); self.switch_tray.setOffText("关闭")
+        self.switch_tray.setChecked(self.main_win.global_settings.get("tray_enabled", False))
+        self.switch_tray.checkedChanged.connect(self._on_tray_enabled_changed)
+
+        self.switch_tray_start_hidden = SwitchButton()
+        self.switch_tray_start_hidden.setOnText("开启"); self.switch_tray_start_hidden.setOffText("关闭")
+        self.switch_tray_start_hidden.setChecked(self.main_win.global_settings.get("tray_start_hidden", False))
+        self.switch_tray_start_hidden.checkedChanged.connect(self._on_tray_start_hidden_changed)
+
         self.cb_theme_mode = ComboBox()
         self.cb_theme_mode.addItems([
             THEME_MODE_LABELS["auto"],
@@ -4587,6 +5067,18 @@ class SettingPage(ScrollArea):
                 self.switch_auto_start
             ),
             self._make_setting_row(
+                FIF.MINIMIZE,
+                "托盘运行",
+                "开启后，最小化或关闭窗口时会隐藏到系统托盘，可从托盘恢复或直接退出",
+                self.switch_tray
+            ),
+            self._make_setting_row(
+                FIF.SEND,
+                "启动后隐藏到托盘",
+                "开启后，软件启动完成后会自动隐藏到系统托盘，可配合托盘运行使用",
+                self.switch_tray_start_hidden
+            ),
+            self._make_setting_row(
                 FIF.BRUSH,
                 "主题样式",
                 "可切换为跟随系统、浅色或深色，修改后立即生效",
@@ -4660,6 +5152,7 @@ class SettingPage(ScrollArea):
         ]))
 
         self._refresh_config_dir_text()
+        self._sync_tray_switches()
         v.addStretch()
         qconfig.themeChanged.connect(self._apply_setting_style)
         qconfig.themeChangedFinished.connect(self._apply_setting_style)
@@ -4782,6 +5275,37 @@ class SettingPage(ScrollArea):
         self.switch_auto_start.setChecked(not is_checked)
         self.switch_auto_start.blockSignals(False)
         InfoBar.error("更新失败", msg, parent=self.main_win)
+
+    def _on_tray_enabled_changed(self, is_checked):
+        ok, msg = self.main_win.set_tray_enabled(is_checked)
+        self.switch_tray.blockSignals(True)
+        self.switch_tray.setChecked(self.main_win.global_settings.get("tray_enabled", False))
+        self.switch_tray.blockSignals(False)
+        self._sync_tray_switches()
+        if ok:
+            InfoBar.success("已更新", msg, parent=self.main_win)
+            return
+        InfoBar.error("更新失败", msg, parent=self.main_win)
+
+    def _on_tray_start_hidden_changed(self, is_checked):
+        if not self.main_win.global_settings.get("tray_enabled", False):
+            self.switch_tray_start_hidden.blockSignals(True)
+            self.switch_tray_start_hidden.setChecked(False)
+            self.switch_tray_start_hidden.blockSignals(False)
+            InfoBar.warning("提示", "需要先开启托盘运行，才能启用启动后隐藏到托盘", parent=self.main_win)
+            return
+        self.main_win.global_settings["tray_start_hidden"] = bool(is_checked)
+        self.main_win.save_global_settings()
+        self._sync_tray_switches()
+        InfoBar.success("已更新", "启动后隐藏到托盘已开启" if is_checked else "启动后隐藏到托盘已关闭", parent=self.main_win)
+
+    def _sync_tray_switches(self):
+        tray_enabled = bool(self.main_win.global_settings.get("tray_enabled", False))
+        self.switch_tray_start_hidden.setEnabled(tray_enabled)
+        if not tray_enabled:
+            self.switch_tray_start_hidden.blockSignals(True)
+            self.switch_tray_start_hidden.setChecked(False)
+            self.switch_tray_start_hidden.blockSignals(False)
 
     def _on_sidebar_style_changed(self, _):
         style = "horizontal" if self.cb_sidebar_style.currentIndex() == 0 else "vertical"
@@ -4941,17 +5465,32 @@ class CleanPage(ScrollArea):
         b_exp = PushButton(FIF.SAVE, "导出"); b_exp.clicked.connect(self.do_export_rules); opt.addWidget(b_exp)
         v.addLayout(opt)
 
-        self.tbl=DragSortTableWidget(); self.tbl.setColumnCount(5); self.tbl.setHorizontalHeaderLabels([" ","项目","路径","说明","大小"])
+        self.tbl = CleanRulesTableView()
+        self.tbl_model = CleanRulesTableModel(self.tbl)
+        self.tbl.setModel(self.tbl_model)
         self.tbl.verticalHeader().setVisible(False)
+        self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tbl.setAlternatingRowColors(True)
+        self.tbl.setWordWrap(False)
         self.tbl.horizontalHeader().setStretchLastSection(True)
-        self.tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu); self.tbl.customContextMenuRequested.connect(lambda p: make_ctx(self,self.tbl,p,2))
-        self.tbl.setSortingEnabled(False)
-        
-        self.reload_table() # 初始化时渲染表格
-        
-        self.tbl.setColumnWidth(0, 36); self.tbl.setColumnWidth(1, 150); self.tbl.setColumnWidth(2, 400); self.tbl.setColumnWidth(3, 200); self.tbl.setColumnWidth(4, 85)
-        self.tbl.setIconSize(QSize(24, 24))
-        style_table(self.tbl)
+        self.tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.tbl.setColumnWidth(0, 44)
+        self.tbl.setColumnWidth(1, 150)
+        self.tbl.setColumnWidth(2, 380)
+        self.tbl.setColumnWidth(4, 95)
+        setFont(self.tbl, 12, QFont.Weight.Normal)
+        setFont(self.tbl.horizontalHeader(), 12, QFont.Weight.DemiBold)
+        self.tbl.verticalHeader().setDefaultSectionSize(30)
+        self.tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tbl.customContextMenuRequested.connect(self._show_context_menu)
+        self.tbl_model.dataChanged.connect(self._on_model_data_changed)
+        self.reload_table()
         v.addWidget(self.tbl, 1)
 
         br=QHBoxLayout(); br.setSpacing(8)
@@ -4985,25 +5524,24 @@ class CleanPage(ScrollArea):
 
     def reload_table(self):
         self._prune_estimated_sizes()
-        self.tbl.setRowCount(0)
         display_entries = self._get_display_entries()
-        self.tbl.setRowCount(len(display_entries))
-        for i, (src_idx, entry) in enumerate(display_entries):
+        rows = []
+        for src_idx, entry in display_entries:
             nm, pa, tp, en, nt, is_c, pattern = parse_rule_entry(entry)
-            disp_name = f"{nm} (自定义)" if is_c else nm
-            chk_item = make_check_item(en)
-            name_item = QTableWidgetItem(disp_name)
-            name_item.setData(Qt.ItemDataRole.UserRole, (src_idx, nm, pa, tp, is_c, pattern))
-            
-            self.tbl.setItem(i, 0, chk_item)
-            self.tbl.setItem(i, 1, name_item)
-            self.tbl.setItem(i, 2, QTableWidgetItem(rule_display_target(pa, tp, pattern)))
-            self.tbl.setItem(i, 3, QTableWidgetItem(nt))
-            size_item = SizeTableWidgetItem("")
             size_val = self.estimated_sizes.get(self._rule_cache_key(entry), 0)
-            size_item.setData(Qt.ItemDataRole.UserRole, size_val)
-            size_item.setText(human_size(size_val) if size_val > 0 else "")
-            self.tbl.setItem(i, 4, size_item)
+            rows.append(CleanRuleRow(
+                src_idx=src_idx,
+                name=nm,
+                path=pa,
+                type=tp,
+                checked=en,
+                note=nt,
+                is_custom=is_c,
+                pattern=normalize_rule_pattern(tp, pattern, nt),
+                size=size_val,
+            ))
+        self.tbl_model.set_rows(rows)
+        self.tbl_model.set_drag_enabled(getattr(self, "cb_sort", None) is None or self.cb_sort.currentIndex() == 0)
         self._filter_rules(self.search_input.text())
 
     def _rule_cache_key(self, entry):
@@ -5025,48 +5563,61 @@ class CleanPage(ScrollArea):
     def _on_sort_mode_changed(self, _):
         is_default = self.cb_sort.currentIndex() == 0
         self.tbl.setDragEnabled(is_default)
+        self.tbl_model.set_drag_enabled(is_default)
         self.reload_table()
 
     def _filter_rules(self, text):
         query = str(text or "").strip().lower()
-        for row in range(self.tbl.rowCount()):
-            cells = []
-            for col in (1, 2, 3):
-                item = self.tbl.item(row, col)
-                cells.append(item.text().lower() if item and item.text() else "")
+        for row in range(self.tbl_model.rowCount()):
+            item = self.tbl_model.row_at(row)
+            if item is None:
+                self.tbl.setRowHidden(row, True)
+                continue
+            cells = [
+                str(self.tbl_model._display_name(item)).lower(),
+                str(self.tbl_model._display_path(item)).lower(),
+                str(item.note).lower(),
+            ]
             matched = (not query) or any(query in cell for cell in cells)
             self.tbl.setRowHidden(row, not matched)
+        self._sync_select_all_button()
 
     def toggle_sel_all(self):
-        toggle_select_all(self.tbl, self.btn_sel_all)
+        rows = [r for r in range(self.tbl_model.rowCount()) if not self.tbl.isRowHidden(r)]
+        if not rows:
+            return
+        new_state = not self.tbl_model.all_checked(rows)
+        self.tbl_model.set_all_checked(new_state, rows)
+        self._sync_select_all_button()
         self._sync()
 
+    def _sync_select_all_button(self):
+        if not hasattr(self, "btn_sel_all") or self.btn_sel_all is None:
+            return
+        rows = [r for r in range(self.tbl_model.rowCount()) if not self.tbl.isRowHidden(r)]
+        if not rows:
+            self.btn_sel_all.setText("全选")
+            self.btn_sel_all.setIcon(FIF.ACCEPT)
+            return
+        if self.tbl_model.all_checked(rows):
+            self.btn_sel_all.setText("取消全选")
+            self.btn_sel_all.setIcon(FIF.CLOSE)
+        else:
+            self.btn_sel_all.setText("全选")
+            self.btn_sel_all.setIcon(FIF.ACCEPT)
+
+    def _on_model_data_changed(self, top_left, bottom_right, roles):
+        if not roles or Qt.ItemDataRole.CheckStateRole in roles:
+            self._sync_select_all_button()
+
     def _sync(self):
-        new_targets = []
-        indexed_updates = []
         mode = self.cb_sort.currentIndex() if hasattr(self, "cb_sort") else 0
-        for r in range(self.tbl.rowCount()):
-            name_item = self.tbl.item(r, 1)
-            if not name_item: continue
-
-            user_data = name_item.data(Qt.ItemDataRole.UserRole)
-            if user_data:
-                src_idx, nm, pa, tp, is_c, pattern = user_data
-            else: continue
-
-            en = is_row_checked(self.tbl, r)
-            nt = self.tbl.item(r, 3).text() if self.tbl.item(r, 3) else ""
-            new_entry = (nm, pa, tp, en, nt, is_c, normalize_rule_pattern(tp, pattern, nt))
-            if mode == 0:
-                new_targets.append(new_entry)
-            else:
-                indexed_updates.append((src_idx, new_entry))
-
+        synced = self.tbl_model.sync_targets(mode)
         with self._targets_lock:
-            if mode == 0 and new_targets:
-                self.targets[:] = new_targets
+            if mode == 0 and synced:
+                self.targets[:] = synced
             else:
-                for src_idx, entry in indexed_updates:
+                for src_idx, entry in synced:
                     if 0 <= src_idx < len(self.targets):
                         self.targets[src_idx] = entry
 
@@ -5122,11 +5673,14 @@ class CleanPage(ScrollArea):
             sel_rows = []
 
         if not sel_rows:
-            cur = self.tbl.currentRow()
+            cur = self.tbl.currentIndex().row()
             if cur >= 0:
                 sel_rows = [cur]
 
-        checked_rows = [r for r in range(self.tbl.rowCount()) if not self.tbl.isRowHidden(r) and is_row_checked(self.tbl, r)]
+        checked_rows = [
+            r for r in range(self.tbl_model.rowCount())
+            if not self.tbl.isRowHidden(r) and (self.tbl_model.row_at(r) is not None and self.tbl_model.row_at(r).checked)
+        ]
         candidate_rows = sel_rows if sel_rows else checked_rows
         candidate_rows = sorted(set(candidate_rows))
 
@@ -5142,13 +5696,10 @@ class CleanPage(ScrollArea):
         deletable_keys = []
         protected_count = 0
         for row in candidate_rows:
-            item = self.tbl.item(row, 1)
+            item = self.tbl_model.row_at(row)
             if not item:
                 continue
-            user_data = item.data(Qt.ItemDataRole.UserRole)
-            if not user_data:
-                continue
-            nm, pa, tp, is_c, pattern = user_data
+            nm, pa, tp, is_c, pattern = item.name, item.path, item.type, item.is_custom, item.pattern
             rule_key = make_rule_key(nm, pa, tp, pattern)
             if protect_builtin and rule_key in builtin_keys:
                 protected_count += 1
@@ -5259,17 +5810,7 @@ class CleanPage(ScrollArea):
         if hasattr(self, "cb_sort") and self.cb_sort.currentIndex() == 3:
             self.reload_table()
             return
-        for row in range(self.tbl.rowCount()):
-            name_item = self.tbl.item(row, 1)
-            if not name_item:
-                continue
-            user_data = name_item.data(Qt.ItemDataRole.UserRole)
-            if user_data and user_data[0] == idx:
-                item = self.tbl.item(row, 4)
-                if item:
-                    item.setData(Qt.ItemDataRole.UserRole, size_val)
-                    item.setText(human_size(size_val) if size_val > 0 else "")
-                break
+        self.tbl_model.update_size_for_src_idx(idx, size_val)
 
     def do_import_rules(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -5283,6 +5824,7 @@ class CleanPage(ScrollArea):
 
     def do_est(self): 
         self.tbl.setDragEnabled(False) 
+        self.tbl_model.set_drag_enabled(False)
         self._sync(); self.stop.clear(); threading.Thread(target=self._est_w,daemon=True).start()
         
     def _est_w(self):
@@ -5341,6 +5883,7 @@ class CleanPage(ScrollArea):
 
     def do_clean(self):
         self.tbl.setDragEnabled(False)
+        self.tbl_model.set_drag_enabled(False)
         self._sync()
         selected_rules = [parse_rule_entry(t) for t in self.targets if t[3]]
         selected_rules = [t for t in selected_rules if t]
@@ -5415,6 +5958,39 @@ class CleanPage(ScrollArea):
                 lf(f"[规则失败] {nm} -> {p} -> {format_exception_text(e)}")
             self.sig.clean_prog.emit(st,tot)
         self.sig.clean_done.emit(f"清理完成：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
+
+    def _show_context_menu(self, pos):
+        idx = self.tbl.indexAt(pos)
+        if not idx.isValid():
+            return
+        row = self.tbl_model.row_at(idx.row())
+        if not row:
+            return
+        raw = self.tbl_model._display_path(row)
+        n = norm_path(raw)
+        ex = bool(n) and os.path.exists(n)
+        m = RoundMenu(parent=self)
+        m.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
+        def _copy_path():
+            QApplication.clipboard().setText(raw)
+            InfoBar.success("复制成功", raw, orient=Qt.Orientation.Horizontal, isClosable=True, position=InfoBarPosition.TOP, duration=2000, parent=self.window())
+
+        a1 = Action(FIF.COPY, "复制")
+        a1.triggered.connect(_copy_path)
+        a1.setEnabled(bool(raw))
+        m.addAction(a1)
+        m.addSeparator()
+        a2 = Action(FIF.DOCUMENT, "打开")
+        a2.triggered.connect(lambda: subprocess.Popen(["explorer", n]) if n else None)
+        a2.setEnabled(ex and os.path.isfile(n))
+        m.addAction(a2)
+        a3 = Action(FIF.FOLDER, "定位")
+        a3.triggered.connect(lambda: open_explorer(n))
+        a3.setEnabled(ex)
+        m.addAction(a3)
+        gp = self.tbl.viewport().mapToGlobal(pos)
+        QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
 
 
 class LeftoversDialog(MessageBoxBase):
@@ -5639,17 +6215,14 @@ class LeftoversDialog(MessageBoxBase):
             }
         }
 
-class UninstallPage(ScrollArea):
+class UninstallPage(DeferredPageMixin, ScrollArea):
     def __init__(self, sig, stop, parent=None):
         self.tbl = None
         self.tbl_model = None
         self.footer = None
         super().__init__(parent); self.sig=sig; self.stop=stop
         self._display_overflow_count = 0
-        self._heavy_content_initialized = False
-        self._heavy_content_pending = False
-        self._footer_initialized = False
-        self._footer_pending = False
+        self._init_deferred_stages("heavy", "footer")
         self.view=QWidget(); self.setWidget(self.view); self.setWidgetResizable(True); self.setObjectName("uninstallPage"); self.enableTransparentBackground()
         v=QVBoxLayout(self.view); v.setContentsMargins(28,12,28,20); v.setSpacing(8)
         v.addLayout(make_title_row(FIF.APPLICATION, "应用强力卸载"))
@@ -5692,19 +6265,19 @@ class UninstallPage(ScrollArea):
         self._ensure_content(immediate=True, skip_footer=True)
 
     def _ensure_heavy_content(self, immediate=False, skip_footer=False):
-        if self._heavy_content_initialized:
+        if self._stage_ready("heavy"):
             if not skip_footer:
                 self._ensure_footer_content(immediate=immediate)
             return
-        if self._heavy_content_pending and not immediate:
-            return
-        if not immediate:
-            self._heavy_content_pending = True
-            QTimer.singleShot(25, lambda: self._ensure_heavy_content(immediate=True, skip_footer=skip_footer))
+        if not self._ensure_stage(
+            "heavy",
+            immediate=immediate,
+            delay=25,
+            on_ready=lambda: self._finish_heavy_content_init(skip_footer=skip_footer),
+        ):
             return
 
-        self._heavy_content_pending = False
-        self._heavy_content_initialized = True
+    def _finish_heavy_content_init(self, skip_footer=False):
         self.loading.hide()
 
         self.tbl = TableView()
@@ -5745,20 +6318,14 @@ class UninstallPage(ScrollArea):
         self._heavy_layout.addLayout(br)
 
         if not skip_footer:
-            self._ensure_footer_content(immediate=immediate)
+            self._ensure_footer_content(immediate=False)
 
     def _ensure_footer_content(self, immediate=False):
-        if self._footer_initialized:
+        if self._stage_ready("footer"):
             return
-        if self._footer_pending and not immediate:
-            return
-        if not immediate:
-            self._footer_pending = True
-            QTimer.singleShot(20, lambda: self._ensure_footer_content(immediate=True))
-            return
-        self._footer_pending = False
-        self._footer_initialized = True
+        self._ensure_stage("footer", immediate=immediate, delay=20, on_ready=self._finish_footer_content_init)
 
+    def _finish_footer_content_init(self):
         self.footer = PageFooterWidget()
         self._heavy_layout.addWidget(self.footer)
 
@@ -5860,10 +6427,8 @@ class UninstallPage(ScrollArea):
         a3.triggered.connect(lambda: open_explorer(n))
         a3.setEnabled(ex)
         m.addAction(a3)
-        try:
-            m.exec(self.tbl.viewport().mapToGlobal(pos))
-        finally:
-            m.deleteLater()
+        gp = self.tbl.viewport().mapToGlobal(pos)
+        QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
 
     def do_scan(self):
         self._ensure_heavy_content(immediate=True)
@@ -6233,13 +6798,10 @@ class UninstallPage(ScrollArea):
 
         self.sig.uninst_done.emit(_build_summary(cancelled=False))
 
-class BigFilePage(ScrollArea):
+class BigFilePage(DeferredPageMixin, ScrollArea):
     def __init__(self, sig, stop, parent=None):
         super().__init__(parent); self.sig=sig; self.stop=stop
-        self._content_initialized = False
-        self._content_init_pending = False
-        self._heavy_content_initialized = False
-        self._heavy_content_pending = False
+        self._init_deferred_stages("content", "heavy", "footer")
         self.view=QWidget(); self.setWidget(self.view); self.setWidgetResizable(True); self.setObjectName("bigFilePage"); self.enableTransparentBackground()
         v=QVBoxLayout(self.view); v.setContentsMargins(28,12,28,20); v.setSpacing(8)
         self.root = v
@@ -6284,28 +6846,23 @@ class BigFilePage(ScrollArea):
         self.tbl_model = None
         self.btn_sel_all = None
         self.footer = None
-        self._footer_initialized = False
-        self._footer_pending = False
 
     def _ensure_content(self, immediate=False, skip_heavy=False):
-        if self._content_initialized:
+        if self._stage_ready("content"):
             if not skip_heavy:
                 self._ensure_heavy_content(immediate=immediate)
             return
-        if self._content_init_pending and not immediate:
+        if not self._ensure_stage(
+            "content",
+            immediate=immediate,
+            delay=0,
+            on_ready=lambda: self._finish_content_init(skip_heavy=skip_heavy),
+        ):
             return
-        if not immediate:
-            self._content_init_pending = True
-            QTimer.singleShot(0, lambda: self._finish_content_init(skip_heavy=skip_heavy))
-            return
-        self._content_init_pending = False
-        self._content_initialized = True
         if not skip_heavy:
             self._ensure_heavy_content(immediate=immediate)
 
     def _finish_content_init(self, skip_heavy=False):
-        self._content_init_pending = False
-        self._content_initialized = True
         if not skip_heavy:
             self._ensure_heavy_content(immediate=False)
 
@@ -6313,17 +6870,13 @@ class BigFilePage(ScrollArea):
         self._ensure_content(immediate=True, skip_heavy=True)
 
     def _ensure_heavy_content(self, immediate=False):
-        if self._heavy_content_initialized:
+        if self._stage_ready("heavy"):
             self._ensure_footer_content(immediate=immediate)
             return
-        if self._heavy_content_pending and not immediate:
+        if not self._ensure_stage("heavy", immediate=immediate, delay=25, on_ready=self._finish_heavy_content_init):
             return
-        if not immediate:
-            self._heavy_content_pending = True
-            QTimer.singleShot(25, lambda: self._ensure_heavy_content(immediate=True))
-            return
-        self._heavy_content_pending = False
-        self._heavy_content_initialized = True
+
+    def _finish_heavy_content_init(self):
         self.loading.hide()
 
         self.tbl = TableView()
@@ -6343,8 +6896,8 @@ class BigFilePage(ScrollArea):
         self.tbl.setColumnWidth(0, 44)
         self.tbl.setColumnWidth(1, 240)
         self.tbl.setColumnWidth(2, 120)
-        self.tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tbl_model.dataChanged.connect(self._on_model_data_changed)
+        self.tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tbl.customContextMenuRequested.connect(self._show_context_menu)
         self.content_layout.addWidget(self.tbl, 1)
 
@@ -6358,19 +6911,14 @@ class BigFilePage(ScrollArea):
         b4=PushButton(FIF.CANCEL,"停止"); b4.setFixedHeight(30); b4.clicked.connect(self._stop_current); br.addWidget(b4)
         br.addStretch(); self.content_layout.addLayout(br)
         self._sync_select_all_button()
-        self._ensure_footer_content(immediate=immediate)
+        self._ensure_footer_content(immediate=False)
 
     def _ensure_footer_content(self, immediate=False):
-        if self._footer_initialized:
+        if self._stage_ready("footer"):
             return
-        if self._footer_pending and not immediate:
-            return
-        if not immediate:
-            self._footer_pending = True
-            QTimer.singleShot(20, lambda: self._ensure_footer_content(immediate=True))
-            return
-        self._footer_pending = False
-        self._footer_initialized = True
+        self._ensure_stage("footer", immediate=immediate, delay=20, on_ready=self._finish_footer_content_init)
+
+    def _finish_footer_content_init(self):
         self.footer = PageFooterWidget()
         self.content_layout.addWidget(self.footer)
 
@@ -6470,10 +7018,8 @@ class BigFilePage(ScrollArea):
         a3.triggered.connect(lambda: open_explorer(n))
         a3.setEnabled(ex)
         m.addAction(a3)
-        try:
-            m.exec(self.tbl.viewport().mapToGlobal(pos))
-        finally:
-            m.deleteLater()
+        gp = self.tbl.viewport().mapToGlobal(pos)
+        QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
 
     def do_scan(self):
         self._ensure_heavy_content(immediate=True)
@@ -6542,16 +7088,11 @@ class BigFilePage(ScrollArea):
             self.sig.big_prog.emit(i,tot)
         self.sig.big_done.emit("success", f"删除完成：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
 
-class MoreCleanPage(ScrollArea):
+class MoreCleanPage(DeferredPageMixin, ScrollArea):
     def __init__(self, sig, stop, parent=None):
         super().__init__(parent); self.sig=sig; self.stop=stop
         self._display_overflow_count = 0
-        self._content_initialized = False
-        self._content_init_pending = False
-        self._heavy_content_initialized = False
-        self._heavy_content_pending = False
-        self._footer_initialized = False
-        self._footer_pending = False
+        self._init_deferred_stages("content", "heavy", "footer")
         self.view=QWidget(); self.setWidget(self.view); self.setWidgetResizable(True); self.setObjectName("moreCleanPage"); self.enableTransparentBackground()
         v=QVBoxLayout(self.view); v.setContentsMargins(28,12,28,20); v.setSpacing(8)
         self.root = v
@@ -6601,24 +7142,21 @@ class MoreCleanPage(ScrollArea):
         self.footer = None
 
     def _ensure_content(self, immediate=False, skip_heavy=False):
-        if self._content_initialized:
+        if self._stage_ready("content"):
             if not skip_heavy:
                 self._ensure_heavy_content(immediate=immediate)
             return
-        if self._content_init_pending and not immediate:
+        if not self._ensure_stage(
+            "content",
+            immediate=immediate,
+            delay=0,
+            on_ready=lambda: self._finish_content_init(skip_heavy=skip_heavy),
+        ):
             return
-        if not immediate:
-            self._content_init_pending = True
-            QTimer.singleShot(0, lambda: self._finish_content_init(skip_heavy=skip_heavy))
-            return
-        self._content_init_pending = False
-        self._content_initialized = True
         if not skip_heavy:
             self._ensure_heavy_content(immediate=immediate)
 
     def _finish_content_init(self, skip_heavy=False):
-        self._content_init_pending = False
-        self._content_initialized = True
         if not skip_heavy:
             self._ensure_heavy_content(immediate=False)
 
@@ -6626,16 +7164,12 @@ class MoreCleanPage(ScrollArea):
         self._ensure_content(immediate=True, skip_heavy=True)
 
     def _ensure_heavy_content(self, immediate=False):
-        if self._heavy_content_initialized:
+        if self._stage_ready("heavy"):
             return
-        if self._heavy_content_pending and not immediate:
+        if not self._ensure_stage("heavy", immediate=immediate, delay=25, on_ready=self._finish_heavy_content_init):
             return
-        if not immediate:
-            self._heavy_content_pending = True
-            QTimer.singleShot(25, lambda: self._ensure_heavy_content(immediate=True))
-            return
-        self._heavy_content_pending = False
-        self._heavy_content_initialized = True
+
+    def _finish_heavy_content_init(self):
         self.loading_card.hide()
 
         self.tbl = TableView()
@@ -6671,19 +7205,14 @@ class MoreCleanPage(ScrollArea):
         b2=PushButton(FIF.DELETE,"清理已勾选"); b2.setFixedHeight(30); b2.clicked.connect(self.do_del); br.addWidget(b2)
         b3=PushButton(FIF.CANCEL,"停止"); b3.setFixedHeight(30); b3.clicked.connect(self._stop_current); br.addWidget(b3); br.addStretch(); self.content_layout.addLayout(br)
         self._sync_select_all_button()
-        self._ensure_footer_content(immediate=immediate)
+        self._ensure_footer_content(immediate=False)
 
     def _ensure_footer_content(self, immediate=False):
-        if self._footer_initialized:
+        if self._stage_ready("footer"):
             return
-        if self._footer_pending and not immediate:
-            return
-        if not immediate:
-            self._footer_pending = True
-            QTimer.singleShot(20, lambda: self._ensure_footer_content(immediate=True))
-            return
-        self._footer_pending = False
-        self._footer_initialized = True
+        self._ensure_stage("footer", immediate=immediate, delay=20, on_ready=self._finish_footer_content_init)
+
+    def _finish_footer_content_init(self):
         self.footer = PageFooterWidget()
         self.content_layout.addWidget(self.footer)
 
@@ -6774,10 +7303,8 @@ class MoreCleanPage(ScrollArea):
         a3.triggered.connect(lambda: open_explorer(n))
         a3.setEnabled(ex)
         m.addAction(a3)
-        try:
-            m.exec(self.tbl.viewport().mapToGlobal(pos))
-        finally:
-            m.deleteLater()
+        gp = self.tbl.viewport().mapToGlobal(pos)
+        QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
 
     def _on_mode_change(self):
         mode_idx = self.cb_mode.currentIndex()
@@ -7040,19 +7567,16 @@ class MoreCleanPage(ScrollArea):
             self.sig.more_done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒")
             return
 
-        normalized_results = []
-        for file_size, duplicates in results:
-            sorted_duplicates = sorted(duplicates, key=lambda p: os.path.normcase(p))
-            if len(sorted_duplicates) > 1:
-                normalized_results.append((file_size, sorted_duplicates))
-        normalized_results.sort(key=lambda item: (-item[0], os.path.normcase(item[1][0])))
-        results.clear()
+        for idx, (file_size, duplicates) in enumerate(results):
+            duplicates.sort(key=lambda p: os.path.normcase(p))
+            results[idx] = (file_size, duplicates)
+        results.sort(key=lambda item: (-item[0], os.path.normcase(item[1][0])))
         suspects.clear()
 
         cnt = 0
         hidden_cnt = 0
         pending_rows = []
-        for grp_id, (file_size, dup_list) in enumerate(normalized_results, 1):
+        for grp_id, (file_size, dup_list) in enumerate(results, 1):
             shown_list = dup_list[:DUPLICATE_GROUP_DISPLAY_LIMIT]
             hidden = max(0, len(dup_list) - len(shown_list))
             for idx, p in enumerate(shown_list):
@@ -7067,15 +7591,15 @@ class MoreCleanPage(ScrollArea):
                 if len(pending_rows) >= UI_BATCH_CHUNK:
                     self._emit_more_rows(pending_rows)
                     pending_rows.clear()
+            dup_list.clear()
         if pending_rows:
             self._emit_more_rows(pending_rows)
             pending_rows.clear()
+        results.clear()
         if hidden_cnt > 0:
             self.sig.more_log.emit(f"[重复文件] 已折叠 {hidden_cnt} 个超大重复组结果，仅展示每组前 {DUPLICATE_GROUP_DISPLAY_LIMIT} 项")
-            normalized_results.clear()
             self.sig.more_done.emit(f"扫描完成，展示 {cnt} 个重复文件，另有 {hidden_cnt} 个未展开，耗时 {time.time()-t0:.1f} 秒")
             return
-        normalized_results.clear()
         self.sig.more_done.emit(f"扫描完成，找到 {cnt} 个重复文件，耗时 {time.time()-t0:.1f} 秒")
 
     def _scan_empty_dirs(self, roots, workers):
@@ -7386,6 +7910,8 @@ class MainWindow(MSFluentWindow):
         self.global_settings = {
             "auto_save": True,
             "auto_start": False,
+            "tray_enabled": False,
+            "tray_start_hidden": False,
             "theme_mode": "auto",
             "sidebar_style": "vertical",
             "update_channel": "stable",
@@ -7488,6 +8014,12 @@ class MainWindow(MSFluentWindow):
         self._update_lock = threading.Lock()
         self._update_checking = False
         self._nav_connected = False
+        self._tray_icon = None
+        self._tray_menu = None
+        self._tray_restore_action = None
+        self._tray_exit_action = None
+        self._tray_notice_shown = False
+        self._tray_exit_requested = False
         self._pending_big_rows = []
         self._pending_uninstall_rows = []
         self._pending_more_rows = []
@@ -7502,11 +8034,12 @@ class MainWindow(MSFluentWindow):
         self._more_flush_timer.timeout.connect(self._flush_more_rows)
         self.apply_theme_mode()
 
-        self._init_nav(); self._init_win(); self._conn()
+        self._init_nav(); self._init_win(); self._init_tray(); self._conn()
         self._request_disk_detect(force=False)
         QTimer.singleShot(2000, lambda: self.check_updates(manual=False))
         QTimer.singleShot(900, self._warmup_schedule_page)
         QTimer.singleShot(1500, self._schedule_lazy_prewarm)
+        QTimer.singleShot(250, self._apply_initial_tray_state)
         self._pending_legacy_migration = self._should_offer_legacy_migration()
         if self._pending_legacy_migration:
             QTimer.singleShot(800, self._prompt_legacy_config_migration)
@@ -7812,13 +8345,25 @@ class MainWindow(MSFluentWindow):
             log_background_error("导出日志失败", e)
             return False, format_exception_text(e)
 
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.global_settings.get("tray_enabled", False) and self.isMinimized() and not self._tray_exit_requested:
+                QTimer.singleShot(0, self._hide_to_tray)
+
     def closeEvent(self, event):
+        if self.global_settings.get("tray_enabled", False) and not self._tray_exit_requested:
+            event.ignore()
+            self._hide_to_tray()
+            return
         if self.global_settings.get("auto_save", True):
             try:
                 self.pg_clean.save_custom_rules()
                 self.save_order_state()
             except Exception as e:
                 log_background_error("关闭窗口时自动保存失败", e)
+        if self._tray_icon is not None:
+            self._tray_icon.hide()
         super().closeEvent(event)
 
     def _setup_navigation_widget(self, force_rebuild=False):
@@ -8151,6 +8696,101 @@ class MainWindow(MSFluentWindow):
         scr=QApplication.primaryScreen()
         if scr: g=scr.availableGeometry(); self.move((g.width()-self.width())//2,(g.height()-self.height())//2)
 
+    def _init_tray(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            if self.global_settings.get("tray_enabled", False):
+                self.global_settings["tray_enabled"] = False
+                self.save_global_settings()
+            return
+
+        self._tray_icon = QSystemTrayIcon(self)
+        tray_icon = self.windowIcon()
+        if tray_icon.isNull():
+            icon_path = resource_path("icon.ico")
+            if os.path.exists(icon_path):
+                tray_icon = QIcon(icon_path)
+        self._tray_icon.setIcon(tray_icon)
+        self._tray_icon.setToolTip(f"C盘强力清理工具 v{CURRENT_VERSION}")
+
+        self._tray_menu = QMenu(self)
+        self._tray_restore_action = QAction("显示主窗口", self)
+        self._tray_restore_action.triggered.connect(self._restore_from_tray)
+        self._tray_exit_action = QAction("退出", self)
+        self._tray_exit_action.triggered.connect(self._exit_from_tray)
+        self._tray_menu.addAction(self._tray_restore_action)
+        self._tray_menu.addSeparator()
+        self._tray_menu.addAction(self._tray_exit_action)
+        self._tray_icon.setContextMenu(self._tray_menu)
+        self._tray_icon.activated.connect(self._on_tray_activated)
+        self._update_tray_visibility()
+
+    def _update_tray_visibility(self):
+        if self._tray_icon is None:
+            return
+        if self.global_settings.get("tray_enabled", False):
+            self._tray_icon.show()
+        else:
+            self._tray_icon.hide()
+
+    def set_tray_enabled(self, enabled):
+        enabled = bool(enabled)
+        if enabled and not QSystemTrayIcon.isSystemTrayAvailable():
+            return False, "当前系统不支持系统托盘，无法启用托盘运行"
+        self.global_settings["tray_enabled"] = enabled
+        if not enabled:
+            self.global_settings["tray_start_hidden"] = False
+        self.save_global_settings()
+        self._update_tray_visibility()
+        if not enabled and self.isHidden():
+            self._restore_from_tray()
+        return True, "托盘运行已开启" if enabled else "托盘运行已关闭"
+
+    def _apply_initial_tray_state(self):
+        if not self.global_settings.get("tray_enabled", False):
+            return
+        if not self.global_settings.get("tray_start_hidden", False):
+            return
+        if self._tray_exit_requested:
+            return
+        self._hide_to_tray()
+
+    def _show_tray_notice(self):
+        if self._tray_icon is None or self._tray_notice_shown:
+            return
+        self._tray_notice_shown = True
+        try:
+            self._tray_icon.showMessage(
+                "C盘强力清理工具",
+                "软件已隐藏到系统托盘，可双击托盘图标恢复，或在托盘菜单中直接退出。",
+                QSystemTrayIcon.MessageIcon.Information,
+                2500
+            )
+        except Exception as e:
+            log_sampled_background_error("托盘提示", e, limit=2)
+
+    def _hide_to_tray(self):
+        if not self.global_settings.get("tray_enabled", False):
+            return
+        self._update_tray_visibility()
+        self.hide()
+        self._show_tray_notice()
+
+    def _restore_from_tray(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _exit_from_tray(self):
+        self._tray_exit_requested = True
+        self.close()
+
+    def _on_tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
+            if self.isHidden() or self.isMinimized():
+                self._restore_from_tray()
+            else:
+                self._hide_to_tray()
+
     def _conn(self):
         self.sig.clean_log.connect(lambda t: self._page_log(self.pg_clean, t))
         self.sig.clean_prog.connect(lambda v, m: self._page_prog(self.pg_clean, v, m))
@@ -8375,7 +9015,8 @@ class MainWindow(MSFluentWindow):
         self._request_memory_trim(force=True)
 
     def _clean_done(self, msg):
-        self.pg_clean.tbl.setDragEnabled(True) 
+        self.pg_clean.tbl.setDragEnabled(True)
+        self.pg_clean.tbl_model.set_drag_enabled(True)
         self._finish_page(self.pg_clean, msg)
 
     def _uninst_done(self, msg):

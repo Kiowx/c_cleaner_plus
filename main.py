@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.4.8
+C盘强力清理工具 v0.4.9
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -37,7 +37,7 @@ from qfluentwidgets.common.router import qrouter
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.4.8"
+CURRENT_VERSION = "0.4.9"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -1082,9 +1082,19 @@ def force_delete_registry(full_path, log_fn):
             log_fn(f"[强删注册表] 成功: {path_text}")
             return True
         else:
-            # 如果依然失败，说明是 TrustedInstaller 或 SYSTEM 级死锁保护
             err_msg = r.stderr.strip().replace('\n', ' ')
-            log_fn(f"[强删注册表] 权限不足(可能受系统保护): {path_text} -> {err_msg}")
+            err_lower = err_msg.lower()
+            if ("系统找不到指定的注册表项或值" in err_msg or
+                "unable to find the specified registry key or value" in err_lower or
+                "找不到指定的注册表项" in err_msg):
+                log_fn(f"[强删注册表] 已不存在: {path_text}")
+            elif ("拒绝访问" in err_msg or
+                  "access is denied" in err_lower or
+                  "denied" in err_lower or
+                  "权限" in err_msg):
+                log_fn(f"[强删注册表] 权限不足(可能受系统保护): {path_text} -> {err_msg}")
+            else:
+                log_fn(f"[强删注册表] 删除失败: {path_text} -> {err_msg}")
             return False
     except Exception as e:
         log_fn(f"[强删注册表] 异常: {e}")
@@ -1093,6 +1103,32 @@ def force_delete_registry(full_path, log_fn):
 def _set_registry_value(root, subkey, name, value, value_type=winreg.REG_SZ):
     with winreg.CreateKey(root, subkey) as key:
         winreg.SetValueEx(key, name, 0, value_type, value)
+
+def _notify_shell_assoc_changed(log_fn):
+    try:
+        SHCNE_ASSOCCHANGED = 0x08000000
+        SHCNF_IDLIST = 0x0000
+        ctypes.windll.shell32.SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)
+        log_fn("[恢复关联] 已广播资源管理器关联刷新通知")
+    except Exception as e:
+        log_fn(f"[恢复关联] 广播关联刷新失败: {e}")
+
+def _restart_explorer_process(log_fn):
+    try:
+        log_fn("[恢复关联] 正在重启 explorer.exe ...")
+        subprocess.run(
+            ["taskkill", "/f", "/im", "explorer.exe"],
+            capture_output=True,
+            text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        time.sleep(1.0)
+        subprocess.Popen(["explorer.exe"])
+        log_fn("[恢复关联] explorer.exe 已重新启动")
+        return True
+    except Exception as e:
+        log_fn(f"[恢复关联] 重启 explorer.exe 失败: {e}")
+        return False
 
 def restore_default_explorer_associations(log_fn):
     """恢复常见的资源管理器打开动作和可执行文件关联。"""
@@ -1111,8 +1147,14 @@ def restore_default_explorer_associations(log_fn):
             (winreg.HKEY_CLASSES_ROOT, r"comfile\shell\open\command", "", '"%1" %*'),
             (winreg.HKEY_CLASSES_ROOT, r"lnkfile", "IsShortcut", ""),
             (winreg.HKEY_CLASSES_ROOT, r"Directory\shell", "", "none"),
+            (winreg.HKEY_CLASSES_ROOT, r"Directory\shell\open", "", "none"),
+            (winreg.HKEY_CLASSES_ROOT, r"Directory\shell\open\command", "", 'explorer.exe "%1"'),
             (winreg.HKEY_CLASSES_ROOT, r"Folder\shell", "", "none"),
+            (winreg.HKEY_CLASSES_ROOT, r"Folder\shell\open", "", "none"),
+            (winreg.HKEY_CLASSES_ROOT, r"Folder\shell\open\command", "", 'explorer.exe "%1"'),
             (winreg.HKEY_CLASSES_ROOT, r"Drive\shell", "", "none"),
+            (winreg.HKEY_CLASSES_ROOT, r"Drive\shell\open", "", "none"),
+            (winreg.HKEY_CLASSES_ROOT, r"Drive\shell\open\command", "", 'explorer.exe "%1"'),
         ]
 
         for root, subkey, name, value in assoc_values:
@@ -1126,11 +1168,26 @@ def restore_default_explorer_associations(log_fn):
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.cmd\UserChoice",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.com\UserChoice",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.lnk\UserChoice",
+            r"HKCU\Software\Classes\.exe",
+            r"HKCU\Software\Classes\.bat",
+            r"HKCU\Software\Classes\.cmd",
+            r"HKCU\Software\Classes\.com",
+            r"HKCU\Software\Classes\.lnk",
+            r"HKCU\Software\Classes\Directory\shell",
+            r"HKCU\Software\Classes\Folder\shell",
+            r"HKCU\Software\Classes\Drive\shell",
         ):
             force_delete_registry(path, log_fn)
 
-        log_fn("[恢复关联] 默认资源管理器关联已恢复，建议重启资源管理器或重新登录系统")
-        return True, "默认资源管理器关联已恢复"
+        _notify_shell_assoc_changed(log_fn)
+        restarted = _restart_explorer_process(log_fn)
+
+        if restarted:
+            log_fn("[恢复关联] 默认资源管理器关联已恢复，并已刷新关联与重启资源管理器")
+            return True, "默认资源管理器关联已恢复，资源管理器已重启"
+
+        log_fn("[恢复关联] 默认资源管理器关联已恢复，但资源管理器未能自动重启")
+        return True, "默认资源管理器关联已恢复，请手动重启资源管理器或重新登录系统"
     except Exception as e:
         log_fn(f"[恢复关联] 失败: {e}")
         return False, f"恢复默认资源管理器关联失败: {e}"

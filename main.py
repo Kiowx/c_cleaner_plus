@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.5.0
+C盘强力清理工具 v0.5.2
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
 
-import os, sys, time, ctypes, threading, subprocess, queue, json, hashlib, winreg, re, heapq, tempfile, gc
+import os, sys, time, ctypes, threading, subprocess, queue, json, hashlib, winreg, re, heapq, tempfile, gc, shutil
 import urllib.request
 import webbrowser
 from collections import defaultdict
@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QAbstractItemView, QTableWidgetItem, QStyledItemDelegate,
     QTreeWidget, QTreeWidgetItem, QHeaderView,
-    QFileIconProvider, QFileDialog, QLabel, QSystemTrayIcon, QMenu
+    QFileIconProvider, QFileDialog, QLabel, QSystemTrayIcon, QMenu, QStackedWidget
 )
 
 from qfluentwidgets import (
@@ -37,7 +37,7 @@ from qfluentwidgets.common.router import qrouter
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.5.0"
+CURRENT_VERSION = "0.5.2"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -1082,7 +1082,11 @@ def force_delete_registry(full_path, log_fn):
             log_fn(f"[强删注册表] 成功: {path_text}")
             return "deleted"
         else:
-            err_msg = r.stderr.strip().replace('\n', ' ')
+            err_msg = " ".join(
+                part.strip().replace('\n', ' ')
+                for part in ((r.stderr or ""), (r.stdout or ""))
+                if part and part.strip()
+            )
             err_lower = err_msg.lower()
             if ("系统找不到指定的注册表项或值" in err_msg or
                 "unable to find the specified registry key or value" in err_lower or
@@ -1147,6 +1151,7 @@ def restore_default_explorer_associations(log_fn):
             label = f"{subkey}\\{name}" if name else subkey
             log_fn(f"[恢复关联] 已写入: {label}")
 
+        cleanup_failures = []
         for path in (
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.exe\UserChoice",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.bat\UserChoice",
@@ -1162,9 +1167,18 @@ def restore_default_explorer_associations(log_fn):
             r"HKCU\Software\Classes\Folder\shell",
             r"HKCU\Software\Classes\Drive\shell",
         ):
-            force_delete_registry(path, log_fn)
+            state = force_delete_registry(path, log_fn)
+            if state not in {"deleted", "missing"}:
+                cleanup_failures.append((path, state))
 
         _notify_shell_assoc_changed(log_fn)
+        if cleanup_failures:
+            preview = "；".join(display_path(path) for path, _ in cleanup_failures[:3])
+            extra = len(cleanup_failures) - min(len(cleanup_failures), 3)
+            if extra > 0:
+                preview = f"{preview}；另有 {extra} 项"
+            log_fn(f"[恢复关联] 部分用户级覆盖项未能清理: {preview}")
+            return False, f"默认关联基础项已恢复，但有 {len(cleanup_failures)} 个用户级覆盖项未能清理；请以管理员身份重试或手动处理"
         log_fn("[恢复关联] 默认资源管理器关联已恢复，并已广播刷新通知")
         return True, "默认资源管理器关联已恢复；如资源管理器仍异常，请手动重启 explorer.exe 或重新登录系统"
     except Exception as e:
@@ -2130,6 +2144,355 @@ def open_explorer(p):
     except Exception as e:
         log_background_error("打开资源管理器", e)
 
+def _completed_process_error_text(result):
+    parts = []
+    try:
+        stdout = str(getattr(result, "stdout", "") or "").strip()
+        stderr = str(getattr(result, "stderr", "") or "").strip()
+        if stdout:
+            parts.append(stdout)
+        if stderr:
+            parts.append(stderr)
+    except Exception:
+        pass
+    return " | ".join(parts).strip()
+
+def _remove_link_only(path):
+    target = norm_path(path)
+    if not target or not os.path.lexists(target):
+        return
+    try:
+        if os.path.isdir(target):
+            result = subprocess.run(["cmd", "/c", "rmdir", target], capture_output=True, text=True, encoding="utf-8", errors="ignore")
+            if result.returncode != 0 and os.path.lexists(target):
+                raise RuntimeError(_completed_process_error_text(result) or "删除目录联接失败")
+        else:
+            os.remove(target)
+    except Exception:
+        raise
+
+TOOLBOX_HISTORY_FILE = "toolbox_link_history.json"
+TOOLBOX_HISTORY_MAX = 200
+
+def _toolbox_history_path():
+    return os.path.join(get_runtime_config_dir(), TOOLBOX_HISTORY_FILE)
+
+def load_link_history():
+    path = _toolbox_history_path()
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return data
+    except Exception:
+        pass
+    return []
+
+def save_link_history(history):
+    path = _toolbox_history_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(history[:TOOLBOX_HISTORY_MAX], f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def append_link_history(source, target, mode):
+    history = load_link_history()
+    history.append({
+        "source": source,
+        "target": target,
+        "mode": mode,
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+    })
+    save_link_history(history)
+
+def undo_link_entry(source, target, mode, log_fn=None, stop_event=None):
+    """撤销一条迁移记录：删除链接，将目标移回源路径。"""
+    def _log(message):
+        if callable(log_fn):
+            try:
+                log_fn(message)
+            except Exception:
+                pass
+
+    if not os.path.lexists(source):
+        return False, f"源链接不存在：{display_path(source)}"
+    if not os.path.exists(target):
+        return False, f"迁移目标不存在：{display_path(target)}"
+
+    _log(f"[撤销] 正在删除链接: {display_path(source)}")
+    try:
+        _remove_link_only(source)
+    except Exception as e:
+        return False, f"删除链接失败：{format_exception_text(e)}"
+
+    if stop_event is not None and stop_event.is_set():
+        return False, "已取消（链接已删除，数据仍在目标路径）"
+
+    _log(f"[撤销] 正在移回: {display_path(target)} -> {display_path(source)}")
+    try:
+        shutil.move(target, source)
+    except Exception as e:
+        return False, f"移回失败（链接已删除）：{format_exception_text(e)}"
+
+    _log(f"[撤销] 已恢复: {display_path(source)}")
+    return True, f"已恢复: {display_path(source)}"
+
+def build_space_saving_target_path(source_path, destination_root):
+    src = norm_path(source_path)
+    dst_root = norm_path(destination_root)
+    if not src or not dst_root:
+        return ""
+    base_name = os.path.basename(src.rstrip("\\/"))
+    return os.path.join(dst_root, base_name)
+
+def create_space_saving_link(source_path, destination_root, link_mode="junction", log_fn=None, stop_event=None, progress_fn=None):
+    src = os.path.abspath(norm_path(source_path))
+    dst_root = os.path.abspath(norm_path(destination_root))
+    if not src:
+        return False, "源路径不能为空", ""
+    if not dst_root:
+        return False, "目标目录不能为空", ""
+    if not os.path.exists(src):
+        return False, "源路径不存在", ""
+    if not os.path.isdir(dst_root):
+        return False, "目标目录不存在", ""
+
+    src_norm = os.path.normcase(src)
+    dst_root_norm = os.path.normcase(dst_root)
+    if src_norm == dst_root_norm:
+        return False, "目标目录不能与源路径相同", ""
+    if dst_root_norm.startswith(src_norm.rstrip("\\") + "\\"):
+        return False, "目标目录不能位于源路径内部", ""
+
+    target_path = build_space_saving_target_path(src, dst_root)
+    if not target_path:
+        return False, "无法计算目标路径", ""
+    if os.path.lexists(target_path):
+        return False, f"目标已存在：{display_path(target_path)}", target_path
+    if os.path.normcase(target_path) == src_norm:
+        return False, "目标路径与源路径相同", target_path
+
+    is_dir = os.path.isdir(src)
+    selected_mode = str(link_mode or "").strip().lower()
+    if selected_mode not in {"junction", "symlink"}:
+        return False, "未知的链接模式", target_path
+    if selected_mode == "junction" and not is_dir:
+        return False, "目录联接只支持文件夹，请改用符号链接", target_path
+
+    def _log(message):
+        if callable(log_fn):
+            try:
+                log_fn(message)
+            except Exception as e:
+                log_sampled_background_error("工具箱日志", e, limit=3)
+
+    def _progress(value, status=""):
+        if callable(progress_fn):
+            try:
+                progress_fn(value, status)
+            except Exception:
+                pass
+
+    # ── P1: 权限预检 ──
+    _progress(10, "正在检查权限...")
+    if selected_mode == "symlink" and not is_admin():
+        _has_dev_mode = False
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r"SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock",
+                                0, winreg.KEY_READ) as _key:
+                _val, _ = winreg.QueryValueEx(_key, "AllowDevelopmentWithoutDevLicense")
+                _has_dev_mode = _val == 1
+        except Exception:
+            pass
+        if not _has_dev_mode:
+            return False, "创建符号链接需要管理员权限或开启 Windows 开发者模式（设置 → 隐私和安全性 → 开发者选项）", target_path
+    _log("[软链接] 权限检查通过")
+
+    # ── P0: 迁移前磁盘空间预检 ──
+    _progress(15, "正在计算源路径体积...")
+    _log("[软链接] 正在计算源路径体积...")
+    if stop_event is not None and stop_event.is_set():
+        return False, "已取消", target_path
+    src_size = dir_size(src, stop_flag=stop_event) if is_dir else safe_getsize(src)
+    if stop_event is not None and stop_event.is_set():
+        return False, "已取消", target_path
+    try:
+        dst_free = shutil.disk_usage(dst_root).free
+    except Exception:
+        dst_free = -1
+    if dst_free >= 0 and src_size > 0 and src_size > dst_free:
+        need = human_size(src_size)
+        free = human_size(dst_free)
+        return False, f"目标磁盘空间不足：需要 {need}，仅剩 {free}", target_path
+
+    _progress(25, "正在迁移文件...")
+
+    moved = False
+    try:
+        if stop_event is not None and stop_event.is_set():
+            return False, "已取消", target_path
+        _log(f"[软链接] 正在迁移源内容: {display_path(src)}")
+        shutil.move(src, target_path)
+        moved = True
+        _log(f"[软链接] 已迁移到: {display_path(target_path)}")
+
+        _progress(80, "正在创建链接...")
+
+        if stop_event is not None and stop_event.is_set():
+            raise RuntimeError("用户取消操作，正在回滚")
+
+        if selected_mode == "junction":
+            result = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", src, target_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+            )
+            if result.returncode != 0:
+                raise RuntimeError(_completed_process_error_text(result) or "创建目录联接失败")
+        else:
+            os.symlink(target_path, src, target_is_directory=is_dir)
+
+        _progress(95, "正在记录历史...")
+
+        _log(f"[软链接] 已创建链接: {display_path(src)} -> {display_path(target_path)}")
+        append_link_history(src, target_path, selected_mode)
+        return True, "已完成迁移并创建链接", target_path
+    except Exception as e:
+        rollback_errors = []
+        try:
+            if os.path.lexists(src):
+                _remove_link_only(src)
+        except Exception as rollback_e:
+            rollback_errors.append(f"移除残留链接失败: {format_exception_text(rollback_e)}")
+        try:
+            if moved and os.path.lexists(target_path) and not os.path.lexists(src):
+                shutil.move(target_path, src)
+        except Exception as rollback_e:
+            rollback_errors.append(f"回滚源内容失败: {format_exception_text(rollback_e)}")
+
+        detail = format_exception_text(e)
+        if rollback_errors:
+            detail = f"{detail}；{'；'.join(rollback_errors)}"
+        _log(f"[软链接] 创建失败: {detail}")
+        return False, detail, target_path
+
+RECOMMENDED_LINK_SCAN_LIMIT = 24
+RECOMMENDED_LINK_MIN_SIZE = 256 * 1024 * 1024
+RECOMMENDED_LINK_EXCLUDE_NAMES = {
+    "windows", "program files", "program files (x86)", "programdata",
+    "users", "$recycle.bin", "system volume information",
+}
+
+def explain_link_candidate(name):
+    lowered = str(name or "").strip().lower()
+    if any(key in lowered for key in ("cache", "temp", "tmp", "logs", "log", "缓存", "日志")):
+        return "缓存或日志目录，通常适合迁移"
+    if any(key in lowered for key in ("node_modules", ".conda", ".gradle", ".nuget", ".cargo",
+                                       "venv", ".venv", "__pycache__", ".m2", ".cache",
+                                       "packages", "vendor", "pod")):
+        return "开发依赖目录，体积大且可重新下载，适合迁移"
+    if any(key in lowered for key in ("model", "models", "weights", "checkpoint", "transformers",
+                                       "huggingface", "torch", "onnxruntime")):
+        return "模型目录体积通常较大，迁移收益明显"
+    if any(key in lowered for key in ("steamapps", "steam", "epic", "gog", "games",
+                                       ".minecraft", "game", "网游")):
+        return "游戏目录体积通常很大，迁移后不影响运行"
+    if any(key in lowered for key in ("wechat", "weixin", "tencent", "qq", "微信", "腾讯")):
+        return "聊天记录与缓存目录，体积通常持续增长，适合迁移"
+    if any(key in lowered for key in ("android", ".android", "avd", "sdk")):
+        return "Android 开发相关目录，体积通常较大"
+    if any(key in lowered for key in ("download", "downloads", "library", "asset", "package",
+                                       "backup", "bak", "备份")):
+        return "素材或下载目录通常适合作为迁移候选项"
+    if any(key in lowered for key in ("docker", ".docker", "wsl", "ubuntu", "distro")):
+        return "容器或虚拟化环境目录，磁盘占用通常很大"
+    return "目录体积较大，适合作为迁移候选项"
+
+def recommend_link_targets(scan_roots, min_size_bytes=RECOMMENDED_LINK_MIN_SIZE, limit=RECOMMENDED_LINK_SCAN_LIMIT, log_fn=None, stop_event=None):
+    if isinstance(scan_roots, (str, bytes, os.PathLike)):
+        roots = [scan_roots]
+    else:
+        roots = list(scan_roots or [])
+    normalized_roots = []
+    for root in roots:
+        path = os.path.abspath(norm_path(root))
+        if path and os.path.isdir(path):
+            normalized_roots.append(path)
+    if not normalized_roots:
+        return [], "扫描范围不能为空或目录不存在"
+
+    def _log(message):
+        if callable(log_fn):
+            try:
+                log_fn(message)
+            except Exception as e:
+                log_sampled_background_error("工具箱推荐日志", e, limit=3)
+
+    results = []
+    errors = []
+    for root in normalized_roots:
+        try:
+            entries = sorted(os.scandir(root), key=lambda x: x.name.lower())
+        except Exception as e:
+            append_error_sample(errors, f"{display_path(root)} -> {format_exception_text(e)}")
+            continue
+
+        try:
+            for entry in entries:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                try:
+                    if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                        continue
+                    name = entry.name.strip()
+                    if not name:
+                        continue
+                    if name.lower() in RECOMMENDED_LINK_EXCLUDE_NAMES:
+                        continue
+                    _log(f"[系统推荐] 正在分析: {display_path(entry.path)}")
+                    size = dir_size(entry.path, stop_flag=stop_event)
+                    if stop_event is not None and stop_event.is_set():
+                        break
+                    if size < int(min_size_bytes):
+                        continue
+                    results.append({
+                        "name": name,
+                        "path": entry.path,
+                        "size": int(size),
+                        "reason": explain_link_candidate(name),
+                    })
+                except Exception as e:
+                    append_error_sample(errors, f"{display_path(entry.path)} -> {format_exception_text(e)}")
+        finally:
+            try:
+                entries.close()
+            except Exception:
+                pass
+
+    results.sort(key=lambda item: item["size"], reverse=True)
+    if limit and len(results) > int(limit):
+        results = results[:int(limit)]
+
+    if stop_event is not None and stop_event.is_set():
+        if results:
+            return results, f"已取消，已分析 {len(results)} 个候选项"
+        return [], "已取消"
+
+    if errors:
+        _log("[系统推荐] 部分目录分析失败")
+        for item in errors:
+            _log(f"[系统推荐] {item}")
+
+    if not results:
+        return [], "未找到合适的推荐目录"
+    return results, f"已生成 {len(results)} 个推荐候选项"
+
 def make_ctx(parent, table, pos, col):
     idx=table.indexAt(pos)
     if not idx.isValid(): return
@@ -2159,11 +2522,12 @@ def set_row_checked(table, row, checked):
 
 class PageFooterWidget(QWidget):
     """可复用的页面底部组件：进度条 + 状态标签 + 日志区"""
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, auto_hide_log=False):
         super().__init__(parent)
+        self._auto_hide_log = auto_hide_log
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(8)
 
         pg = QHBoxLayout()
         self.pb = ProgressBar()
@@ -2181,8 +2545,14 @@ class PageFooterWidget(QWidget):
         self.log.document().setMaximumBlockCount(LOG_MAX_LINES)
         self.log.setMaximumHeight(120)
         self.log.setFont(QFont("Consolas", 9))
-        self.log.setPlaceholderText("日志...")
+        self.log.setPlaceholderText("操作日志...")
+        if auto_hide_log:
+            self.log.hide()
         layout.addWidget(self.log)
+
+    def show_log_if_hidden(self):
+        if self._auto_hide_log and self.log.isHidden():
+            self.log.show()
 
     def set_status(self, text, percent=None):
         display = text[:80] if text else ""
@@ -4506,9 +4876,546 @@ class ScheduledUninstallDialog(MessageBoxBase):
                         "publisher": data.get("publisher", ""),
                         "reg": data.get("reg", ""),
                         "location": data.get("location", ""),
-                        "cmd": data.get("cmd", "")
+                    "cmd": data.get("cmd", "")
                     })
         return rows
+
+class ToolboxEntryCard(CardWidget):
+    def __init__(self, icon, title, desc, button_text, on_click, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        top = QHBoxLayout()
+        top.setSpacing(10)
+        icon_widget = IconWidget(icon)
+        icon_widget.setFixedSize(24, 24)
+        top.addWidget(icon_widget, 0, Qt.AlignmentFlag.AlignTop)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(3)
+        title_label = StrongBodyLabel(title)
+        setFont(title_label, 14, QFont.Weight.Medium)
+        text_col.addWidget(title_label)
+
+        desc_label = CaptionLabel(desc)
+        desc_label.setWordWrap(True)
+        desc_label.setTextColor(QColor(128, 128, 128))
+        text_col.addWidget(desc_label)
+        top.addLayout(text_col, 1)
+        layout.addLayout(top)
+        layout.addStretch(1)
+
+        btn = PushButton(FIF.RIGHT_ARROW, button_text)
+        btn.setFixedHeight(32)
+        btn.clicked.connect(on_click)
+        layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignRight)
+
+class ToolboxPage(ScrollArea):
+    toolLog = Signal(str)
+    toolDone = Signal(bool, str)
+    recommendDone = Signal(object, str)
+    undoDone = Signal(bool, str)
+    progressUpdate = Signal(int, str)
+
+    def __init__(self, main_win, stop_event, parent=None):
+        super().__init__(parent)
+        self.main_win = main_win
+        self.stop_event = stop_event
+        self.setObjectName("toolboxPage")
+        self.enableTransparentBackground()
+
+        self.view = QWidget()
+        self.setWidget(self.view)
+        self.setWidgetResizable(True)
+
+        root = QVBoxLayout(self.view)
+        root.setContentsMargins(28, 12, 28, 20)
+        root.setSpacing(12)
+        title_row = make_title_row(FIF.FOLDER, "工具箱")
+        self.btn_back = ToolButton(FIF.LEFT_ARROW)
+        self.btn_back.setFixedSize(36, 36)
+        self.btn_back.clicked.connect(self._show_tool_home)
+        self.btn_back.hide()
+        title_row.insertWidget(0, self.btn_back)
+        root.addLayout(title_row)
+
+        desc = CaptionLabel("集中放置高频工具入口，并提供常用的磁盘空间优化工具。")
+        desc.setWordWrap(True)
+        desc.setTextColor(QColor(128, 128, 128))
+        root.addWidget(desc)
+
+        self.stack = QStackedWidget(self.view)
+        root.addWidget(self.stack, 1)
+
+        self.home_page = QWidget(self.view)
+        home_layout = QVBoxLayout(self.home_page)
+        home_layout.setContentsMargins(0, 0, 0, 0)
+        home_layout.setSpacing(12)
+
+        launch_card = CardWidget(self.home_page)
+        launch_layout = QVBoxLayout(launch_card)
+        launch_layout.setContentsMargins(14, 14, 14, 14)
+        launch_layout.setSpacing(12)
+        launch_layout.addWidget(StrongBodyLabel("工具入口"))
+
+        entry_flow = QVBoxLayout()
+        entry_flow.setSpacing(12)
+        launch_layout.addLayout(entry_flow)
+
+        entries = [
+            (FIF.FOLDER, "软链接节省空间", "迁移文件或目录，并在原位置创建链接，减少系统盘占用。", "使用", self._show_softlink_tool),
+        ]
+
+        for entry in entries:
+            card = ToolboxEntryCard(*entry, parent=self.view)
+            entry_flow.addWidget(card)
+
+        home_layout.addWidget(launch_card)
+        home_layout.addStretch(1)
+        self.stack.addWidget(self.home_page)
+
+        self.softlink_page = QWidget(self.view)
+        soft_page_layout = QVBoxLayout(self.softlink_page)
+        soft_page_layout.setContentsMargins(0, 0, 0, 0)
+        soft_page_layout.setSpacing(12)
+
+        intro_label = CaptionLabel("把原路径迁移到新的存储目录，并在原位置创建链接。目录推荐使用目录联接，文件请使用符号链接。")
+        intro_label.setWordWrap(True)
+        intro_label.setTextColor(QColor(128, 128, 128))
+        soft_page_layout.addWidget(intro_label)
+
+        # ── 推荐卡片 ──
+        rec_card = CardWidget(self.softlink_page)
+        rec_layout = QVBoxLayout(rec_card)
+        rec_layout.setContentsMargins(14, 14, 14, 14)
+        rec_layout.setSpacing(10)
+        rec_layout.addWidget(StrongBodyLabel("系统推荐添加"))
+
+        rec_desc = CaptionLabel('直接按所选磁盘进行分析，系统会按体积和目录类型推荐适合迁移的候选项。双击推荐项或点击"使用所选项"会自动填入源路径。')
+        rec_desc.setWordWrap(True)
+        rec_desc.setTextColor(QColor(128, 128, 128))
+        rec_layout.addWidget(rec_desc)
+
+        rec_top = QHBoxLayout()
+        rec_top.setSpacing(8)
+        rec_top.addWidget(CaptionLabel("扫描范围"))
+        self.recommend_drive_sel = DriveSelector(default_checked={"C:\\"}, parent=self)
+        rec_top.addWidget(self.recommend_drive_sel, 1)
+        self.btn_recommend = PushButton(FIF.SEARCH, "系统推荐添加")
+        self.btn_recommend.setFixedHeight(32)
+        self.btn_recommend.clicked.connect(self._start_recommend_scan)
+        rec_top.addWidget(self.btn_recommend)
+        rec_layout.addLayout(rec_top)
+
+        self.lbl_recommend_hint = CaptionLabel("推荐结果：未开始扫描")
+        self.lbl_recommend_hint.setWordWrap(True)
+        self.lbl_recommend_hint.setTextColor(QColor(128, 128, 128))
+        rec_layout.addWidget(self.lbl_recommend_hint)
+
+        self.tbl_recommend = TableWidget()
+        self.tbl_recommend.setColumnCount(4)
+        self.tbl_recommend.setHorizontalHeaderLabels(["目录名", "大小", "路径", "推荐理由"])
+        self.tbl_recommend.verticalHeader().setVisible(False)
+        self.tbl_recommend.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl_recommend.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tbl_recommend.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        rec_header = self.tbl_recommend.horizontalHeader()
+        rec_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        rec_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        rec_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        rec_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.tbl_recommend.setColumnWidth(0, 160)
+        self.tbl_recommend.setColumnWidth(1, 90)
+        style_table(self.tbl_recommend)
+        self.tbl_recommend.itemDoubleClicked.connect(lambda _: self._use_selected_recommendation())
+        self.tbl_recommend.setMinimumHeight(180)
+        rec_layout.addWidget(self.tbl_recommend)
+
+        rec_bottom = QHBoxLayout()
+        rec_bottom.setSpacing(8)
+        self.btn_use_recommend = PushButton(FIF.ACCEPT, "使用所选项")
+        self.btn_use_recommend.setFixedHeight(32)
+        self.btn_use_recommend.clicked.connect(self._use_selected_recommendation)
+        rec_bottom.addWidget(self.btn_use_recommend)
+        rec_bottom.addStretch(1)
+        rec_layout.addLayout(rec_bottom)
+        soft_page_layout.addWidget(rec_card)
+
+        # ── 手动迁移配置卡片 ──
+        config_card = CardWidget(self.softlink_page)
+        config_layout = QVBoxLayout(config_card)
+        config_layout.setContentsMargins(14, 14, 14, 14)
+        config_layout.setSpacing(10)
+        config_layout.addWidget(StrongBodyLabel("手动配置迁移"))
+
+        src_row = QHBoxLayout()
+        src_row.setSpacing(8)
+        self.edit_link_source = LineEdit()
+        self.edit_link_source.setPlaceholderText("源路径：需要迁移的文件或文件夹")
+        self.edit_link_source.textChanged.connect(self._update_link_preview)
+        src_row.addWidget(self.edit_link_source, 1)
+        btn_pick_dir = PushButton(FIF.FOLDER, "选择目录")
+        btn_pick_dir.setFixedHeight(32)
+        btn_pick_dir.clicked.connect(self._choose_link_source_dir)
+        src_row.addWidget(btn_pick_dir)
+        btn_pick_file = PushButton(FIF.DOCUMENT, "选择文件")
+        btn_pick_file.setFixedHeight(32)
+        btn_pick_file.clicked.connect(self._choose_link_source_file)
+        src_row.addWidget(btn_pick_file)
+        config_layout.addLayout(src_row)
+
+        dst_row = QHBoxLayout()
+        dst_row.setSpacing(8)
+        self.edit_link_dest = LineEdit()
+        self.edit_link_dest.setPlaceholderText("目标目录：迁移后的存放目录")
+        self.edit_link_dest.textChanged.connect(self._update_link_preview)
+        dst_row.addWidget(self.edit_link_dest, 1)
+        btn_pick_dest = PushButton(FIF.FOLDER, "选择目标目录")
+        btn_pick_dest.setFixedHeight(32)
+        btn_pick_dest.clicked.connect(self._choose_link_dest_dir)
+        dst_row.addWidget(btn_pick_dest)
+        config_layout.addLayout(dst_row)
+
+        option_row = QHBoxLayout()
+        option_row.setSpacing(10)
+        option_row.addWidget(CaptionLabel("链接模式"))
+        self.cb_link_mode = ComboBox()
+        self.cb_link_mode.addItems(["目录联接（推荐）", "符号链接"])
+        self.cb_link_mode.setFixedWidth(180)
+        self.cb_link_mode.currentIndexChanged.connect(self._update_link_preview)
+        option_row.addWidget(self.cb_link_mode)
+        option_row.addStretch(1)
+        self.btn_run_link = PrimaryPushButton(FIF.SAVE, "开始迁移并创建链接")
+        self.btn_run_link.setFixedHeight(34)
+        self.btn_run_link.clicked.connect(self._start_link_task)
+        option_row.addWidget(self.btn_run_link)
+        self.btn_cancel_link = PushButton(FIF.CANCEL, "停止")
+        self.btn_cancel_link.setFixedHeight(34)
+        self.btn_cancel_link.hide()
+        self.btn_cancel_link.clicked.connect(self._cancel_link_task)
+        option_row.addWidget(self.btn_cancel_link)
+        config_layout.addLayout(option_row)
+
+        self.lbl_link_preview = CaptionLabel("目标预览：-")
+        self.lbl_link_preview.setWordWrap(True)
+        self.lbl_link_preview.setTextColor(QColor(128, 128, 128))
+        config_layout.addWidget(self.lbl_link_preview)
+        soft_page_layout.addWidget(config_card)
+
+        # ── 迁移历史卡片 ──
+        hist_card = CardWidget(self.softlink_page)
+        hist_layout = QVBoxLayout(hist_card)
+        hist_layout.setContentsMargins(14, 14, 14, 14)
+        hist_layout.setSpacing(8)
+        hist_header = QHBoxLayout()
+        hist_header.addWidget(StrongBodyLabel("迁移历史"))
+        hist_header.addStretch(1)
+        self.btn_refresh_history = PushButton(FIF.SYNC, "刷新")
+        self.btn_refresh_history.setFixedHeight(30)
+        self.btn_refresh_history.clicked.connect(self._refresh_history)
+        hist_header.addWidget(self.btn_refresh_history)
+        self.btn_undo_link = PushButton(FIF.CANCEL, "撤销选中")
+        self.btn_undo_link.setFixedHeight(30)
+        self.btn_undo_link.clicked.connect(self._start_undo_link)
+        hist_header.addWidget(self.btn_undo_link)
+        hist_layout.addLayout(hist_header)
+
+        self.tbl_history = TableWidget()
+        self.tbl_history.setColumnCount(4)
+        self.tbl_history.setHorizontalHeaderLabels(["时间", "源路径", "目标路径", "模式"])
+        self.tbl_history.verticalHeader().setVisible(False)
+        self.tbl_history.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl_history.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tbl_history.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._setup_history_columns()
+        self.tbl_history.setMinimumHeight(120)
+        self.tbl_history.setMaximumHeight(200)
+        style_table(self.tbl_history)
+        hist_layout.addWidget(self.tbl_history)
+
+        self.lbl_history_empty = CaptionLabel("暂无迁移记录")
+        self.lbl_history_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_history_empty.setTextColor(QColor(160, 160, 160))
+        hist_layout.addWidget(self.lbl_history_empty)
+        soft_page_layout.addWidget(hist_card)
+
+        self.footer = PageFooterWidget(auto_hide_log=True)
+        soft_page_layout.addWidget(self.footer)
+        soft_page_layout.addStretch(1)
+        self.stack.addWidget(self.softlink_page)
+
+        self.toolLog.connect(self._append_tool_log)
+        self.toolDone.connect(self._finish_link_task)
+        self.recommendDone.connect(self._finish_recommend_scan)
+        self.undoDone.connect(self._finish_undo_link)
+        self.progressUpdate.connect(self._on_progress_update)
+        self._update_link_preview()
+        self._refresh_history()
+        self._show_tool_home()
+
+    def _show_softlink_tool(self):
+        self._update_link_preview()
+        self.btn_back.show()
+        self.stack.setCurrentWidget(self.softlink_page)
+        QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
+
+    def _show_tool_home(self):
+        self.btn_back.hide()
+        self.stack.setCurrentWidget(self.home_page)
+        QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
+
+    def _choose_link_source_dir(self):
+        folder = QFileDialog.getExistingDirectory(self, "选择需要迁移的目录")
+        if folder:
+            self.edit_link_source.setText(folder)
+
+    def _choose_link_source_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择需要迁移的文件")
+        if file_path:
+            self.edit_link_source.setText(file_path)
+
+    def _choose_link_dest_dir(self):
+        folder = QFileDialog.getExistingDirectory(self, "选择迁移后的存放目录")
+        if folder:
+            self.edit_link_dest.setText(folder)
+
+    def _selected_link_mode(self):
+        return "junction" if self.cb_link_mode.currentIndex() == 0 else "symlink"
+
+    def _update_link_preview(self):
+        target = build_space_saving_target_path(self.edit_link_source.text(), self.edit_link_dest.text())
+        mode_text = "目录联接" if self._selected_link_mode() == "junction" else "符号链接"
+        if target:
+            self.lbl_link_preview.setText(f"目标预览：{display_path(target)}\n创建方式：{mode_text}")
+        else:
+            self.lbl_link_preview.setText(f"目标预览：-\n创建方式：{mode_text}")
+
+    def _append_tool_log(self, text):
+        self.footer.show_log_if_hidden()
+        append_capped_log(self.footer.log, text, LOG_MAX_LINES)
+
+    def _on_progress_update(self, value, status):
+        self.footer.pb.setValue(value)
+        if status:
+            self.footer.set_status(status, value)
+
+    def _finish_link_task(self, ok, message):
+        self.btn_run_link.setEnabled(True)
+        self.btn_recommend.setEnabled(True)
+        self.btn_cancel_link.hide()
+        self.footer.pb.setValue(100 if ok else 0)
+        self.footer.set_status(message, 100 if ok else None)
+        if ok:
+            self._refresh_history()
+            InfoBar.success("处理完成", message, parent=self.main_win)
+        else:
+            InfoBar.error("处理失败", message, parent=self.main_win)
+
+    def _start_recommend_scan(self):
+        roots = self.recommend_drive_sel.selected_drives()
+        if not roots:
+            InfoBar.warning("提示", "请先选择需要分析的磁盘", parent=self.main_win)
+            return
+
+        self.stop_event.clear()
+        self.btn_run_link.setEnabled(False)
+        self.btn_recommend.setText("停止扫描")
+        self.btn_recommend.setIcon(FIF.CANCEL)
+        self.btn_recommend.clicked.disconnect()
+        self.btn_recommend.clicked.connect(self._cancel_recommend_scan)
+        self.tbl_recommend.setRowCount(0)
+        self.lbl_recommend_hint.setText("推荐结果：正在按所选磁盘分析，请稍候...")
+        self.footer.set_status("正在分析推荐目录...")
+        self.footer.pb.setValue(20)
+
+        stop = self.stop_event
+
+        def _worker():
+            items, message = recommend_link_targets(roots, log_fn=self.toolLog.emit, stop_event=stop)
+            self.recommendDone.emit(items, message)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _cancel_recommend_scan(self):
+        self.stop_event.set()
+        self.lbl_recommend_hint.setText("推荐结果：正在取消...")
+        self.footer.set_status("正在取消推荐扫描...")
+
+    def _reset_recommend_button(self):
+        self.btn_recommend.setText("系统推荐添加")
+        self.btn_recommend.setIcon(FIF.SEARCH)
+        self.btn_recommend.clicked.disconnect()
+        self.btn_recommend.clicked.connect(self._start_recommend_scan)
+
+    def _finish_recommend_scan(self, items, message):
+        self._reset_recommend_button()
+        self.btn_run_link.setEnabled(True)
+        items = items or []
+        self.tbl_recommend.setRowCount(len(items))
+        for row, item in enumerate(items):
+            name_item = QTableWidgetItem(item["name"])
+            name_item.setData(Qt.ItemDataRole.UserRole, item)
+            self.tbl_recommend.setItem(row, 0, name_item)
+            self.tbl_recommend.setItem(row, 1, QTableWidgetItem(human_size(item["size"])))
+            self.tbl_recommend.setItem(row, 2, QTableWidgetItem(display_path(item["path"])))
+            self.tbl_recommend.setItem(row, 3, QTableWidgetItem(item["reason"]))
+        self.lbl_recommend_hint.setText(f"推荐结果：{message}")
+        is_cancelled = message.startswith("已取消")
+        if items:
+            self.tbl_recommend.selectRow(0)
+            self.footer.pb.setValue(100)
+            self.footer.set_status(message, 100)
+            if is_cancelled:
+                InfoBar.warning("推荐已取消", message, parent=self.main_win)
+            else:
+                InfoBar.success("推荐完成", message, parent=self.main_win)
+        else:
+            self.footer.pb.setValue(0)
+            self.footer.set_status(message)
+            InfoBar.warning("推荐结果", message, parent=self.main_win)
+
+    def _use_selected_recommendation(self):
+        row = self.tbl_recommend.currentRow()
+        if row < 0:
+            InfoBar.warning("提示", "请先选择一个推荐项", parent=self.main_win)
+            return
+        item = self.tbl_recommend.item(row, 0)
+        data = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not isinstance(data, dict):
+            return
+        self.edit_link_source.setText(data.get("path", ""))
+        self._update_link_preview()
+        self.footer.set_status(f"已载入推荐项：{data.get('name', '')}")
+        InfoBar.success("已填入", f"已载入推荐目录：{display_path(data.get('path', ''))}", parent=self.main_win)
+
+    def _start_link_task(self):
+        source = self.edit_link_source.text().strip()
+        dest = self.edit_link_dest.text().strip()
+        mode = self._selected_link_mode()
+        if not source or not dest:
+            InfoBar.warning("提示", "请先填写源路径和目标目录", parent=self.main_win)
+            return
+
+        self.stop_event.clear()
+        self.btn_run_link.setEnabled(False)
+        self.btn_recommend.setEnabled(False)
+        self.btn_cancel_link.show()
+        self.footer.log.clear()
+        if self.footer._auto_hide_log:
+            self.footer.log.hide()
+        self.footer.pb.setValue(5)
+        self.footer.set_status("正在准备...")
+
+        stop = self.stop_event
+        progress = self.progressUpdate.emit
+
+        def _worker():
+            ok, message, target_path = create_space_saving_link(
+                source, dest, mode,
+                log_fn=self.toolLog.emit, stop_event=stop,
+                progress_fn=progress,
+            )
+            final_message = message if not target_path else f"{message}：{display_path(target_path)}"
+            self.toolDone.emit(ok, final_message)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _cancel_link_task(self):
+        self.stop_event.set()
+        self.btn_cancel_link.hide()
+        self.footer.set_status("正在停止迁移任务...")
+
+    # ── P2-1: 迁移历史方法 ──
+
+    def _setup_history_columns(self):
+        header = self.tbl_history.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+
+    def _refresh_history(self):
+        history = load_link_history()
+        has_data = bool(history)
+        self.tbl_history.setVisible(has_data)
+        self.lbl_history_empty.setVisible(not has_data)
+        self.btn_undo_link.setEnabled(has_data)
+        self.btn_refresh_history.setEnabled(True)
+        if not has_data:
+            self.tbl_history.setRowCount(0)
+            return
+        self.tbl_history.setRowCount(len(history))
+        for row, item in enumerate(reversed(history)):
+            r = len(history) - 1 - row
+            time_item = QTableWidgetItem(item.get("time", ""))
+            time_item.setData(Qt.ItemDataRole.UserRole, item)
+            self.tbl_history.setItem(r, 0, time_item)
+            self.tbl_history.setItem(r, 1, QTableWidgetItem(display_path(item.get("source", ""))))
+            self.tbl_history.setItem(r, 2, QTableWidgetItem(display_path(item.get("target", ""))))
+            mode_text = "目录联接" if item.get("mode") == "junction" else "符号链接"
+            self.tbl_history.setItem(r, 3, QTableWidgetItem(mode_text))
+        self.tbl_history.selectRow(self.tbl_history.rowCount() - 1)
+
+    def _start_undo_link(self):
+        row = self.tbl_history.currentRow()
+        if row < 0:
+            InfoBar.warning("提示", "请先选择一条历史记录", parent=self.main_win)
+            return
+        item_widget = self.tbl_history.item(row, 0)
+        data = item_widget.data(Qt.ItemDataRole.UserRole) if item_widget else None
+        if not isinstance(data, dict):
+            InfoBar.warning("提示", "无法读取选中的记录", parent=self.main_win)
+            return
+
+        source = data.get("source", "")
+        target = data.get("target", "")
+        mode = data.get("mode", "junction")
+        if not source or not target:
+            InfoBar.warning("提示", "历史记录数据不完整", parent=self.main_win)
+            return
+
+        self.stop_event.clear()
+        self.btn_undo_link.setEnabled(False)
+        self.btn_run_link.setEnabled(False)
+        self.btn_recommend.setEnabled(False)
+        self.footer.pb.setValue(30)
+        self.footer.set_status(f"正在撤销: {display_path(source)}")
+
+        stop = self.stop_event
+
+        def _worker():
+            ok, message = undo_link_entry(source, target, mode, log_fn=self.toolLog.emit, stop_event=stop)
+            self.undoDone.emit(ok, message)
+
+        def _remove_and_refresh():
+            history = load_link_history()
+            history = [h for h in history if not (
+                os.path.normcase(h.get("source", "")) == os.path.normcase(source)
+                and os.path.normcase(h.get("target", "")) == os.path.normcase(target)
+            )]
+            save_link_history(history)
+
+        self._pending_history_remove = _remove_and_refresh
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _finish_undo_link(self, ok, message):
+        self.btn_undo_link.setEnabled(True)
+        self.btn_run_link.setEnabled(True)
+        self.btn_recommend.setEnabled(True)
+        self.footer.pb.setValue(100 if ok else 0)
+        self.footer.set_status(message, 100 if ok else None)
+        if ok:
+            try:
+                self._pending_history_remove()
+            except Exception:
+                pass
+            self._refresh_history()
+            InfoBar.success("撤销完成", message, parent=self.main_win)
+        else:
+            InfoBar.error("撤销失败", message, parent=self.main_win)
 
 class SchedulePage(DeferredPageMixin, ScrollArea):
     tasksLoaded = Signal(object, object)
@@ -5708,7 +6615,7 @@ class CleanPage(ScrollArea):
             InfoBar.success("成功", f"规则 '{nm}' 已添加！", parent=self.window())
 
     def do_del_rule(self):
-        # 优先使用“选中行”，若用户只勾选复选框也允许删除
+        # 优先使用"选中行"，若用户只勾选复选框也允许删除
         sel_rows = []
         try:
             sel_rows = [idx.row() for idx in self.tbl.selectionModel().selectedRows()]
@@ -6651,7 +7558,7 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
                 for msg in verify_msgs:
                     self.sig.uninst_log.emit(msg)
 
-                # 串行等待用户处理“是否扫描残留”的弹窗，避免多选时上下文错位
+                # 串行等待用户处理"是否扫描残留"的弹窗，避免多选时上下文错位
                 self._current_uninstalling = (r, nm, pub, loc, reg)
                 self._leftover_prompt_done = threading.Event()
                 self._leftover_prompt_done.clear()
@@ -7836,7 +8743,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
             "- 文件夹、目录、磁盘的默认打开动作\n"
             "- .exe / .bat / .cmd / .com / .lnk 的打开关联\n"
             "- 清除当前用户异常的 UserChoice 记录\n\n"
-            "如果系统当前出现“没有与之关联的应用”或文件夹没有“打开”选项，这个修复项就是针对这些问题的。\n\n"
+            "如果系统当前出现\"没有与之关联的应用\"或文件夹没有\"打开\"选项，这个修复项就是针对这些问题的。\n\n"
             "是否继续？"
         )
         if not MessageBox("恢复默认资源管理器关联", content, self.window()).exec():
@@ -7993,7 +8900,7 @@ class MainWindow(MSFluentWindow):
             try:
                 with open(self.custom_rules_path, "r", encoding="utf-8") as f: customs = json.load(f)
                 # 兼容历史/外部规则文件：
-                # 只要是从 custom_rules_path 读入，都视为“自定义规则”，强制 is_custom=True，
+                # 只要是从 custom_rules_path 读入，都视为"自定义规则"，强制 is_custom=True，
                 # 这样仅内置 default_clean_targets() 会保持受保护状态
                 for c in customs:
                     parsed = parse_rule_entry(c, force_custom=True)
@@ -8031,9 +8938,10 @@ class MainWindow(MSFluentWindow):
             except Exception as e:
                 log_background_error("加载排序与勾选状态失败", e)
                 
-        self.clean_stop = threading.Event(); self.uninstall_stop = threading.Event(); self.big_stop = threading.Event(); self.more_stop = threading.Event(); self.sig = Sig()
+        self.clean_stop = threading.Event(); self.uninstall_stop = threading.Event(); self.big_stop = threading.Event(); self.more_stop = threading.Event(); self.toolbox_stop = threading.Event(); self.sig = Sig()
         self._targets_lock = threading.Lock()
         self.pg_clean = CleanPage(self.sig, self.targets, self.clean_stop, self._targets_lock, self)
+        self.pg_toolbox = ToolboxPage(self, self.toolbox_stop, self)
         self.pg_rule_store = None
         self.pg_big = None
         self.pg_uninstall = None
@@ -8105,7 +9013,7 @@ class MainWindow(MSFluentWindow):
             except Exception:
                 pass
         for widget in (self, getattr(self, "pg_setting", None), getattr(self, "pg_clean", None),
-                       getattr(self, "pg_rule_store", None), getattr(self, "pg_schedule", None),
+                       getattr(self, "pg_toolbox", None), getattr(self, "pg_rule_store", None), getattr(self, "pg_schedule", None),
                        getattr(self, "pg_big", None), getattr(self, "pg_uninstall", None),
                        getattr(self, "pg_more", None)):
             if widget is None:
@@ -8517,6 +9425,7 @@ class MainWindow(MSFluentWindow):
         self._add_nav_page(self.pg_clean, FIF.BROOM, "常规清理")
         self._add_lazy_nav_page("pg_rule_store", FIF.DOCUMENT, "规则商店")
         self._add_nav_page(self.pg_schedule, FIF.SYNC, "定时任务")
+        self._add_nav_page(self.pg_toolbox, FIF.FOLDER, "工具箱")
         self._add_lazy_nav_page("pg_big", FIF.ZOOM, "大文件扫描")
         self._add_lazy_nav_page("pg_uninstall", FIF.APPLICATION, "应用强力卸载")
         self._add_lazy_nav_page("pg_more", FIF.MORE, "更多清理")
@@ -8750,7 +9659,11 @@ class MainWindow(MSFluentWindow):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             if self.global_settings.get("tray_enabled", False):
                 self.global_settings["tray_enabled"] = False
-                self.save_global_settings()
+                self.global_settings["tray_start_hidden"] = False
+                try:
+                    threading.Thread(target=self.save_global_settings, daemon=True).start()
+                except Exception as e:
+                    log_sampled_background_error("异步保存托盘设置失败", e)
             return
 
         self._tray_icon = QSystemTrayIcon(self)

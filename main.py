@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.5.2
+C盘强力清理工具 v0.5.3
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -15,7 +15,7 @@ from PySide6.QtCore import Qt, Signal, QObject, QPoint, QMetaObject, Slot, QFile
 from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QDrag, QPixmap, QRegion, QTextCursor, QAction
 from qfluentwidgets import isDarkTheme, themeColor, qconfig
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QAbstractItemView, QTableWidgetItem, QStyledItemDelegate,
     QTreeWidget, QTreeWidgetItem, QHeaderView,
     QFileIconProvider, QFileDialog, QLabel, QSystemTrayIcon, QMenu, QStackedWidget
@@ -27,7 +27,7 @@ from qfluentwidgets import (
     NavigationItemPosition, MSFluentWindow, NavigationInterface, NavigationBar,
     PushButton, PrimaryPushButton, ComboBox, SwitchButton,
     CheckBox, SpinBox, ProgressBar,
-    TitleLabel, CaptionLabel, StrongBodyLabel,
+    TitleLabel, CaptionLabel, StrongBodyLabel, BodyLabel,
     IconWidget, TableWidget, TableView, TextEdit, CardWidget,
     RoundMenu, MenuAnimationType, Action, MessageBox, InfoBar, InfoBarPosition, ScrollArea,
     SearchLineEdit, MessageBoxBase, LineEdit, ToolButton
@@ -37,7 +37,7 @@ from qfluentwidgets.common.router import qrouter
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.5.2"
+CURRENT_VERSION = "0.5.3"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -1016,10 +1016,15 @@ def estimate_rule_size(entry, stop_flag=None):
 def delete_path(path, perm, log_fn):
     import shutil
     try:
-        if not os.path.exists(path): return True
+        if not os.path.lexists(path): return True
         if not perm:
-            if send_to_recycle_bin(path): log_fn(f"[回收站] {path}"); return True
-            log_fn(f"[回收站失败] {path}")
+            if send_to_recycle_bin(path):
+                if not os.path.lexists(path):
+                    log_fn(f"[回收站] {path}")
+                    return True
+                log_fn(f"[回收站失败] {path} 仍存在")
+            else:
+                log_fn(f"[回收站失败] {path}")
             
         if os.path.isfile(path) or os.path.islink(path):
             try:
@@ -1042,16 +1047,85 @@ def delete_path(path, perm, log_fn):
             shutil.rmtree(path, onerror=_onerror)
             
             # 如果文件夹还没被彻底删掉(里面有延期删除的文件)，把文件夹自己也标记上
-            if os.path.exists(path):
+            if os.path.lexists(path):
                 ctypes.windll.kernel32.MoveFileExW(path, None, 4)
                 
-        if not os.path.exists(path):
+        if not os.path.lexists(path):
             log_fn(f"[永久删除] 成功移除: {path}")
         else:
             log_fn(f"[部分挂起] 包含内核驱动保护，请重启电脑完成彻底清理: {path}")
         return True
     except Exception as e: 
         log_fn(f"[失败] {path} -> {e}"); return False
+
+def is_directory_empty(path, known_empty_dirs=None):
+    with os.scandir(path) as entries:
+        for item in entries:
+            if item.is_file(follow_symlinks=False):
+                return False
+            if item.is_dir(follow_symlinks=False):
+                if known_empty_dirs is None or item.path not in known_empty_dirs:
+                    return False
+        return True
+
+def delete_empty_directory_safely(path, permanent_delete, log_fn, prefix="[空文件夹清理]"):
+    try:
+        if not os.path.isdir(path):
+            log_fn(f"{prefix} 已跳过，目录不存在: {path}")
+            return "missing"
+        if not is_directory_empty(path):
+            log_fn(f"{prefix} 已跳过，目录不再为空: {path}")
+            return "not-empty"
+    except Exception as e:
+        log_fn(f"{prefix} 删除前复核失败: {path} -> {format_exception_text(e)}")
+        return "failed"
+    return "deleted" if delete_path(path, permanent_delete, log_fn) else "failed"
+
+_LNK_HEADER_SIGNATURE = b"L\x00\x00\x00"
+_LNK_HEADER_CLSID = b"\x01\x14\x02\x00\x00\x00\x00\x00\xC0\x00\x00\x00\x00\x00\x00F"
+
+def _has_valid_lnk_header(data):
+    if not isinstance(data, (bytes, bytearray)) or len(data) < 20:
+        return False
+    return data[:4] == _LNK_HEADER_SIGNATURE and data[4:20] == _LNK_HEADER_CLSID
+
+def resolve_shortcut_target_info(path, log_context="解析快捷方式"):
+    try:
+        import win32com.client
+        target = str(win32com.client.Dispatch("WScript.Shell").CreateShortCut(path).TargetPath or "").strip()
+        if target:
+            normalized = norm_path(target)
+            return {"status": "resolved", "target": normalized or target, "detail": ""}
+    except ImportError:
+        pass
+    except Exception as e:
+        log_sampled_background_error(log_context, e)
+
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except Exception as e:
+        log_sampled_background_error(log_context, e)
+        return {"status": "unresolved", "target": "", "detail": "快捷方式无法读取"}
+
+    m = re.search(rb"[a-zA-Z]:\\[^\x00]+", data)
+    if m:
+        fallback_target = m.group().decode("mbcs", "ignore").strip()
+        normalized = norm_path(fallback_target)
+        return {"status": "resolved", "target": normalized or fallback_target, "detail": ""}
+
+    if not _has_valid_lnk_header(data):
+        return {"status": "invalid", "target": "", "detail": "快捷方式文件已损坏"}
+    return {"status": "unresolved", "target": "", "detail": "快捷方式目标为空或暂不支持解析"}
+
+def get_invalid_shortcut_detail(path, log_context="解析快捷方式"):
+    info = resolve_shortcut_target_info(path, log_context=log_context)
+    if info.get("status") == "invalid":
+        return str(info.get("detail") or "快捷方式损坏或无法解析")
+    target = str(info.get("target") or "").strip()
+    if info.get("status") == "resolved" and target and not os.path.exists(target):
+        return "指向缺失的文件或目录"
+    return ""
 
 def expand_env(p): return os.path.expandvars(p)
 
@@ -2248,6 +2322,101 @@ def build_space_saving_target_path(source_path, destination_root):
     base_name = os.path.basename(src.rstrip("\\/"))
     return os.path.join(dst_root, base_name)
 
+def _symlink_mode_available():
+    if is_admin():
+        return True, "已具备管理员权限"
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock",
+            0,
+            winreg.KEY_READ
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AllowDevelopmentWithoutDevLicense")
+            if value == 1:
+                return True, "已开启 Windows 开发者模式"
+    except Exception:
+        pass
+    return False, "需要管理员权限或开启 Windows 开发者模式"
+
+def analyze_space_saving_plan(source_path, destination_root, link_mode="junction", stop_event=None):
+    src = os.path.abspath(norm_path(source_path))
+    dst_root = os.path.abspath(norm_path(destination_root))
+    plan = {
+        "source": src,
+        "destination_root": dst_root,
+        "target_path": "",
+        "source_kind": "",
+        "source_size": 0,
+        "source_size_text": "-",
+        "target_free": -1,
+        "target_free_text": "未知",
+        "permission_ok": True,
+        "permission_text": "无需额外权限",
+        "warnings": [],
+        "mode": str(link_mode or "").strip().lower(),
+    }
+    if not src:
+        return False, "源路径不能为空", plan
+    if not dst_root:
+        return False, "目标目录不能为空", plan
+    if not os.path.exists(src):
+        return False, "源路径不存在", plan
+    if not os.path.isdir(dst_root):
+        return False, "目标目录不存在", plan
+
+    src_norm = os.path.normcase(src)
+    dst_root_norm = os.path.normcase(dst_root)
+    if src_norm == dst_root_norm:
+        return False, "目标目录不能与源路径相同", plan
+    if dst_root_norm.startswith(src_norm.rstrip("\\") + "\\"):
+        return False, "目标目录不能位于源路径内部", plan
+
+    plan["target_path"] = build_space_saving_target_path(src, dst_root)
+    if not plan["target_path"]:
+        return False, "无法计算目标路径", plan
+    if os.path.lexists(plan["target_path"]):
+        return False, f"目标已存在：{display_path(plan['target_path'])}", plan
+
+    is_dir = os.path.isdir(src)
+    plan["source_kind"] = "目录" if is_dir else "文件"
+    if plan["mode"] not in {"junction", "symlink"}:
+        return False, "未知的链接模式", plan
+    if plan["mode"] == "junction" and not is_dir:
+        return False, "目录联接只支持文件夹，请改用符号链接", plan
+    if plan["mode"] == "symlink":
+        ok, text = _symlink_mode_available()
+        plan["permission_ok"] = ok
+        plan["permission_text"] = text
+        if not ok:
+            plan["warnings"].append("当前环境创建符号链接可能失败")
+
+    if stop_event is not None and stop_event.is_set():
+        return False, "已取消", plan
+    size = dir_size(src, stop_flag=stop_event) if is_dir else safe_getsize(src)
+    if stop_event is not None and stop_event.is_set():
+        return False, "已取消", plan
+    plan["source_size"] = int(size)
+    plan["source_size_text"] = human_size(size)
+
+    try:
+        free = shutil.disk_usage(dst_root).free
+    except Exception:
+        free = -1
+    plan["target_free"] = int(free) if free >= 0 else -1
+    plan["target_free_text"] = human_size(free) if free >= 0 else "未知"
+    if free >= 0 and size > free:
+        plan["warnings"].append(f"目标磁盘空间不足，仅剩 {human_size(free)}")
+        return False, f"目标磁盘空间不足：需要 {human_size(size)}，仅剩 {human_size(free)}", plan
+
+    lowered_src = src.lower()
+    if any(part in lowered_src for part in ("\\desktop", "\\documents", "\\downloads")):
+        plan["warnings"].append("源路径位于常用用户目录，迁移前请确认软件仍可正常访问")
+    if any(part in lowered_src for part in ("\\program files", "\\windows", "\\programdata")):
+        plan["warnings"].append("源路径位于系统或程序目录，迁移存在兼容性风险")
+
+    return True, "分析完成，可以开始迁移", plan
+
 def create_space_saving_link(source_path, destination_root, link_mode="junction", log_fn=None, stop_event=None, progress_fn=None):
     src = os.path.abspath(norm_path(source_path))
     dst_root = os.path.abspath(norm_path(destination_root))
@@ -2298,18 +2467,10 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
 
     # ── P1: 权限预检 ──
     _progress(10, "正在检查权限...")
-    if selected_mode == "symlink" and not is_admin():
-        _has_dev_mode = False
-        try:
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
-                                r"SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock",
-                                0, winreg.KEY_READ) as _key:
-                _val, _ = winreg.QueryValueEx(_key, "AllowDevelopmentWithoutDevLicense")
-                _has_dev_mode = _val == 1
-        except Exception:
-            pass
-        if not _has_dev_mode:
-            return False, "创建符号链接需要管理员权限或开启 Windows 开发者模式（设置 → 隐私和安全性 → 开发者选项）", target_path
+    if selected_mode == "symlink":
+        _has_perm, _perm_text = _symlink_mode_available()
+        if not _has_perm:
+            return False, f"创建符号链接需要管理员权限或开启 Windows 开发者模式（当前状态：{_perm_text}）", target_path
     _log("[软链接] 权限检查通过")
 
     # ── P0: 迁移前磁盘空间预检 ──
@@ -3363,6 +3524,8 @@ HIGH_RISK_GLOB_EXTENSIONS = {
     ".exe", ".dll", ".sys", ".msi", ".bat", ".cmd", ".ps1",
     ".reg", ".com", ".scr", ".drv", ".ocx"
 }
+RULE_STATE_FILE_VERSION = 2
+RULE_STATE_KEY_MODE = "rule_token"
 
 def normalize_rule_pattern(tp, pattern="", note=""):
     if tp != "glob":
@@ -3402,6 +3565,101 @@ def serialize_rule_entry(entry):
 
 def make_rule_key(nm, pa, tp, pattern=""):
     return (nm, pa, tp, normalize_rule_pattern(tp, pattern, ""))
+
+def make_rule_state_base_key(entry):
+    parsed = parse_rule_entry(entry)
+    if not parsed:
+        return ""
+    nm, pa, tp, _, nt, is_custom, pattern = parsed
+    payload = [
+        str(nm or ""),
+        str(pa or ""),
+        str(tp or ""),
+        str(nt or ""),
+        bool(is_custom),
+        normalize_rule_pattern(tp, pattern, nt),
+    ]
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+def _make_rule_state_token(base_key, occurrence):
+    return json.dumps([str(base_key or ""), int(occurrence or 0)], ensure_ascii=False, separators=(",", ":"))
+
+def _iter_rule_state_entries(targets):
+    counts = defaultdict(int)
+    for entry in targets:
+        parsed = parse_rule_entry(entry)
+        if not parsed:
+            continue
+        base_key = make_rule_state_base_key(parsed)
+        token = _make_rule_state_token(base_key, counts[base_key])
+        counts[base_key] += 1
+        yield token, parsed
+
+def build_saved_rule_state(targets):
+    order = []
+    states = {}
+    for token, parsed in _iter_rule_state_entries(targets):
+        order.append(token)
+        states[token] = bool(parsed[3])
+    return {
+        "version": RULE_STATE_FILE_VERSION,
+        "key_mode": RULE_STATE_KEY_MODE,
+        "order": order,
+        "states": states,
+    }
+
+def apply_saved_rule_state(targets, saved_state):
+    result = [parsed for _, parsed in _iter_rule_state_entries(targets)]
+    if not isinstance(saved_state, dict):
+        return result
+
+    if "order" in saved_state and "states" in saved_state:
+        order = saved_state.get("order", [])
+        states = saved_state.get("states", {})
+    else:
+        order = []
+        states = saved_state
+
+    if saved_state.get("key_mode") == RULE_STATE_KEY_MODE:
+        if isinstance(order, list):
+            remaining = {token: entry for token, entry in _iter_rule_state_entries(result)}
+            reordered = []
+            for token in order:
+                if token in remaining:
+                    reordered.append(remaining.pop(token))
+            reordered.extend(remaining.values())
+            result = reordered
+
+        if isinstance(states, dict):
+            updated = []
+            for token, entry in _iter_rule_state_entries(result):
+                if token in states:
+                    nm, pa, tp, _, nt, is_c, pattern = entry
+                    entry = (nm, pa, tp, bool(states[token]), nt, is_c, pattern)
+                updated.append(entry)
+            result = updated
+        return result
+
+    if isinstance(order, list):
+        remaining = list(result)
+        reordered = []
+        for name in order:
+            for idx, entry in enumerate(remaining):
+                if str(entry[0]) == str(name):
+                    reordered.append(remaining.pop(idx))
+                    break
+        reordered.extend(remaining)
+        result = reordered
+
+    if isinstance(states, dict):
+        updated = []
+        for entry in result:
+            nm, pa, tp, _, nt, is_c, pattern = entry
+            if nm in states:
+                entry = (nm, pa, tp, bool(states[nm]), nt, is_c, pattern)
+            updated.append(entry)
+        result = updated
+    return result
 
 def rule_display_target(pa, tp, pattern=""):
     if tp == "glob":
@@ -3556,28 +3814,7 @@ def load_runtime_targets_and_settings():
         try:
             with open(paths["config"], "r", encoding="utf-8") as f:
                 saved_state = json.load(f)
-            if "order" in saved_state and "states" in saved_state:
-                order = saved_state["order"]
-                states = saved_state["states"]
-            else:
-                order = []
-                states = saved_state
-
-            if order:
-                target_map = {t[0]: t for t in targets}
-                reordered = []
-                for name in order:
-                    if name in target_map:
-                        reordered.append(target_map[name])
-                        del target_map[name]
-                reordered.extend(target_map.values())
-                targets = reordered
-
-            if isinstance(states, dict):
-                for i in range(len(targets)):
-                    nm, pa, tp, en, nt, is_c, pattern = targets[i]
-                    if nm in states:
-                        targets[i] = (nm, pa, tp, bool(states[nm]), nt, is_c, pattern)
+            targets = apply_saved_rule_state(targets, saved_state)
         except Exception as e:
             log_background_error("读取运行时勾选状态失败", e)
 
@@ -3638,15 +3875,7 @@ def _run_scheduled_empty_dirs(permanent_delete, log):
     empty_set = set()
     for d in dirs:
         try:
-            is_empty = True
-            for item in os.scandir(d):
-                if item.is_file(follow_symlinks=False):
-                    is_empty = False
-                    break
-                elif item.is_dir(follow_symlinks=False) and item.path not in empty_set:
-                    is_empty = False
-                    break
-            if is_empty:
+            if is_directory_empty(d, known_empty_dirs=empty_set):
                 empty_set.add(d)
         except Exception as e:
             log_sampled_background_error("定时任务空文件夹扫描", e)
@@ -3654,13 +3883,16 @@ def _run_scheduled_empty_dirs(permanent_delete, log):
         log("[空文件夹清理] 未发现空文件夹")
         return
     log(f"[空文件夹清理] 发现 {len(empty_set)} 个空文件夹，开始清理")
-    ok = fl = 0
+    ok = fl = sk = 0
     for d in empty_set:
-        if delete_path(d, permanent_delete, log):
+        result = delete_empty_directory_safely(d, permanent_delete, log)
+        if result == "deleted":
             ok += 1
+        elif result in {"missing", "not-empty"}:
+            sk += 1
         else:
             fl += 1
-    log(f"[空文件夹清理] 完成：成功 {ok}，失败 {fl}")
+    log(f"[空文件夹清理] 完成：成功 {ok}，失败 {fl}，跳过 {sk}")
 
 
 def _run_scheduled_shortcuts(permanent_delete, log):
@@ -3669,34 +3901,19 @@ def _run_scheduled_shortcuts(permanent_delete, log):
     roots = get_available_drives()
     files, _ = _walk_files_headless(roots, DEFAULT_EXCLUDES, workers=4, ext_filter=".lnk", collect_files=True)
 
-    def _resolve_lnk_target(path):
-        try:
-            import win32com.client
-            return win32com.client.Dispatch("WScript.Shell").CreateShortCut(path).TargetPath
-        except ImportError:
-            try:
-                with open(path, 'rb') as f:
-                    m = re.search(rb'[a-zA-Z]:\\[^\x00]+', f.read())
-                    if m:
-                        return m.group().decode('mbcs', 'ignore')
-            except Exception as e:
-                log_sampled_background_error("定时任务解析快捷方式", e)
-        except Exception as e:
-            log_sampled_background_error("定时任务解析快捷方式", e)
-        return ""
-
     invalid = []
     for p in files:
-        target = _resolve_lnk_target(p)
-        if target and not os.path.exists(target):
-            invalid.append(p)
+        detail = get_invalid_shortcut_detail(p, log_context="定时任务解析快捷方式")
+        if detail:
+            invalid.append((p, detail))
 
     if not invalid:
         log("[无效快捷方式] 未发现无效快捷方式")
         return
     log(f"[无效快捷方式] 发现 {len(invalid)} 个无效快捷方式，开始清理")
     ok = fl = 0
-    for p in invalid:
+    for p, detail in invalid:
+        log(f"[无效快捷方式] {os.path.basename(p)} -> {detail}")
         if delete_path(p, permanent_delete, log):
             ok += 1
         else:
@@ -3753,10 +3970,17 @@ def _run_scheduled_registry_cleanup(log):
     log(f"[卸载注册表清理] 完成：成功 {ok}，失败 {fl}")
 
 def _verify_uninstall_result_messages(app_name, install_dir, reg_path):
+    verify_ok, messages = evaluate_uninstall_result(app_name, install_dir, reg_path)
+    _ = verify_ok
+    return messages
+
+def evaluate_uninstall_result(app_name, install_dir, reg_path):
     messages = []
+    has_remaining = False
     path_text = norm_path(install_dir)
     if path_text and os.path.exists(path_text):
         messages.append(f"[卸载校验] {app_name} 安装目录仍存在: {path_text}")
+        has_remaining = True
     if reg_path:
         hive_name, _, subkey = reg_path.partition("\\")
         hive_map = {
@@ -3769,11 +3993,12 @@ def _verify_uninstall_result_messages(app_name, install_dir, reg_path):
             try:
                 with winreg.OpenKey(hkey, subkey):
                     messages.append(f"[卸载校验] {app_name} 卸载注册表项仍存在")
+                    has_remaining = True
             except OSError:
                 pass
     if not messages:
         messages.append(f"[卸载校验] {app_name} 主要卸载痕迹已移除")
-    return messages
+    return (not has_remaining), messages
 
 def _run_scheduled_standard_uninstall(config_dir, task_name, log):
     preset = get_scheduled_task_preset(task_name, config_dir)
@@ -3832,14 +4057,19 @@ def _run_scheduled_standard_uninstall(config_dir, task_name, log):
                 log(f"[应用标准卸载] 超时已终止: {current['name']}（超过 {timeout_sec // 60} 分钟）")
                 continue
 
-            if proc.returncode not in (0, None):
+            if proc.returncode != 0:
                 fl += 1
                 log(f"[应用标准卸载] 返回码异常: {current['name']} -> {proc.returncode}")
                 continue
 
-            ok += 1
-            for msg in _verify_uninstall_result_messages(current["name"], current.get("location", ""), current.get("reg", "")):
+            verify_ok, verify_msgs = evaluate_uninstall_result(current["name"], current.get("location", ""), current.get("reg", ""))
+            for msg in verify_msgs:
                 log(msg)
+            if verify_ok:
+                ok += 1
+            else:
+                fl += 1
+                log(f"[应用标准卸载] 校验未通过: {current['name']}")
         except Exception as e:
             fl += 1
             log(f"[应用标准卸载] 启动失败: {current['name']} -> {format_exception_text(e)}")
@@ -4915,6 +5145,7 @@ class ToolboxEntryCard(CardWidget):
 class ToolboxPage(ScrollArea):
     toolLog = Signal(str)
     toolDone = Signal(bool, str)
+    analysisDone = Signal(bool, str, object)
     recommendDone = Signal(object, str)
     undoDone = Signal(bool, str)
     progressUpdate = Signal(int, str)
@@ -4923,6 +5154,8 @@ class ToolboxPage(ScrollArea):
         super().__init__(parent)
         self.main_win = main_win
         self.stop_event = stop_event
+        self._analysis_plan = None
+        self._analysis_running = False
         self.setObjectName("toolboxPage")
         self.enableTransparentBackground()
 
@@ -4933,7 +5166,7 @@ class ToolboxPage(ScrollArea):
         root = QVBoxLayout(self.view)
         root.setContentsMargins(28, 12, 28, 20)
         root.setSpacing(12)
-        title_row = make_title_row(FIF.FOLDER, "工具箱")
+        title_row = make_title_row(FIF.DEVELOPER_TOOLS, "工具箱")
         self.btn_back = ToolButton(FIF.LEFT_ARROW)
         self.btn_back.setFixedSize(36, 36)
         self.btn_back.clicked.connect(self._show_tool_home)
@@ -4965,7 +5198,7 @@ class ToolboxPage(ScrollArea):
         launch_layout.addLayout(entry_flow)
 
         entries = [
-            (FIF.FOLDER, "软链接节省空间", "迁移文件或目录，并在原位置创建链接，减少系统盘占用。", "使用", self._show_softlink_tool),
+            (FIF.LINK, "软链接节省空间", "迁移文件或目录，并在原位置创建链接，减少系统盘占用。", "使用", self._show_softlink_tool),
         ]
 
         for entry in entries:
@@ -5087,6 +5320,10 @@ class ToolboxPage(ScrollArea):
         self.cb_link_mode.currentIndexChanged.connect(self._update_link_preview)
         option_row.addWidget(self.cb_link_mode)
         option_row.addStretch(1)
+        self.btn_analyze_link = PushButton(FIF.SEARCH, "执行前分析")
+        self.btn_analyze_link.setFixedHeight(34)
+        self.btn_analyze_link.clicked.connect(self._start_link_analysis)
+        option_row.addWidget(self.btn_analyze_link)
         self.btn_run_link = PrimaryPushButton(FIF.SAVE, "开始迁移并创建链接")
         self.btn_run_link.setFixedHeight(34)
         self.btn_run_link.clicked.connect(self._start_link_task)
@@ -5103,6 +5340,58 @@ class ToolboxPage(ScrollArea):
         self.lbl_link_preview.setTextColor(QColor(128, 128, 128))
         config_layout.addWidget(self.lbl_link_preview)
         soft_page_layout.addWidget(config_card)
+
+        # ── 执行前分析卡片 ──
+        analysis_card = CardWidget(self.softlink_page)
+        analysis_layout = QVBoxLayout(analysis_card)
+        analysis_layout.setContentsMargins(14, 14, 14, 14)
+        analysis_layout.setSpacing(8)
+        analysis_layout.addWidget(StrongBodyLabel("执行前分析"))
+
+        analysis_desc = CaptionLabel("先分析预计迁移大小、目标路径、剩余空间和权限需求，再决定是否执行。")
+        analysis_desc.setWordWrap(True)
+        analysis_desc.setTextColor(QColor(128, 128, 128))
+        analysis_layout.addWidget(analysis_desc)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(8)
+        grid.addWidget(CaptionLabel("源类型"), 0, 0)
+        self.lbl_analysis_kind = BodyLabel("-")
+        self.lbl_analysis_kind.setWordWrap(True)
+        grid.addWidget(self.lbl_analysis_kind, 0, 1)
+
+        grid.addWidget(CaptionLabel("预计迁移大小"), 1, 0)
+        self.lbl_analysis_size = BodyLabel("-")
+        self.lbl_analysis_size.setWordWrap(True)
+        grid.addWidget(self.lbl_analysis_size, 1, 1)
+
+        grid.addWidget(CaptionLabel("目标路径"), 2, 0)
+        self.lbl_analysis_target = BodyLabel("-")
+        self.lbl_analysis_target.setWordWrap(True)
+        grid.addWidget(self.lbl_analysis_target, 2, 1)
+
+        grid.addWidget(CaptionLabel("目标剩余空间"), 3, 0)
+        self.lbl_analysis_free = BodyLabel("-")
+        self.lbl_analysis_free.setWordWrap(True)
+        grid.addWidget(self.lbl_analysis_free, 3, 1)
+
+        grid.addWidget(CaptionLabel("权限需求"), 4, 0)
+        self.lbl_analysis_permission = BodyLabel("-")
+        self.lbl_analysis_permission.setWordWrap(True)
+        grid.addWidget(self.lbl_analysis_permission, 4, 1)
+        analysis_layout.addLayout(grid)
+
+        self.lbl_analysis_status = CaptionLabel("分析状态：未开始")
+        self.lbl_analysis_status.setWordWrap(True)
+        self.lbl_analysis_status.setTextColor(QColor(128, 128, 128))
+        analysis_layout.addWidget(self.lbl_analysis_status)
+
+        self.lbl_analysis_warnings = CaptionLabel("风险提示：-")
+        self.lbl_analysis_warnings.setWordWrap(True)
+        self.lbl_analysis_warnings.setTextColor(QColor(196, 92, 32))
+        analysis_layout.addWidget(self.lbl_analysis_warnings)
+        soft_page_layout.addWidget(analysis_card)
 
         # ── 迁移历史卡片 ──
         hist_card = CardWidget(self.softlink_page)
@@ -5148,9 +5437,11 @@ class ToolboxPage(ScrollArea):
 
         self.toolLog.connect(self._append_tool_log)
         self.toolDone.connect(self._finish_link_task)
+        self.analysisDone.connect(self._finish_link_analysis)
         self.recommendDone.connect(self._finish_recommend_scan)
         self.undoDone.connect(self._finish_undo_link)
         self.progressUpdate.connect(self._on_progress_update)
+        self._reset_link_analysis()
         self._update_link_preview()
         self._refresh_history()
         self._show_tool_home()
@@ -5184,6 +5475,16 @@ class ToolboxPage(ScrollArea):
     def _selected_link_mode(self):
         return "junction" if self.cb_link_mode.currentIndex() == 0 else "symlink"
 
+    def _reset_link_analysis(self):
+        self._analysis_plan = None
+        self.lbl_analysis_kind.setText("-")
+        self.lbl_analysis_size.setText("-")
+        self.lbl_analysis_target.setText("-")
+        self.lbl_analysis_free.setText("-")
+        self.lbl_analysis_permission.setText("-")
+        self.lbl_analysis_status.setText("分析状态：未开始")
+        self.lbl_analysis_warnings.setText("风险提示：-")
+
     def _update_link_preview(self):
         target = build_space_saving_target_path(self.edit_link_source.text(), self.edit_link_dest.text())
         mode_text = "目录联接" if self._selected_link_mode() == "junction" else "符号链接"
@@ -5191,6 +5492,7 @@ class ToolboxPage(ScrollArea):
             self.lbl_link_preview.setText(f"目标预览：{display_path(target)}\n创建方式：{mode_text}")
         else:
             self.lbl_link_preview.setText(f"目标预览：-\n创建方式：{mode_text}")
+        self._reset_link_analysis()
 
     def _append_tool_log(self, text):
         self.footer.show_log_if_hidden()
@@ -5202,6 +5504,8 @@ class ToolboxPage(ScrollArea):
             self.footer.set_status(status, value)
 
     def _finish_link_task(self, ok, message):
+        self._analysis_running = False
+        self.btn_analyze_link.setEnabled(True)
         self.btn_run_link.setEnabled(True)
         self.btn_recommend.setEnabled(True)
         self.btn_cancel_link.hide()
@@ -5212,6 +5516,71 @@ class ToolboxPage(ScrollArea):
             InfoBar.success("处理完成", message, parent=self.main_win)
         else:
             InfoBar.error("处理失败", message, parent=self.main_win)
+
+    def _start_link_analysis(self):
+        source = self.edit_link_source.text().strip()
+        dest = self.edit_link_dest.text().strip()
+        mode = self._selected_link_mode()
+        if not source or not dest:
+            InfoBar.warning("提示", "请先填写源路径和目标目录", parent=self.main_win)
+            return
+
+        self.stop_event.clear()
+        self._analysis_running = True
+        self._analysis_plan = None
+        self.btn_analyze_link.setEnabled(False)
+        self.btn_run_link.setEnabled(False)
+        self.btn_recommend.setEnabled(False)
+        self.btn_cancel_link.show()
+        self.lbl_analysis_status.setText("分析状态：正在分析，请稍候...")
+        self.lbl_analysis_warnings.setText("风险提示：正在收集...")
+        self.footer.pb.setValue(15)
+        self.footer.set_status("正在执行迁移前分析...")
+
+        stop = self.stop_event
+        progress = self.progressUpdate.emit
+
+        def _worker():
+            try:
+                progress(25, "正在分析源路径...")
+                ok, message, plan = analyze_space_saving_plan(source, dest, mode, stop_event=stop)
+                if ok:
+                    progress(100, "分析完成")
+                else:
+                    progress(0, message)
+                self.analysisDone.emit(ok, message, plan)
+            except Exception as e:
+                self.analysisDone.emit(False, f"分析失败：{format_exception_text(e)}", {})
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _finish_link_analysis(self, ok, message, plan):
+        self._analysis_running = False
+        self.btn_analyze_link.setEnabled(True)
+        self.btn_run_link.setEnabled(True)
+        self.btn_recommend.setEnabled(True)
+        self.btn_cancel_link.hide()
+
+        plan = plan or {}
+        self._analysis_plan = plan if ok else None
+        self.lbl_analysis_kind.setText(str(plan.get("source_kind") or "-"))
+        self.lbl_analysis_size.setText(str(plan.get("source_size_text") or "-"))
+        target_path = plan.get("target_path") or ""
+        self.lbl_analysis_target.setText(display_path(target_path) if target_path else "-")
+        self.lbl_analysis_free.setText(str(plan.get("target_free_text") or "-"))
+        self.lbl_analysis_permission.setText(str(plan.get("permission_text") or "-"))
+
+        warnings = [str(x).strip() for x in (plan.get("warnings") or []) if str(x).strip()]
+        self.lbl_analysis_status.setText(f"分析状态：{message}")
+        self.lbl_analysis_warnings.setText(
+            "风险提示：" + ("；".join(warnings) if warnings else "未发现明显风险")
+        )
+        self.footer.pb.setValue(100 if ok else 0)
+        self.footer.set_status(message, 100 if ok else None)
+        if ok:
+            InfoBar.success("分析完成", message, parent=self.main_win)
+        else:
+            InfoBar.warning("分析结果", message, parent=self.main_win)
 
     def _start_recommend_scan(self):
         roots = self.recommend_drive_sel.selected_drives()
@@ -5325,7 +5694,7 @@ class ToolboxPage(ScrollArea):
     def _cancel_link_task(self):
         self.stop_event.set()
         self.btn_cancel_link.hide()
-        self.footer.set_status("正在停止迁移任务...")
+        self.footer.set_status("正在停止当前任务...")
 
     # ── P2-1: 迁移历史方法 ──
 
@@ -7547,16 +7916,20 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
                     self.sig.uninst_prog.emit(i, tot)
                     continue
 
-                if proc.returncode not in (0, None):
+                if proc.returncode != 0:
                     fl += 1
                     self.sig.uninst_log.emit(f"[标准卸载] 返回码异常: {nm} -> {proc.returncode}")
                     self.sig.uninst_prog.emit(i, tot)
                     continue
 
-                ok += 1
-                verify_msgs = self._verify_uninstall_result(nm, loc, reg)
+                verify_ok, verify_msgs = evaluate_uninstall_result(nm, loc, reg)
                 for msg in verify_msgs:
                     self.sig.uninst_log.emit(msg)
+                if verify_ok:
+                    ok += 1
+                else:
+                    fl += 1
+                    self.sig.uninst_log.emit(f"[标准卸载] 校验未通过: {nm}")
 
                 # 串行等待用户处理"是否扫描残留"的弹窗，避免多选时上下文错位
                 self._current_uninstalling = (r, nm, pub, loc, reg)
@@ -8572,11 +8945,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
             if self.stop.is_set(): break
             if i % 500 == 0: self.sig.more_prog.emit(i, tot)
             try:
-                is_empty = True
-                for item in os.scandir(d):
-                    if item.is_file(follow_symlinks=False): is_empty = False; break
-                    elif item.is_dir(follow_symlinks=False) and item.path not in empty_set: is_empty = False; break
-                if is_empty:
+                if is_directory_empty(d, known_empty_dirs=empty_set):
                     empty_set.add(d)
                     pending_rows.append((False, "空文件夹", os.path.basename(d), "无内容", d))
                     if len(pending_rows) >= UI_BATCH_CHUNK:
@@ -8605,28 +8974,14 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
             files.clear()
             self.sig.more_done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒")
             return
-        def resolve_lnk_target(path):
-            try:
-                import win32com.client
-                return win32com.client.Dispatch("WScript.Shell").CreateShortCut(path).TargetPath
-            except ImportError:
-                try:
-                    with open(path, 'rb') as f:
-                        m = re.search(rb'[a-zA-Z]:\\[^\x00]+', f.read())
-                        if m: return m.group().decode('mbcs', 'ignore')
-                except Exception as e:
-                    log_sampled_background_error("解析快捷方式", e)
-            except Exception as e:
-                log_sampled_background_error("解析快捷方式", e)
-            return ""
         tot = len(files); invalid_cnt = 0
         pending_rows = []
         for i, (_, p) in enumerate(files):
             if self.stop.is_set(): break
             if i % 100 == 0: self.sig.more_prog.emit(i, tot)
-            target = resolve_lnk_target(p)
-            if target and not os.path.exists(target):
-                pending_rows.append((False, "无效快捷方式", os.path.basename(p), "指向缺失的文件", p))
+            detail = get_invalid_shortcut_detail(p, log_context="解析快捷方式")
+            if detail:
+                pending_rows.append((False, "无效快捷方式", os.path.basename(p), detail, p))
                 invalid_cnt += 1
                 if len(pending_rows) >= UI_BATCH_CHUNK:
                     self._emit_more_rows(pending_rows)
@@ -8811,19 +9166,28 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         if not MessageBox("确认",f"确定清理这 {len(paths)} 个项目？不可恢复",self.window()).exec(): return
         self.stop.clear()
         if is_reg: threading.Thread(target=self._del_reg_w, args=(paths,), daemon=True).start()
-        else: threading.Thread(target=self._del_files_w, args=(paths,self.chk_perm.isChecked()), daemon=True).start()
+        else: threading.Thread(target=self._del_files_w, args=(paths, self.chk_perm.isChecked(), mode_idx == 1), daemon=True).start()
 
-    def _del_files_w(self, paths, pm):
+    def _del_files_w(self, paths, pm, require_empty=False):
         t0 = time.time()
-        ok=fl=0; tot=len(paths); lf=lambda s:self.sig.more_log.emit(s)
+        ok=fl=sk=0; tot=len(paths); lf=lambda s:self.sig.more_log.emit(s)
         for i,p in enumerate(paths,1):
             if self.stop.is_set():
-                self.sig.more_done.emit(f"清理已取消：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
+                self.sig.more_done.emit(f"清理已取消：成功 {ok}，失败 {fl}，跳过 {sk}，耗时 {time.time()-t0:.1f} 秒")
                 return
-            if delete_path(p,pm,lf): ok+=1
-            else: fl+=1
+            if require_empty:
+                result = delete_empty_directory_safely(p, pm, lf)
+                if result == "deleted":
+                    ok += 1
+                elif result in {"missing", "not-empty"}:
+                    sk += 1
+                else:
+                    fl += 1
+            else:
+                if delete_path(p,pm,lf): ok+=1
+                else: fl+=1
             self.sig.more_prog.emit(i,tot)
-        self.sig.more_done.emit(f"清理完成：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
+        self.sig.more_done.emit(f"清理完成：成功 {ok}，失败 {fl}，跳过 {sk}，耗时 {time.time()-t0:.1f} 秒")
 
     def _del_reg_w(self, paths):
         t0 = time.time()
@@ -8913,28 +9277,7 @@ class MainWindow(MSFluentWindow):
         if os.path.exists(self.config_path):
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f: saved_state = json.load(f)
-                
-                if "order" in saved_state and "states" in saved_state:
-                    order = saved_state["order"]
-                    states = saved_state["states"]
-                else:
-                    order = []
-                    states = saved_state 
-                    
-                if order:
-                    t_dict = {t[0]: t for t in self.targets}
-                    new_targets = []
-                    for nm in order:
-                        if nm in t_dict:
-                            new_targets.append(t_dict[nm])
-                            del t_dict[nm]
-                    new_targets.extend(t_dict.values())
-                    self.targets = new_targets
-
-                for i in range(len(self.targets)):
-                    nm, pa, tp, en, nt, is_c, pattern = self.targets[i]
-                    if nm in states:
-                        self.targets[i] = (nm, pa, tp, states[nm], nt, is_c, pattern)
+                self.targets = apply_saved_rule_state(self.targets, saved_state)
             except Exception as e:
                 log_background_error("加载排序与勾选状态失败", e)
                 
@@ -9192,9 +9535,8 @@ class MainWindow(MSFluentWindow):
         try:
             self.pg_clean._sync()
             with self._targets_lock:
-                order = [t[0] for t in self.targets]
-                states = {t[0]: t[3] for t in self.targets}
-            write_json_file_atomic(self.config_path, {"order": order, "states": states}, ensure_ascii=False, indent=2)
+                payload = build_saved_rule_state(self.targets)
+            write_json_file_atomic(self.config_path, payload, ensure_ascii=False, indent=2)
         except Exception as e:
             log_background_error("保存排序状态失败", e)
 
@@ -9425,7 +9767,7 @@ class MainWindow(MSFluentWindow):
         self._add_nav_page(self.pg_clean, FIF.BROOM, "常规清理")
         self._add_lazy_nav_page("pg_rule_store", FIF.DOCUMENT, "规则商店")
         self._add_nav_page(self.pg_schedule, FIF.SYNC, "定时任务")
-        self._add_nav_page(self.pg_toolbox, FIF.FOLDER, "工具箱")
+        self._add_nav_page(self.pg_toolbox, FIF.DEVELOPER_TOOLS, "工具箱")
         self._add_lazy_nav_page("pg_big", FIF.ZOOM, "大文件扫描")
         self._add_lazy_nav_page("pg_uninstall", FIF.APPLICATION, "应用强力卸载")
         self._add_lazy_nav_page("pg_more", FIF.MORE, "更多清理")

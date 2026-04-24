@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.5.3
+C盘强力清理工具 v0.5.4
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -37,7 +37,7 @@ from qfluentwidgets.common.router import qrouter
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.5.3"
+CURRENT_VERSION = "0.5.4"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -135,18 +135,19 @@ def write_text_file_atomic(path, text, encoding="utf-8"):
     tmp_path = ""
     try:
         fd, tmp_path = tempfile.mkstemp(prefix=".tmp_", suffix=".tmp", dir=parent or None, text=True)
-        with os.fdopen(fd, "w", encoding=encoding, newline="") as f:
-            fd = None
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, target)
+        try:
+            with os.fdopen(fd, "w", encoding=encoding, newline="") as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, target)
+        finally:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
     except Exception:
-        if fd is not None:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
         if tmp_path:
             try:
                 os.remove(tmp_path)
@@ -1885,13 +1886,21 @@ def get_scan_threads_for_drives_cached(drives):
 # ══════════════════════════════════════════════════════════
 #  默认清理目标 (带 is_custom 标志位)
 # ══════════════════════════════════════════════════════════
+_cached_default_clean_targets = None
+
 def default_clean_targets():
+    global _cached_default_clean_targets
+    if _cached_default_clean_targets is None:
+        _cached_default_clean_targets = _build_default_clean_targets()
+    return _cached_default_clean_targets
+
+def _build_default_clean_targets():
     sr = os.environ.get("SystemRoot", r"C:\Windows")
     la = os.environ.get("LOCALAPPDATA", "")
     pd = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
     up = os.environ.get("USERPROFILE", "")
     J = os.path.join
-    
+
     return [
         ("用户临时文件", expand_env(r"%TEMP%"), "dir", True, "常见垃圾，安全", False),
         ("系统临时文件", J(sr, "Temp"), "dir", True, "可能需管理员", False),
@@ -3032,7 +3041,7 @@ class DriveSelector(QWidget):
             self.drive_states[d] = checked
             chk = CheckBox(d)
             chk.setChecked(checked)
-            chk.toggled.connect(lambda c, _d=d: self._on_toggled(_d, c))
+            chk.toggled.connect(lambda checked, _d=d: self._on_toggled(_d, checked))
             container = QWidget()
             container.setFixedHeight(36)
             row_layout = QHBoxLayout(container)
@@ -6872,11 +6881,14 @@ class CleanPage(ScrollArea):
             items = list(enumerate(self.targets))
         mode = self.cb_sort.currentIndex() if hasattr(self, "cb_sort") else 0
         if mode == 1:
-            items.sort(key=lambda x: str(parse_rule_entry(x[1])[0]).lower())
+            cache = {i: parse_rule_entry(t) for i, t in items}
+            items.sort(key=lambda x: str(cache[x[0]][0]).lower())
         elif mode == 2:
-            items.sort(key=lambda x: rule_display_target(parse_rule_entry(x[1])[1], parse_rule_entry(x[1])[2], parse_rule_entry(x[1])[6]).lower())
+            cache = {i: parse_rule_entry(t) for i, t in items}
+            items.sort(key=lambda x: rule_display_target(cache[x[0]][1], cache[x[0]][2], cache[x[0]][6]).lower())
         elif mode == 3:
-            items.sort(key=lambda x: self.estimated_sizes.get(self._rule_cache_key(x[1]), 0), reverse=True)
+            cache = {i: self._rule_cache_key(t) for i, t in items}
+            items.sort(key=lambda x: self.estimated_sizes.get(cache[x[0]], 0), reverse=True)
         return items
 
     def _on_sort_mode_changed(self, _):
@@ -7141,10 +7153,12 @@ class CleanPage(ScrollArea):
         if path:
             self.window().import_rules_from_path(path, "外部规则集")
 
-    def do_est(self): 
-        self.tbl.setDragEnabled(False) 
+    def do_est(self):
+        self.tbl.setDragEnabled(False)
         self.tbl_model.set_drag_enabled(False)
-        self._sync(); self.stop.clear(); threading.Thread(target=self._est_w,daemon=True).start()
+        self._sync()
+        self.stop.clear()
+        threading.Thread(target=self._est_w, daemon=True).start()
         
     def _est_w(self):
         t0 = time.time()

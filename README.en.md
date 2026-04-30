@@ -33,7 +33,7 @@
 A Windows full-disk cleanup utility covering regular cleanup, large file scanning, advanced cleanup tools, force uninstall, scheduled tasks, and a rule store.  
 Built with **Python + PySide6 + Fluent Widgets**, it provides a GUI, administrator elevation, light/dark themes, switchable sidebar layouts, and remote rule pack import.
 
-<img width="1800" height="1050" alt="QQ_1774760187796" src="https://github.com/user-attachments/assets/9719cbee-6162-450e-91b7-2508b4add313" />
+<img width="1800" height="1050" alt="QQ_1777555111436" src="https://github.com/user-attachments/assets/cd32b8bd-f39d-4090-b3ae-4d03d2a76722" />
 
 ## Features
 

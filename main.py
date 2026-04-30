@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.5.4
+C盘强力清理工具 v0.6.0
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -37,7 +37,7 @@ from qfluentwidgets.common.router import qrouter
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.5.4"
+CURRENT_VERSION = "0.6.0"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -2291,6 +2291,106 @@ def append_link_history(source, target, mode):
     })
     save_link_history(history)
 
+CACHE_MIGRATION_PRESETS = [
+    {"category": "聊天软件", "name": "微信聊天文件", "path": r"%USERPROFILE%\Documents\WeChat Files", "reason": "聊天文件与缓存容易持续增长"},
+    {"category": "聊天软件", "name": "企业微信文件", "path": r"%USERPROFILE%\Documents\WXWork", "reason": "企业微信文件与缓存通常占用较大"},
+    {"category": "聊天软件", "name": "QQ 接收文件", "path": r"%USERPROFILE%\Documents\Tencent Files", "reason": "QQ 接收文件和缓存可迁移到数据盘"},
+    {"category": "浏览器", "name": "Chrome 缓存", "path": r"%LOCALAPPDATA%\Google\Chrome\User Data\Default\Cache", "reason": "浏览器缓存可重新生成，适合迁移"},
+    {"category": "浏览器", "name": "Chrome Code Cache", "path": r"%LOCALAPPDATA%\Google\Chrome\User Data\Default\Code Cache", "reason": "脚本缓存可重新生成"},
+    {"category": "浏览器", "name": "Edge 缓存", "path": r"%LOCALAPPDATA%\Microsoft\Edge\User Data\Default\Cache", "reason": "浏览器缓存可重新生成，适合迁移"},
+    {"category": "浏览器", "name": "Edge Code Cache", "path": r"%LOCALAPPDATA%\Microsoft\Edge\User Data\Default\Code Cache", "reason": "脚本缓存可重新生成"},
+    {"category": "开发工具", "name": "npm 缓存", "path": r"%APPDATA%\npm-cache", "reason": "包管理缓存体积较大，可重新下载"},
+    {"category": "开发工具", "name": "Yarn 缓存", "path": r"%LOCALAPPDATA%\Yarn\Cache", "reason": "包管理缓存体积较大，可重新下载"},
+    {"category": "开发工具", "name": "pnpm Store", "path": r"%LOCALAPPDATA%\pnpm\store", "reason": "依赖包仓库通常增长很快"},
+    {"category": "开发工具", "name": "pip 缓存", "path": r"%LOCALAPPDATA%\pip\Cache", "reason": "Python 包缓存可重新下载"},
+    {"category": "开发工具", "name": "uv 缓存", "path": r"%LOCALAPPDATA%\uv\cache", "reason": "Python 依赖缓存可迁移"},
+    {"category": "开发工具", "name": "Conda 包缓存", "path": r"%USERPROFILE%\.conda\pkgs", "reason": "Conda 包缓存体积通常较大"},
+    {"category": "开发工具", "name": "Gradle 缓存", "path": r"%USERPROFILE%\.gradle\caches", "reason": "Gradle 依赖缓存可重新下载"},
+    {"category": "开发工具", "name": "Maven 仓库", "path": r"%USERPROFILE%\.m2\repository", "reason": "Maven 依赖仓库常占用大量空间"},
+    {"category": "开发工具", "name": "NuGet 包", "path": r"%USERPROFILE%\.nuget\packages", "reason": "NuGet 全局包目录适合迁移"},
+    {"category": "开发工具", "name": "Cargo Registry", "path": r"%USERPROFILE%\.cargo\registry", "reason": "Rust 依赖缓存可重新获取"},
+    {"category": "AI 模型", "name": "HuggingFace 缓存", "path": r"%USERPROFILE%\.cache\huggingface", "reason": "模型与数据集缓存体积通常很大"},
+    {"category": "AI 模型", "name": "Torch 缓存", "path": r"%USERPROFILE%\.cache\torch", "reason": "模型权重缓存适合迁移"},
+    {"category": "容器虚拟化", "name": "Docker WSL 数据", "path": r"%LOCALAPPDATA%\Docker\wsl", "reason": "容器数据占用可能很大，迁移前请确认 Docker 已退出"},
+]
+
+def cache_preset_categories():
+    categories = []
+    for item in CACHE_MIGRATION_PRESETS:
+        category = item.get("category", "")
+        if category and category not in categories:
+            categories.append(category)
+    return categories
+
+def _expand_cache_preset_path(path):
+    return os.path.abspath(norm_path(os.path.expandvars(str(path or "")))) if path else ""
+
+def list_cache_migration_presets(category="全部", min_size_bytes=0, include_missing=False, log_fn=None, stop_event=None):
+    selected_category = str(category or "全部")
+    min_size = max(0, int(min_size_bytes or 0))
+    results = []
+    seen = set()
+
+    def _log(message):
+        if callable(log_fn):
+            try:
+                log_fn(message)
+            except Exception as e:
+                log_sampled_background_error("缓存预设日志", e, limit=3)
+
+    for preset in CACHE_MIGRATION_PRESETS:
+        if stop_event is not None and stop_event.is_set():
+            break
+        if selected_category != "全部" and preset.get("category") != selected_category:
+            continue
+        path = _expand_cache_preset_path(preset.get("path", ""))
+        if not path:
+            continue
+        key = os.path.normcase(path)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        exists = os.path.exists(path)
+        if not exists and not include_missing:
+            continue
+        size = 0
+        kind = "不存在"
+        status = "未找到"
+        if exists:
+            kind = "目录" if os.path.isdir(path) else "文件"
+            status = "可迁移"
+            _log(f"[缓存预设] 正在估算: {display_path(path)}")
+            try:
+                size = dir_size(path, stop_flag=stop_event) if os.path.isdir(path) else safe_getsize(path)
+            except Exception as e:
+                status = "估算失败"
+                _log(f"[缓存预设] 估算失败: {display_path(path)} -> {format_exception_text(e)}")
+            if stop_event is not None and stop_event.is_set():
+                break
+            if size < min_size:
+                continue
+
+        results.append({
+            "category": preset.get("category", ""),
+            "name": preset.get("name", ""),
+            "path": path,
+            "template_path": preset.get("path", ""),
+            "reason": preset.get("reason", ""),
+            "exists": exists,
+            "size": int(size),
+            "kind": kind,
+            "status": status,
+        })
+
+    results.sort(key=lambda item: (not item.get("exists"), -int(item.get("size", 0)), item.get("category", ""), item.get("name", "")))
+    if stop_event is not None and stop_event.is_set():
+        return results, f"已取消，已列出 {len(results)} 个缓存候选项"
+    if not results:
+        return [], "未找到符合条件的常用缓存目录"
+    total_size = sum(int(item.get("size", 0)) for item in results if item.get("exists"))
+    return results, f"已找到 {len(results)} 个缓存候选项，合计约 {human_size(total_size)}"
+
 def undo_link_entry(source, target, mode, log_fn=None, stop_event=None):
     """撤销一条迁移记录：删除链接，将目标移回源路径。"""
     def _log(message):
@@ -2662,6 +2762,252 @@ def recommend_link_targets(scan_roots, min_size_bytes=RECOMMENDED_LINK_MIN_SIZE,
     if not results:
         return [], "未找到合适的推荐目录"
     return results, f"已生成 {len(results)} 个推荐候选项"
+
+DOWNLOAD_EXT_CATEGORIES = {
+    "安装包": {".exe", ".msi", ".msix", ".msixbundle", ".appx", ".appxbundle"},
+    "压缩包": {".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz", ".iso"},
+    "文档": {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".md"},
+    "图片": {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".svg"},
+    "视频": {".mp4", ".mkv", ".mov", ".avi", ".wmv", ".flv", ".webm"},
+    "音频": {".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg"},
+    "临时下载": {".crdownload", ".part", ".tmp", ".download"},
+}
+
+def default_download_dirs():
+    user = os.path.expandvars(r"%USERPROFILE%")
+    candidates = [
+        os.path.join(user, "Downloads"),
+        os.path.join(user, "下载"),
+        os.path.expandvars(r"%USERPROFILE%\OneDrive\Downloads"),
+        os.path.expandvars(r"%USERPROFILE%\OneDrive\下载"),
+    ]
+    found = []
+    seen = set()
+    for path in candidates:
+        path = norm_path(path)
+        key = os.path.normcase(path)
+        if path and key not in seen and os.path.isdir(path):
+            found.append(path)
+            seen.add(key)
+    return found
+
+def _format_mtime(ts):
+    try:
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+    except Exception:
+        return "-"
+
+def classify_download_item(path, is_dir, size, mtime):
+    name = os.path.basename(path.rstrip("\\/"))
+    ext = os.path.splitext(name)[1].lower()
+    category = "文件夹" if is_dir else "其他文件"
+    if not is_dir:
+        for cat, exts in DOWNLOAD_EXT_CATEGORIES.items():
+            if ext in exts:
+                category = cat
+                break
+
+    try:
+        age_days = max(0, int((time.time() - float(mtime)) // 86400))
+    except Exception:
+        age_days = 0
+
+    suggestions = []
+    if category in {"安装包", "压缩包", "临时下载"}:
+        suggestions.append("常见下载残留")
+    if age_days >= 180:
+        suggestions.append("超过 180 天未修改")
+    elif age_days >= 90:
+        suggestions.append("超过 90 天未修改")
+    if size >= 1024 * 1024 * 1024:
+        suggestions.append("体积超过 1 GB")
+    elif size >= 300 * 1024 * 1024:
+        suggestions.append("体积较大")
+    if is_dir:
+        suggestions.append("目录占用需确认内容")
+
+    return category, "；".join(suggestions) if suggestions else "建议人工确认"
+
+def scan_download_candidates(root_paths, min_size_bytes=0, min_age_days=0, include_dirs=True, limit=500, log_fn=None, stop_event=None):
+    roots = []
+    seen = set()
+    for root in root_paths or []:
+        path = norm_path(root)
+        key = os.path.normcase(path)
+        if path and os.path.isdir(path) and key not in seen:
+            roots.append(path)
+            seen.add(key)
+    if not roots:
+        roots = default_download_dirs()
+    if not roots:
+        return [], "未找到下载目录，请手动选择目录"
+
+    def _log(message):
+        if callable(log_fn):
+            try:
+                log_fn(message)
+            except Exception:
+                pass
+
+    results = []
+    errors = []
+    min_size = max(0, int(min_size_bytes or 0))
+    min_age = max(0, int(min_age_days or 0))
+
+    for root in roots:
+        if stop_event is not None and stop_event.is_set():
+            break
+        _log(f"[下载整理] 正在扫描: {display_path(root)}")
+        try:
+            entries = sorted(os.scandir(root), key=lambda item: item.name.lower())
+        except Exception as e:
+            append_error_sample(errors, f"{display_path(root)} -> {format_exception_text(e)}")
+            continue
+
+        try:
+            for entry in entries:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                    if is_dir and not include_dirs:
+                        continue
+                    if entry.is_symlink():
+                        continue
+                    stat = entry.stat(follow_symlinks=False)
+                    mtime = getattr(stat, "st_mtime", 0)
+                    age_days = max(0, int((time.time() - float(mtime)) // 86400)) if mtime else 0
+                    if min_age and age_days < min_age:
+                        continue
+                    size = dir_size(entry.path, stop_flag=stop_event) if is_dir else safe_getsize(entry.path)
+                    if stop_event is not None and stop_event.is_set():
+                        break
+                    if size < min_size:
+                        continue
+                    category, suggestion = classify_download_item(entry.path, is_dir, size, mtime)
+                    results.append({
+                        "category": category,
+                        "name": entry.name,
+                        "path": entry.path,
+                        "size": int(size),
+                        "mtime_text": _format_mtime(mtime),
+                        "age_days": age_days,
+                        "kind": "目录" if is_dir else "文件",
+                        "suggestion": suggestion,
+                    })
+                except Exception as e:
+                    append_error_sample(errors, f"{display_path(entry.path)} -> {format_exception_text(e)}")
+        finally:
+            try:
+                entries.close()
+            except Exception:
+                pass
+
+    results.sort(key=lambda item: (item["category"] not in {"安装包", "压缩包", "临时下载"}, -item["size"], -item["age_days"]))
+    if limit and len(results) > int(limit):
+        results = results[:int(limit)]
+    if errors:
+        _log("[下载整理] 部分项目扫描失败")
+        for item in errors:
+            _log(f"[下载整理] {item}")
+    if stop_event is not None and stop_event.is_set():
+        return results, f"已取消，已列出 {len(results)} 个候选项"
+    total = sum(int(item.get("size", 0)) for item in results)
+    return results, f"已列出 {len(results)} 个下载候选项，合计约 {human_size(total)}"
+
+def scan_space_usage_roots(root_paths, min_size_bytes=0, limit=200, log_fn=None, stop_event=None):
+    roots = []
+    seen = set()
+    for root in root_paths or []:
+        path = norm_path(root)
+        key = os.path.normcase(path)
+        if path and os.path.isdir(path) and key not in seen:
+            roots.append(path)
+            seen.add(key)
+    if not roots:
+        return [], "请先选择磁盘或目录"
+
+    def _log(message):
+        if callable(log_fn):
+            try:
+                log_fn(message)
+            except Exception:
+                pass
+
+    rows = []
+    errors = []
+    min_size = max(0, int(min_size_bytes or 0))
+    for root in roots:
+        if stop_event is not None and stop_event.is_set():
+            break
+        _log(f"[空间分析] 正在扫描: {display_path(root)}")
+        try:
+            root_entries = sorted(os.scandir(root), key=lambda item: item.name.lower())
+        except Exception as e:
+            append_error_sample(errors, f"{display_path(root)} -> {format_exception_text(e)}")
+            continue
+
+        root_total = 0
+        pending = []
+        try:
+            for entry in root_entries:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                try:
+                    if entry.is_symlink():
+                        continue
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                    size = dir_size(entry.path, stop_flag=stop_event) if is_dir else safe_getsize(entry.path)
+                    if stop_event is not None and stop_event.is_set():
+                        break
+                    root_total += int(size)
+                    if size < min_size:
+                        continue
+                    pending.append({
+                        "root": root,
+                        "name": entry.name,
+                        "path": entry.path,
+                        "size": int(size),
+                        "kind": "目录" if is_dir else "文件",
+                    })
+                except Exception as e:
+                    append_error_sample(errors, f"{display_path(entry.path)} -> {format_exception_text(e)}")
+        finally:
+            try:
+                root_entries.close()
+            except Exception:
+                pass
+
+        for item in pending:
+            item["root_total"] = int(root_total)
+            item["percent"] = (item["size"] / root_total * 100) if root_total > 0 else 0
+            rows.append(item)
+
+    rows.sort(key=lambda item: item["size"], reverse=True)
+    if limit and len(rows) > int(limit):
+        rows = rows[:int(limit)]
+    if errors:
+        _log("[空间分析] 部分项目扫描失败")
+        for item in errors:
+            _log(f"[空间分析] {item}")
+    if stop_event is not None and stop_event.is_set():
+        return rows, f"已取消，已列出 {len(rows)} 个占用项"
+    total = sum(int(item.get("size", 0)) for item in rows)
+    return rows, f"已列出 {len(rows)} 个占用项，当前列表合计约 {human_size(total)}"
+
+def delete_toolbox_paths(paths, permanent, log_fn=None, stop_event=None):
+    ok = 0
+    fail = 0
+    for path in list(paths or []):
+        if stop_event is not None and stop_event.is_set():
+            break
+        if delete_path(path, bool(permanent), log_fn or (lambda _text: None)):
+            ok += 1
+        else:
+            fail += 1
+    if stop_event is not None and stop_event.is_set():
+        return False, f"已取消：成功 {ok}，失败 {fail}"
+    return fail == 0, f"处理完成：成功 {ok}，失败 {fail}"
 
 def make_ctx(parent, table, pos, col):
     idx=table.indexAt(pos)
@@ -5158,6 +5504,11 @@ class ToolboxPage(ScrollArea):
     recommendDone = Signal(object, str)
     undoDone = Signal(bool, str)
     progressUpdate = Signal(int, str)
+    cachePresetDone = Signal(object, str)
+    downloadScanDone = Signal(object, str)
+    spaceScanDone = Signal(object, str)
+    toolboxDeleteDone = Signal(str, bool, str)
+    toolboxScopedLog = Signal(str, str)
 
     def __init__(self, main_win, stop_event, parent=None):
         super().__init__(parent)
@@ -5208,6 +5559,9 @@ class ToolboxPage(ScrollArea):
 
         entries = [
             (FIF.LINK, "软链接节省空间", "迁移文件或目录，并在原位置创建链接，减少系统盘占用。", "使用", self._show_softlink_tool),
+            (FIF.FOLDER, "常用缓存迁移", "扫描微信、浏览器、开发工具和模型缓存目录，一键填入迁移源路径。", "扫描", self._show_cache_preset_tool),
+            (FIF.FOLDER, "下载目录整理", "按安装包、压缩包、旧文件和大目录列出下载残留，支持定位与清理。", "整理", self._show_download_tool),
+            (FIF.ZOOM, "空间占用分析", "按磁盘或目录统计一级目录占用，快速找出空间增长来源。", "分析", self._show_space_usage_tool),
         ]
 
         for entry in entries:
@@ -5444,12 +5798,242 @@ class ToolboxPage(ScrollArea):
         soft_page_layout.addStretch(1)
         self.stack.addWidget(self.softlink_page)
 
+        self.cache_preset_page = QWidget(self.view)
+        cache_layout = QVBoxLayout(self.cache_preset_page)
+        cache_layout.setContentsMargins(0, 0, 0, 0)
+        cache_layout.setSpacing(12)
+
+        cache_desc = CaptionLabel("按常见软件缓存路径扫描可迁移候选项。选中一项后会填入软链接源路径，目标目录仍由用户自行选择。")
+        cache_desc.setWordWrap(True)
+        cache_desc.setTextColor(QColor(128, 128, 128))
+        cache_layout.addWidget(cache_desc)
+
+        cache_card = CardWidget(self.cache_preset_page)
+        cache_card_layout = QVBoxLayout(cache_card)
+        cache_card_layout.setContentsMargins(14, 14, 14, 14)
+        cache_card_layout.setSpacing(10)
+        cache_top = QHBoxLayout()
+        cache_top.setSpacing(8)
+        cache_top.addWidget(StrongBodyLabel("缓存迁移候选"))
+        cache_top.addStretch(1)
+        cache_top.addWidget(CaptionLabel("分类"))
+        self.cb_cache_category = ComboBox()
+        self.cb_cache_category.addItems(["全部"] + cache_preset_categories())
+        self.cb_cache_category.setFixedWidth(130)
+        cache_top.addWidget(self.cb_cache_category)
+        cache_top.addWidget(CaptionLabel("最小 MB"))
+        self.sp_cache_min_mb = SpinBox()
+        self.sp_cache_min_mb.setRange(0, 10240)
+        self.sp_cache_min_mb.setValue(50)
+        self.sp_cache_min_mb.setFixedWidth(100)
+        cache_top.addWidget(self.sp_cache_min_mb)
+        self.btn_scan_cache_presets = PrimaryPushButton(FIF.SEARCH, "扫描预设")
+        self.btn_scan_cache_presets.setFixedHeight(32)
+        self.btn_scan_cache_presets.clicked.connect(self._start_cache_preset_scan)
+        cache_top.addWidget(self.btn_scan_cache_presets)
+        cache_card_layout.addLayout(cache_top)
+
+        self.lbl_cache_preset_hint = CaptionLabel("扫描结果：未开始")
+        self.lbl_cache_preset_hint.setWordWrap(True)
+        self.lbl_cache_preset_hint.setTextColor(QColor(128, 128, 128))
+        cache_card_layout.addWidget(self.lbl_cache_preset_hint)
+
+        self.tbl_cache_presets = TableWidget()
+        self.tbl_cache_presets.setColumnCount(6)
+        self.tbl_cache_presets.setHorizontalHeaderLabels(["分类", "名称", "大小", "状态", "路径", "建议"])
+        self.tbl_cache_presets.verticalHeader().setVisible(False)
+        self.tbl_cache_presets.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl_cache_presets.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tbl_cache_presets.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        cache_header = self.tbl_cache_presets.horizontalHeader()
+        cache_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        cache_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        cache_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        cache_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        cache_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        cache_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        self.tbl_cache_presets.setMinimumHeight(240)
+        style_table(self.tbl_cache_presets)
+        self.tbl_cache_presets.itemDoubleClicked.connect(lambda _: self._use_selected_cache_preset())
+        cache_card_layout.addWidget(self.tbl_cache_presets)
+
+        cache_actions = QHBoxLayout()
+        cache_actions.setSpacing(8)
+        self.btn_use_cache_preset = PrimaryPushButton(FIF.ACCEPT, "使用所选项")
+        self.btn_use_cache_preset.setFixedHeight(30)
+        self.btn_use_cache_preset.clicked.connect(self._use_selected_cache_preset)
+        cache_actions.addWidget(self.btn_use_cache_preset)
+        self.btn_locate_cache_preset = PushButton(FIF.FOLDER, "定位")
+        self.btn_locate_cache_preset.setFixedHeight(30)
+        self.btn_locate_cache_preset.clicked.connect(self._open_selected_cache_preset)
+        cache_actions.addWidget(self.btn_locate_cache_preset)
+        cache_actions.addStretch(1)
+        cache_card_layout.addLayout(cache_actions)
+        cache_layout.addWidget(cache_card)
+
+        self.cache_preset_footer = PageFooterWidget(auto_hide_log=True)
+        cache_layout.addWidget(self.cache_preset_footer)
+        cache_layout.addStretch(1)
+        self.stack.addWidget(self.cache_preset_page)
+
+        self.download_page = QWidget(self.view)
+        download_layout = QVBoxLayout(self.download_page)
+        download_layout.setContentsMargins(0, 0, 0, 0)
+        download_layout.setSpacing(12)
+        download_layout.addWidget(self._make_hint_label("扫描下载目录中的安装包、压缩包、临时下载、旧文件和大目录，按磁盘清理价值排序。"))
+
+        download_card = CardWidget(self.download_page)
+        download_card_layout = QVBoxLayout(download_card)
+        download_card_layout.setContentsMargins(14, 14, 14, 14)
+        download_card_layout.setSpacing(10)
+        download_top = QHBoxLayout()
+        download_top.setSpacing(8)
+        download_top.addWidget(StrongBodyLabel("下载目录"))
+        self.edit_download_dir = LineEdit()
+        self.edit_download_dir.setPlaceholderText("留空时自动使用系统下载目录")
+        default_downloads = default_download_dirs()
+        if default_downloads:
+            self.edit_download_dir.setText(default_downloads[0])
+        download_top.addWidget(self.edit_download_dir, 1)
+        self.btn_pick_download_dir = PushButton(FIF.FOLDER, "选择")
+        self.btn_pick_download_dir.setFixedHeight(32)
+        self.btn_pick_download_dir.clicked.connect(self._choose_download_dir)
+        download_top.addWidget(self.btn_pick_download_dir)
+        download_card_layout.addLayout(download_top)
+
+        download_filter = QHBoxLayout()
+        download_filter.setSpacing(8)
+        download_filter.addWidget(CaptionLabel("最小 MB"))
+        self.sp_download_min_mb = SpinBox()
+        self.sp_download_min_mb.setRange(0, 102400)
+        self.sp_download_min_mb.setValue(20)
+        self.sp_download_min_mb.setFixedWidth(100)
+        download_filter.addWidget(self.sp_download_min_mb)
+        download_filter.addWidget(CaptionLabel("最少天数"))
+        self.sp_download_min_days = SpinBox()
+        self.sp_download_min_days.setRange(0, 3650)
+        self.sp_download_min_days.setValue(0)
+        self.sp_download_min_days.setFixedWidth(100)
+        download_filter.addWidget(self.sp_download_min_days)
+        self.chk_download_dirs = CheckBox("包含文件夹")
+        self.chk_download_dirs.setChecked(True)
+        download_filter.addWidget(self.chk_download_dirs)
+        download_filter.addStretch(1)
+        self.btn_scan_downloads = PrimaryPushButton(FIF.SEARCH, "扫描下载目录")
+        self.btn_scan_downloads.setFixedHeight(32)
+        self.btn_scan_downloads.clicked.connect(self._start_download_scan)
+        download_filter.addWidget(self.btn_scan_downloads)
+        self.btn_cancel_download_scan = PushButton(FIF.CANCEL, "停止")
+        self.btn_cancel_download_scan.setFixedHeight(32)
+        self.btn_cancel_download_scan.clicked.connect(lambda: self.stop_event.set())
+        download_filter.addWidget(self.btn_cancel_download_scan)
+        download_card_layout.addLayout(download_filter)
+
+        self.lbl_download_hint = CaptionLabel("扫描结果：未开始")
+        self.lbl_download_hint.setWordWrap(True)
+        self.lbl_download_hint.setTextColor(QColor(128, 128, 128))
+        download_card_layout.addWidget(self.lbl_download_hint)
+        self.tbl_downloads = self._make_tool_result_table([" ", "分类", "名称", "大小", "修改时间", "路径", "建议"], path_col=5)
+        download_card_layout.addWidget(self.tbl_downloads)
+        download_actions = QHBoxLayout()
+        download_actions.setSpacing(8)
+        self.btn_select_downloads = PushButton(FIF.ACCEPT, "全选")
+        self.btn_select_downloads.clicked.connect(lambda: self._toggle_tool_table_checks(self.tbl_downloads, self.btn_select_downloads))
+        download_actions.addWidget(self.btn_select_downloads)
+        self.chk_download_permanent = CheckBox("永久删除")
+        download_actions.addWidget(self.chk_download_permanent)
+        self.btn_open_download = PushButton(FIF.FOLDER, "定位")
+        self.btn_open_download.clicked.connect(lambda: self._open_selected_tool_item(self.tbl_downloads))
+        download_actions.addWidget(self.btn_open_download)
+        self.btn_delete_downloads = PrimaryPushButton(FIF.DELETE, "清理已勾选")
+        self.btn_delete_downloads.clicked.connect(self._start_download_delete)
+        download_actions.addWidget(self.btn_delete_downloads)
+        download_actions.addStretch(1)
+        download_card_layout.addLayout(download_actions)
+        download_layout.addWidget(download_card)
+        self.download_footer = PageFooterWidget(auto_hide_log=True)
+        download_layout.addWidget(self.download_footer)
+        download_layout.addStretch(1)
+        self.stack.addWidget(self.download_page)
+
+        self.space_page = QWidget(self.view)
+        space_layout = QVBoxLayout(self.space_page)
+        space_layout.setContentsMargins(0, 0, 0, 0)
+        space_layout.setSpacing(12)
+        space_layout.addWidget(self._make_hint_label("按磁盘或指定目录统计一级目录与文件占用，用于定位 C 盘空间主要来源。"))
+
+        space_card = CardWidget(self.space_page)
+        space_card_layout = QVBoxLayout(space_card)
+        space_card_layout.setContentsMargins(14, 14, 14, 14)
+        space_card_layout.setSpacing(10)
+        space_top = QHBoxLayout()
+        space_top.setSpacing(8)
+        space_top.addWidget(StrongBodyLabel("分析范围"))
+        self.space_drive_sel = DriveSelector(default_checked={"C:\\"}, parent=self)
+        space_top.addWidget(self.space_drive_sel, 1)
+        self.edit_space_dir = LineEdit()
+        self.edit_space_dir.setPlaceholderText("可选：指定目录后优先分析该目录")
+        space_top.addWidget(self.edit_space_dir, 1)
+        self.btn_pick_space_dir = PushButton(FIF.FOLDER, "选择")
+        self.btn_pick_space_dir.clicked.connect(self._choose_space_dir)
+        space_top.addWidget(self.btn_pick_space_dir)
+        space_card_layout.addLayout(space_top)
+
+        space_filter = QHBoxLayout()
+        space_filter.setSpacing(8)
+        space_filter.addWidget(CaptionLabel("最小 MB"))
+        self.sp_space_min_mb = SpinBox()
+        self.sp_space_min_mb.setRange(0, 102400)
+        self.sp_space_min_mb.setValue(100)
+        self.sp_space_min_mb.setFixedWidth(100)
+        space_filter.addWidget(self.sp_space_min_mb)
+        space_filter.addStretch(1)
+        self.btn_scan_space = PrimaryPushButton(FIF.SEARCH, "开始分析")
+        self.btn_scan_space.clicked.connect(self._start_space_scan)
+        space_filter.addWidget(self.btn_scan_space)
+        self.btn_cancel_space_scan = PushButton(FIF.CANCEL, "停止")
+        self.btn_cancel_space_scan.clicked.connect(lambda: self.stop_event.set())
+        space_filter.addWidget(self.btn_cancel_space_scan)
+        space_card_layout.addLayout(space_filter)
+
+        self.lbl_space_hint = CaptionLabel("分析结果：未开始")
+        self.lbl_space_hint.setWordWrap(True)
+        self.lbl_space_hint.setTextColor(QColor(128, 128, 128))
+        space_card_layout.addWidget(self.lbl_space_hint)
+        self.tbl_space = self._make_tool_result_table([" ", "类型", "名称", "大小", "占比", "路径"], path_col=5)
+        space_card_layout.addWidget(self.tbl_space)
+        space_actions = QHBoxLayout()
+        space_actions.setSpacing(8)
+        self.btn_select_space = PushButton(FIF.ACCEPT, "全选")
+        self.btn_select_space.clicked.connect(lambda: self._toggle_tool_table_checks(self.tbl_space, self.btn_select_space))
+        space_actions.addWidget(self.btn_select_space)
+        self.chk_space_permanent = CheckBox("永久删除")
+        space_actions.addWidget(self.chk_space_permanent)
+        self.btn_open_space = PushButton(FIF.FOLDER, "定位")
+        self.btn_open_space.clicked.connect(lambda: self._open_selected_tool_item(self.tbl_space))
+        space_actions.addWidget(self.btn_open_space)
+        self.btn_delete_space = PrimaryPushButton(FIF.DELETE, "清理已勾选")
+        self.btn_delete_space.clicked.connect(self._start_space_delete)
+        space_actions.addWidget(self.btn_delete_space)
+        space_actions.addStretch(1)
+        space_card_layout.addLayout(space_actions)
+        space_layout.addWidget(space_card)
+        self.space_footer = PageFooterWidget(auto_hide_log=True)
+        space_layout.addWidget(self.space_footer)
+        space_layout.addStretch(1)
+        self.stack.addWidget(self.space_page)
+
         self.toolLog.connect(self._append_tool_log)
         self.toolDone.connect(self._finish_link_task)
         self.analysisDone.connect(self._finish_link_analysis)
         self.recommendDone.connect(self._finish_recommend_scan)
         self.undoDone.connect(self._finish_undo_link)
         self.progressUpdate.connect(self._on_progress_update)
+        self.cachePresetDone.connect(self._finish_cache_preset_scan)
+        self.downloadScanDone.connect(self._finish_download_scan)
+        self.spaceScanDone.connect(self._finish_space_scan)
+        self.toolboxDeleteDone.connect(self._finish_toolbox_delete)
+        self.toolboxScopedLog.connect(self._append_scoped_tool_log)
         self._reset_link_analysis()
         self._update_link_preview()
         self._refresh_history()
@@ -5461,10 +6045,372 @@ class ToolboxPage(ScrollArea):
         self.stack.setCurrentWidget(self.softlink_page)
         QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
 
+    def _show_cache_preset_tool(self):
+        self.btn_back.show()
+        self.stack.setCurrentWidget(self.cache_preset_page)
+        QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
+        if self.tbl_cache_presets.rowCount() == 0:
+            QTimer.singleShot(0, self._start_cache_preset_scan)
+
+    def _make_hint_label(self, text):
+        label = CaptionLabel(text)
+        label.setWordWrap(True)
+        label.setTextColor(QColor(128, 128, 128))
+        return label
+
+    def _make_tool_result_table(self, headers, path_col):
+        table = TableWidget()
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        table.customContextMenuRequested.connect(lambda pos, t=table, c=path_col: make_ctx(self, t, pos, c))
+        header = table.horizontalHeader()
+        for col in range(len(headers)):
+            if col == 0:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+                table.setColumnWidth(col, 44)
+            elif col == path_col:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+            else:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        table.setMinimumHeight(260)
+        style_table(table)
+        table.itemDoubleClicked.connect(lambda _: self._open_selected_tool_item(table))
+        return table
+
+    def _show_download_tool(self):
+        self.btn_back.show()
+        self.stack.setCurrentWidget(self.download_page)
+        QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
+        if self.tbl_downloads.rowCount() == 0:
+            QTimer.singleShot(0, self._start_download_scan)
+
+    def _show_space_usage_tool(self):
+        self.btn_back.show()
+        self.stack.setCurrentWidget(self.space_page)
+        QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
+
+    def _choose_download_dir(self):
+        folder = QFileDialog.getExistingDirectory(self, "选择下载目录", self.edit_download_dir.text().strip() or os.path.expandvars(r"%USERPROFILE%"))
+        if folder:
+            self.edit_download_dir.setText(folder)
+
+    def _choose_space_dir(self):
+        folder = QFileDialog.getExistingDirectory(self, "选择分析目录", self.edit_space_dir.text().strip() or "C:\\")
+        if folder:
+            self.edit_space_dir.setText(folder)
+
+    def _set_tool_row(self, table, row, data, values):
+        check_item = make_check_item(False)
+        check_item.setData(Qt.ItemDataRole.UserRole, data)
+        table.setItem(row, 0, check_item)
+        for col, value in enumerate(values, start=1):
+            if isinstance(value, tuple):
+                text, raw = value
+                item = SizeTableWidgetItem(text)
+                item.setData(Qt.ItemDataRole.UserRole, int(raw))
+            else:
+                item = QTableWidgetItem(str(value))
+            table.setItem(row, col, item)
+
+    def _tool_table_checked_paths(self, table):
+        paths = []
+        for row in range(table.rowCount()):
+            if not is_row_checked(table, row):
+                continue
+            item = table.item(row, 0)
+            data = item.data(Qt.ItemDataRole.UserRole) if item else None
+            if isinstance(data, dict) and data.get("path"):
+                paths.append(data["path"])
+        return paths
+
+    def _toggle_tool_table_checks(self, table, button):
+        if table.rowCount() == 0:
+            return
+        checked_count = sum(1 for row in range(table.rowCount()) if is_row_checked(table, row))
+        checked = checked_count < table.rowCount()
+        for row in range(table.rowCount()):
+            set_row_checked(table, row, checked)
+        button.setText("取消全选" if checked else "全选")
+        button.setIcon(FIF.CLOSE if checked else FIF.ACCEPT)
+
+    def _open_selected_tool_item(self, table):
+        row = table.currentRow()
+        if row < 0:
+            InfoBar.warning("提示", "请先选择一个项目", parent=self.main_win)
+            return
+        item = table.item(row, 0)
+        data = item.data(Qt.ItemDataRole.UserRole) if item else None
+        path = data.get("path", "") if isinstance(data, dict) else ""
+        if path:
+            open_explorer(path)
+
+    def _append_download_log(self, text):
+        self.download_footer.show_log_if_hidden()
+        append_capped_log(self.download_footer.log, text, LOG_MAX_LINES)
+
+    def _append_space_log(self, text):
+        self.space_footer.show_log_if_hidden()
+        append_capped_log(self.space_footer.log, text, LOG_MAX_LINES)
+
+    def _append_scoped_tool_log(self, kind, text):
+        if kind == "download":
+            self._append_download_log(text)
+        elif kind == "space":
+            self._append_space_log(text)
+
+    def _start_download_scan(self):
+        self.stop_event.clear()
+        root_text = self.edit_download_dir.text().strip()
+        roots = [root_text] if root_text else default_download_dirs()
+        self.tbl_downloads.setRowCount(0)
+        self.btn_select_downloads.setText("全选")
+        self.btn_select_downloads.setIcon(FIF.ACCEPT)
+        self.btn_scan_downloads.setEnabled(False)
+        self.lbl_download_hint.setText("扫描结果：正在扫描下载目录...")
+        self.download_footer.pb.setValue(15)
+        self.download_footer.set_status("正在扫描下载目录...")
+        stop = self.stop_event
+
+        def _worker():
+            try:
+                items, message = scan_download_candidates(
+                    roots,
+                    min_size_bytes=int(self.sp_download_min_mb.value()) * 1024 * 1024,
+                    min_age_days=int(self.sp_download_min_days.value()),
+                    include_dirs=self.chk_download_dirs.isChecked(),
+                    log_fn=lambda text: self.toolboxScopedLog.emit("download", text),
+                    stop_event=stop,
+                )
+                self.downloadScanDone.emit(items, message)
+            except Exception as e:
+                self.downloadScanDone.emit([], f"扫描失败：{format_exception_text(e)}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _finish_download_scan(self, items, message):
+        items = list(items or [])
+        self.btn_scan_downloads.setEnabled(True)
+        self.tbl_downloads.setRowCount(len(items))
+        for row, data in enumerate(items):
+            self._set_tool_row(
+                self.tbl_downloads,
+                row,
+                data,
+                [
+                    data.get("category", ""),
+                    data.get("name", ""),
+                    (human_size(data.get("size", 0)), data.get("size", 0)),
+                    data.get("mtime_text", "-"),
+                    display_path(data.get("path", "")),
+                    data.get("suggestion", ""),
+                ],
+            )
+        if items:
+            self.tbl_downloads.selectRow(0)
+        self.lbl_download_hint.setText(f"扫描结果：{message}")
+        self.download_footer.pb.setValue(100 if items else 0)
+        self.download_footer.set_status(message, 100 if items else None)
+
+    def _start_space_scan(self):
+        self.stop_event.clear()
+        manual_root = self.edit_space_dir.text().strip()
+        roots = [manual_root] if manual_root else self.space_drive_sel.selected_drives()
+        if not roots:
+            InfoBar.warning("提示", "请先选择磁盘或指定目录", parent=self.main_win)
+            return
+        self.tbl_space.setRowCount(0)
+        self.btn_select_space.setText("全选")
+        self.btn_select_space.setIcon(FIF.ACCEPT)
+        self.btn_scan_space.setEnabled(False)
+        self.lbl_space_hint.setText("分析结果：正在分析空间占用...")
+        self.space_footer.pb.setValue(15)
+        self.space_footer.set_status("正在分析空间占用...")
+        stop = self.stop_event
+
+        def _worker():
+            try:
+                items, message = scan_space_usage_roots(
+                    roots,
+                    min_size_bytes=int(self.sp_space_min_mb.value()) * 1024 * 1024,
+                    log_fn=lambda text: self.toolboxScopedLog.emit("space", text),
+                    stop_event=stop,
+                )
+                self.spaceScanDone.emit(items, message)
+            except Exception as e:
+                self.spaceScanDone.emit([], f"分析失败：{format_exception_text(e)}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _finish_space_scan(self, items, message):
+        items = list(items or [])
+        self.btn_scan_space.setEnabled(True)
+        self.tbl_space.setRowCount(len(items))
+        for row, data in enumerate(items):
+            self._set_tool_row(
+                self.tbl_space,
+                row,
+                data,
+                [
+                    data.get("kind", ""),
+                    data.get("name", ""),
+                    (human_size(data.get("size", 0)), data.get("size", 0)),
+                    f"{float(data.get('percent', 0)):.1f}%",
+                    display_path(data.get("path", "")),
+                ],
+            )
+        if items:
+            self.tbl_space.selectRow(0)
+        self.lbl_space_hint.setText(f"分析结果：{message}")
+        self.space_footer.pb.setValue(100 if items else 0)
+        self.space_footer.set_status(message, 100 if items else None)
+
+    def _start_download_delete(self):
+        paths = self._tool_table_checked_paths(self.tbl_downloads)
+        if not paths:
+            InfoBar.warning("提示", "请先勾选需要清理的下载项", parent=self.main_win)
+            return
+        permanent = self.chk_download_permanent.isChecked()
+        action = "永久删除" if permanent else "移入回收站"
+        if not MessageBox("确认清理", f"确定要{action} {len(paths)} 个下载项吗？", self.main_win).exec():
+            return
+        self._start_toolbox_delete("download", paths, permanent)
+
+    def _start_space_delete(self):
+        paths = self._tool_table_checked_paths(self.tbl_space)
+        if not paths:
+            InfoBar.warning("提示", "请先勾选需要清理的占用项", parent=self.main_win)
+            return
+        permanent = self.chk_space_permanent.isChecked()
+        action = "永久删除" if permanent else "移入回收站"
+        if not MessageBox("确认清理", f"确定要{action} {len(paths)} 个占用项吗？", self.main_win).exec():
+            return
+        self._start_toolbox_delete("space", paths, permanent)
+
+    def _start_toolbox_delete(self, kind, paths, permanent):
+        self.stop_event.clear()
+        if kind == "download":
+            self.btn_delete_downloads.setEnabled(False)
+            self.download_footer.show_log_if_hidden()
+            self.download_footer.set_status("正在清理已勾选项目...")
+        else:
+            self.btn_delete_space.setEnabled(False)
+            self.space_footer.show_log_if_hidden()
+            self.space_footer.set_status("正在清理已勾选项目...")
+        stop = self.stop_event
+
+        def _worker():
+            ok, message = delete_toolbox_paths(
+                paths,
+                permanent,
+                log_fn=lambda text: self.toolboxScopedLog.emit(kind, text),
+                stop_event=stop,
+            )
+            self.toolboxDeleteDone.emit(kind, ok, message)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _finish_toolbox_delete(self, kind, ok, message):
+        if kind == "download":
+            self.btn_delete_downloads.setEnabled(True)
+            self.download_footer.pb.setValue(100 if ok else 0)
+            self.download_footer.set_status(message, 100 if ok else None)
+            QTimer.singleShot(0, self._start_download_scan)
+        elif kind == "space":
+            self.btn_delete_space.setEnabled(True)
+            self.space_footer.pb.setValue(100 if ok else 0)
+            self.space_footer.set_status(message, 100 if ok else None)
+            QTimer.singleShot(0, self._start_space_scan)
+
     def _show_tool_home(self):
         self.btn_back.hide()
         self.stack.setCurrentWidget(self.home_page)
         QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
+
+    def _start_cache_preset_scan(self):
+        self.stop_event.clear()
+        category = self.cb_cache_category.currentText() or "全部"
+        min_size_bytes = int(self.sp_cache_min_mb.value()) * 1024 * 1024
+        self.btn_scan_cache_presets.setEnabled(False)
+        self.lbl_cache_preset_hint.setText("扫描结果：正在扫描常用缓存目录...")
+        self.cache_preset_footer.pb.setValue(20)
+        self.cache_preset_footer.set_status("正在扫描缓存预设...")
+
+        stop = self.stop_event
+
+        def _worker():
+            try:
+                items, message = list_cache_migration_presets(
+                    category=category,
+                    min_size_bytes=min_size_bytes,
+                    include_missing=False,
+                    stop_event=stop,
+                )
+                self.cachePresetDone.emit(items, message)
+            except Exception as e:
+                self.cachePresetDone.emit([], f"扫描失败：{format_exception_text(e)}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _finish_cache_preset_scan(self, items, message):
+        items = list(items or [])
+        self.btn_scan_cache_presets.setEnabled(True)
+        self.tbl_cache_presets.setRowCount(len(items))
+        for row, data in enumerate(items):
+            category_item = QTableWidgetItem(data.get("category", ""))
+            category_item.setData(Qt.ItemDataRole.UserRole, data)
+            self.tbl_cache_presets.setItem(row, 0, category_item)
+            self.tbl_cache_presets.setItem(row, 1, QTableWidgetItem(data.get("name", "")))
+            self.tbl_cache_presets.setItem(row, 2, QTableWidgetItem(human_size(data.get("size", 0))))
+            self.tbl_cache_presets.setItem(row, 3, QTableWidgetItem(data.get("status", "")))
+            self.tbl_cache_presets.setItem(row, 4, QTableWidgetItem(display_path(data.get("path", ""))))
+            self.tbl_cache_presets.setItem(row, 5, QTableWidgetItem(data.get("reason", "")))
+        if items:
+            self.tbl_cache_presets.selectRow(0)
+        self.lbl_cache_preset_hint.setText(f"扫描结果：{message}")
+        self.cache_preset_footer.pb.setValue(100 if items else 0)
+        self.cache_preset_footer.set_status(message, 100 if items else None)
+        if items:
+            InfoBar.success("扫描完成", message, parent=self.main_win)
+        else:
+            InfoBar.warning("扫描结果", message, parent=self.main_win)
+
+    def _selected_cache_preset(self):
+        row = self.tbl_cache_presets.currentRow()
+        if row < 0:
+            return None
+        item = self.tbl_cache_presets.item(row, 0)
+        data = item.data(Qt.ItemDataRole.UserRole) if item else None
+        return data if isinstance(data, dict) else None
+
+    def _use_selected_cache_preset(self):
+        data = self._selected_cache_preset()
+        if not data:
+            InfoBar.warning("提示", "请先选择一个缓存候选项", parent=self.main_win)
+            return
+        path = data.get("path", "")
+        if not path or not os.path.exists(path):
+            InfoBar.warning("无法填入", "该缓存路径不存在", parent=self.main_win)
+            return
+        self.edit_link_source.setText(path)
+        self._show_softlink_tool()
+        self.footer.set_status(f"已填入缓存目录：{display_path(path)}")
+        InfoBar.success("已填入", f"已载入缓存目录：{display_path(path)}", parent=self.main_win)
+
+    def _open_selected_cache_preset(self):
+        data = self._selected_cache_preset()
+        if not data:
+            InfoBar.warning("提示", "请先选择一个缓存候选项", parent=self.main_win)
+            return
+        path = data.get("path", "")
+        if not path:
+            InfoBar.warning("提示", "选中项没有路径", parent=self.main_win)
+            return
+        open_explorer(path)
 
     def _choose_link_source_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择需要迁移的目录")

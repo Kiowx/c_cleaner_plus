@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-06",
+  "languages": {
+    "en_us": {
+      "label": "English",
+      "url": "https://gitee.com/kio0/c_cleaner_plus/raw/master/i18n/en_us.json"
+    }
+  }
+}

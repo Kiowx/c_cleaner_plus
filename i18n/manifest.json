@@ -4,7 +4,7 @@
   "languages": {
     "en_us": {
       "label": "English",
-      "url": "https://gitee.com/kio0/c_cleaner_plus/raw/master/i18n/en_us.json"
+      "url": "https://raw.githubusercontent.com/Kiowx/c_cleaner_plus/refs/heads/main/i18n/en_us.json"
     }
   }
 }

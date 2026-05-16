@@ -1,8 +1,8 @@
 {
   "code": "en_us",
   "label": "English",
-  "version": 4,
-  "updated_at": "2026-05-06",
+  "version": 6,
+  "updated_at": "2026-05-16",
   "translations": {
     "C盘强力清理工具": "C Cleaner Plus",
     "常规清理": "Standard Cleanup",
@@ -1145,6 +1145,19 @@
     "第": "No.",
     "项读取失败 ->": "item read failed ->",
     "扫描条目": "Scan item",
-    "界面语言": "Interface Language"
+    "界面语言": "Interface Language",
+    "C盘强力清理工具 v0.6.2\nPySide6 + PySide6-Fluent-Widgets (Fluent2 UI)\n包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等": "C Cleaner Plus v0.6.2\nPySide6 + PySide6-Fluent-Widgets (Fluent2 UI)\nIncludes: Standard Cleanup (drag sorting and custom rules), Large File Scan, duplicate files, empty folders, invalid shortcuts, and more",
+    "全部估算": "Estimate All",
+    "估算完成": "Estimate completed",
+    "全部估算完成": "Estimate all completed",
+    "估算失败：没有可估算的规则": "Estimate failed: no rules to estimate",
+    "规则与状态已保存至:": "Rules and state saved to:",
+    "，已恢复勾选与排序状态": ", restored checked and sort state",
+    "[重复目标] 已跳过": "[Duplicate Target] Skipped",
+    "条重复清理规则，避免重复删除同一目标": "duplicate cleanup rules to avoid deleting the same target twice",
+    "未导入任何规则或状态（可能全部重复）": "No rules or state were imported (possibly all duplicates)",
+    "重复目标：": "Duplicate target:",
+    "共有": "Total",
+    "条规则指向同一清理目标": "rules point to the same cleanup target"
   }
 }

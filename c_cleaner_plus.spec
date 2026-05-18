@@ -11,10 +11,21 @@ qfw_hidden = collect_submodules('qfluentwidgets')
 my_datas = [item for item in qfw_datas if item and len(item) == 2]
 my_datas.append(('icon.ico', '.'))
 
+base_dir = os.path.dirname(os.path.abspath(__file__))
+fast_mft_candidates = [
+    os.path.join(base_dir, 'tools', 'fast_large_files', 'target', 'release', 'fast_large_files.exe'),
+    os.path.join(base_dir, 'fast_large_files.exe'),
+]
+fast_mft_binaries = []
+for candidate in fast_mft_candidates:
+    if os.path.isfile(candidate):
+        fast_mft_binaries = [(candidate, '.')]
+        break
+
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=fast_mft_binaries,
     datas=my_datas,
     hiddenimports=qfw_hidden,
     hookspath=[],

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.6.2
+C盘强力清理工具 v0.6.3
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -126,7 +126,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.6.2"
+CURRENT_VERSION = "0.6.3"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -3184,6 +3184,7 @@ class CleanRuleRow:
     is_custom: bool
     pattern: str
     size: int = 0
+    duplicate_count: int = 1
 
 
 class CleanRulesTableModel(QAbstractTableModel):
@@ -3255,13 +3256,19 @@ class CleanRulesTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.TextAlignmentRole and col == 4:
             return int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
+        if role == Qt.ItemDataRole.BackgroundRole and row.duplicate_count > 1:
+            return QColor(255, 193, 7, 34)
+
         if role == Qt.ItemDataRole.ToolTipRole:
+            duplicate_tip = ""
+            if row.duplicate_count > 1:
+                duplicate_tip = f"{self._tr('重复目标：')} {self._tr('共有')} {row.duplicate_count} {self._tr('条规则指向同一清理目标')}\n"
             if col == 2:
-                return self._display_path(row)
+                return duplicate_tip + self._display_path(row)
             if col == 3:
-                return self._tr(row.note)
+                return duplicate_tip + self._tr(row.note)
             if col == 1:
-                return self._display_name(row)
+                return duplicate_tip + self._display_name(row)
 
         if role == Qt.ItemDataRole.UserRole:
             return row
@@ -4056,6 +4063,22 @@ def serialize_rule_entry(entry):
 
 def make_rule_key(nm, pa, tp, pattern=""):
     return (nm, pa, tp, normalize_rule_pattern(tp, pattern, ""))
+
+def make_rule_target_key(entry):
+    parsed = parse_rule_entry(entry)
+    if not parsed:
+        return None
+    _, pa, tp, _, nt, _, pattern = parsed
+    target = expand_env(pa)
+    try:
+        target = os.path.normcase(os.path.abspath(target))
+    except Exception:
+        target = os.path.normcase(str(target or ""))
+    return (
+        str(tp or "").strip().lower(),
+        target,
+        normalize_rule_pattern(tp, pattern, nt).lower() if tp == "glob" else "",
+    )
 
 def make_rule_state_base_key(entry):
     parsed = parse_rule_entry(entry)
@@ -8086,6 +8109,10 @@ class CleanPage(ScrollArea):
         self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl.setAlternatingRowColors(True)
         self.tbl.setWordWrap(False)
+        self.tbl.setMouseTracking(False)
+        self.tbl.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.tbl.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.tbl.verticalScrollBar().setSingleStep(36)
         self.tbl.horizontalHeader().setStretchLastSection(True)
         self.tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
@@ -8104,6 +8131,7 @@ class CleanPage(ScrollArea):
 
         br=QHBoxLayout(); br.setSpacing(8)
         b1=PushButton(FIF.UNIT,"估算"); b1.setFixedHeight(30); b1.clicked.connect(self.do_est); br.addWidget(b1)
+        b_est_all=PushButton(FIF.SEARCH,"全部估算"); b_est_all.setFixedHeight(30); b_est_all.clicked.connect(self.do_est_all); br.addWidget(b_est_all)
         self.btn_sel_all = PushButton(FIF.ACCEPT, "全选"); self.btn_sel_all.setFixedHeight(30)
         self.btn_sel_all.clicked.connect(self.toggle_sel_all); br.addWidget(self.btn_sel_all)
         br.addStretch()
@@ -8143,10 +8171,16 @@ class CleanPage(ScrollArea):
     def reload_table(self):
         self._prune_estimated_sizes()
         display_entries = self._get_display_entries()
+        duplicate_counts = defaultdict(int)
+        for _, entry in display_entries:
+            key = make_rule_target_key(entry)
+            if key:
+                duplicate_counts[key] += 1
         rows = []
         for src_idx, entry in display_entries:
             nm, pa, tp, en, nt, is_c, pattern = parse_rule_entry(entry)
             size_val = self.estimated_sizes.get(self._rule_cache_key(entry), 0)
+            duplicate_count = duplicate_counts.get(make_rule_target_key(entry), 1)
             rows.append(CleanRuleRow(
                 src_idx=src_idx,
                 name=nm,
@@ -8157,6 +8191,7 @@ class CleanPage(ScrollArea):
                 is_custom=is_c,
                 pattern=normalize_rule_pattern(tp, pattern, nt),
                 size=size_val,
+                duplicate_count=duplicate_count,
             ))
         self.tbl_model.set_rows(rows)
         self.tbl_model.set_drag_enabled(getattr(self, "cb_sort", None) is None or self.cb_sort.currentIndex() == 0)
@@ -8371,14 +8406,26 @@ class CleanPage(ScrollArea):
 
     def do_export_rules(self):
         self._sync()
-        customs = [t for t in self.targets if t[5]]
-        if not customs: InfoBar.warning("提示", "当前没有自定义规则可以导出", parent=self.window()); return
+        with self._targets_lock:
+            targets_snapshot = list(self.targets)
+        customs = []
+        for item in targets_snapshot:
+            parsed = parse_rule_entry(item)
+            if parsed and parsed[5]:
+                customs.append(parsed)
         path, _ = QFileDialog.getSaveFileName(self, "导出规则集", "CleanRules.json", "JSON 文件 (*.json)")
         if path:
             payload = [serialize_rule_entry(t) for t in customs]
             payload = [t for t in payload if t is not None]
-            write_json_file_atomic(path, payload, ensure_ascii=False, indent=2)
-            InfoBar.success("导出成功", f"规则已保存至: {path}", parent=self.window())
+            export_payload = {
+                "format": "c_cleaner_plus_rules",
+                "version": 2,
+                "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "rules": payload,
+                "state": build_saved_rule_state(targets_snapshot),
+            }
+            write_json_file_atomic(path, export_payload, ensure_ascii=False, indent=2)
+            InfoBar.success("导出成功", f"规则与状态已保存至: {path}", parent=self.window())
 
     def import_rules_from_path(self, path, source_name="规则集"):
         if not path or not os.path.exists(path):
@@ -8386,7 +8433,15 @@ class CleanPage(ScrollArea):
             return False
         try:
             with open(path, 'r', encoding='utf-8') as f:
-                rules = json.load(f)
+                payload = json.load(f)
+            saved_state = None
+            if isinstance(payload, dict):
+                rules = payload.get("rules") or payload.get("custom_rules") or payload.get("items") or []
+                saved_state = payload.get("state") or payload.get("rule_state")
+            else:
+                rules = payload
+            if not isinstance(rules, list):
+                rules = []
             added = 0
             skipped = 0
             with self._targets_lock:
@@ -8407,16 +8462,25 @@ class CleanPage(ScrollArea):
             if to_add:
                 with self._targets_lock:
                     self.targets.extend(to_add)
-            if added > 0:
+            state_applied = False
+            if saved_state:
+                with self._targets_lock:
+                    self.targets[:] = apply_saved_rule_state(self.targets, saved_state)
+                state_applied = True
+            if added > 0 or state_applied:
                 self.reload_table()
                 self.save_custom_rules()
+                if hasattr(self.window(), "save_order_state"):
+                    self.window().save_order_state()
                 msg = f"{source_name} 已导入 {added} 条规则"
                 if skipped > 0:
                     msg += f"，跳过 {skipped} 条重复规则"
+                if state_applied:
+                    msg += "，已恢复勾选与排序状态"
                 InfoBar.success("导入成功", msg, parent=self.window())
                 return True
             else:
-                InfoBar.warning("提示", f"{source_name} 未导入任何规则（可能全部重复）", parent=self.window())
+                InfoBar.warning("提示", f"{source_name} 未导入任何规则或状态（可能全部重复）", parent=self.window())
                 return False
         except Exception as e:
             InfoBar.error("导入失败", f"文件读取错误: {e}", parent=self.window())
@@ -8444,18 +8508,29 @@ class CleanPage(ScrollArea):
             self.window().import_rules_from_path(path, "外部规则集")
 
     def do_est(self):
+        self._start_estimate(checked_only=True)
+
+    def do_est_all(self):
+        self._start_estimate(checked_only=False)
+
+    def _start_estimate(self, checked_only=True):
         self.tbl.setDragEnabled(False)
         self.tbl_model.set_drag_enabled(False)
         self._sync()
         self.stop.clear()
-        threading.Thread(target=self._est_w, daemon=True).start()
+        threading.Thread(target=self._est_w, args=(checked_only,), daemon=True).start()
         
-    def _est_w(self):
+    def _est_w(self, checked_only=True):
         t0 = time.time()
         with self._targets_lock:
-            its=[(i,t) for i,t in enumerate(self.targets) if t[3]]
+            its=[
+                (i, t)
+                for i, t in enumerate(self.targets)
+                if parse_rule_entry(t) and ((not checked_only) or parse_rule_entry(t)[3])
+            ]
         if not its:
-            self.sig.clean_done.emit(f"估算失败：未勾选任何项目")
+            msg = "估算失败：未勾选任何项目" if checked_only else "估算失败：没有可估算的规则"
+            self.sig.clean_done.emit(msg)
             return
 
         job_queue = queue.Queue()
@@ -8502,7 +8577,8 @@ class CleanPage(ScrollArea):
 
         for t in workers:
             t.join(timeout=0.1)
-        self.sig.clean_done.emit(f"估算完成，耗时 {time.time()-t0:.1f} 秒")
+        done_label = "估算完成" if checked_only else "全部估算完成"
+        self.sig.clean_done.emit(f"{done_label}，耗时 {time.time()-t0:.1f} 秒")
 
     def do_clean(self):
         self.tbl.setDragEnabled(False)
@@ -8510,6 +8586,7 @@ class CleanPage(ScrollArea):
         self._sync()
         selected_rules = [parse_rule_entry(t) for t in self.targets if t[3]]
         selected_rules = [t for t in selected_rules if t]
+        selected_rules, _ = self._dedupe_rule_targets(selected_rules)
 
         risky_lines = []
         for entry in selected_rules:
@@ -8541,6 +8618,9 @@ class CleanPage(ScrollArea):
         with self._targets_lock:
             sel=[parse_rule_entry(t) for t in self.targets if t[3]]
         sel=[t for t in sel if t]
+        sel, skipped_duplicates = self._dedupe_rule_targets(sel)
+        if skipped_duplicates:
+            self.sig.clean_log.emit(f"[重复目标] 已跳过 {skipped_duplicates} 条重复清理规则，避免重复删除同一目标")
         if not sel: return
         
         # 清理前创建还原点
@@ -8581,6 +8661,20 @@ class CleanPage(ScrollArea):
                 lf(f"[规则失败] {nm} -> {p} -> {format_exception_text(e)}")
             self.sig.clean_prog.emit(st,tot)
         self.sig.clean_done.emit(f"清理完成：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
+
+    def _dedupe_rule_targets(self, rules):
+        deduped = []
+        seen = set()
+        skipped = 0
+        for entry in rules:
+            key = make_rule_target_key(entry)
+            if key and key in seen:
+                skipped += 1
+                continue
+            if key:
+                seen.add(key)
+            deduped.append(entry)
+        return deduped, skipped
 
     def _show_context_menu(self, pos):
         idx = self.tbl.indexAt(pos)

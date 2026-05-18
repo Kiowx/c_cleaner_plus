@@ -2094,6 +2094,130 @@ def should_skip_bigfile(path, skip_optional=False):
         return True
     return False
 
+def _is_drive_root_path(path):
+    try:
+        norm = os.path.normpath(os.path.abspath(path))
+        drive, tail = os.path.splitdrive(norm)
+        return bool(drive) and tail in ("\\", "/")
+    except Exception:
+        return False
+
+def _fast_mft_bigfile_exe_path():
+    exe_name = "fast_large_files.exe"
+    candidates = []
+
+    bundle_dir = getattr(sys, "_MEIPASS", None)
+    if bundle_dir:
+        candidates.append(os.path.join(bundle_dir, exe_name))
+
+    if getattr(sys, "frozen", False):
+        candidates.append(os.path.join(os.path.dirname(sys.executable), exe_name))
+
+    base = os.path.dirname(os.path.abspath(__file__))
+    candidates.extend([
+        os.path.join(base, exe_name),
+        os.path.join(base, "tools", "fast_large_files", "target", "release", exe_name),
+        os.path.join(base, "tools", "fast_large_files", "target", "debug", exe_name),
+    ])
+
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+def _scan_big_files_fast_mft(roots, min_b, excl, stop, result_limit=None, progress_cb=None, skip_optional=False):
+    if os.name != "nt" or os.environ.get("C_CLEANER_PLUS_DISABLE_FAST_MFT"):
+        return None
+
+    roots = list(roots or [])
+    if not roots or not all(_is_drive_root_path(root) for root in roots):
+        return None
+
+    exe = _fast_mft_bigfile_exe_path()
+    if not exe:
+        return None
+
+    cmd = [
+        exe,
+        "--min-bytes", str(int(min_b)),
+        "--limit", str(int(result_limit or 0)),
+        "--skip-optional", "1" if skip_optional else "0",
+    ]
+    for root in roots:
+        cmd.extend(["--root", os.path.abspath(root)])
+    for item in excl or []:
+        if item:
+            cmd.extend(["--exclude", os.path.abspath(os.path.expandvars(item))])
+
+    if progress_cb:
+        progress_cb(0)
+
+    startupinfo = None
+    creationflags = 0
+    try:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    except Exception:
+        startupinfo = None
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            startupinfo=startupinfo,
+            creationflags=creationflags,
+        )
+    except Exception as e:
+        log_sampled_background_error("Fast MFT large-file launch", e)
+        return None
+
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.1)
+            break
+        except subprocess.TimeoutExpired:
+            if stop.is_set():
+                try:
+                    proc.kill()
+                    proc.communicate(timeout=1)
+                except Exception:
+                    pass
+                return []
+
+    if proc.returncode != 0:
+        if err:
+            log_sampled_background_error("Fast MFT large-file fallback", RuntimeError(err.strip()))
+        return None
+
+    results = []
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+            size = int(row.get("size", 0))
+            path = str(row.get("path", ""))
+        except Exception as e:
+            log_sampled_background_error("Fast MFT large-file parse", e)
+            continue
+        if not path or size < min_b:
+            continue
+        if should_skip_bigfile(path, skip_optional=skip_optional):
+            continue
+        _push_bigfile_result(results, (size, path), result_limit)
+
+    results.sort(key=lambda x: (-x[0], os.path.normcase(x[1])))
+    if progress_cb:
+        progress_cb(len(results))
+    return results
+
 def _dir_worker(dir_queue, min_b, excl, stop_flag, results, counter, lock, result_limit=None, skip_optional=False):
     while True:
         try: dirpath = dir_queue.get(timeout=0.05)
@@ -2138,6 +2262,18 @@ def _dir_worker(dir_queue, min_b, excl, stop_flag, results, counter, lock, resul
         dir_queue.task_done()
 
 def scan_big_files(roots, min_b, excl, stop, workers=4, result_limit=None, progress_cb=None, skip_optional=False):
+    fast_results = _scan_big_files_fast_mft(
+        roots,
+        min_b,
+        excl,
+        stop,
+        result_limit=result_limit,
+        progress_cb=progress_cb,
+        skip_optional=skip_optional,
+    )
+    if fast_results is not None:
+        return fast_results
+
     dir_queue = queue.Queue(); results = []; counter = [0]; lock = threading.Lock()
     for root in roots: dir_queue.put(root)
     threads = []

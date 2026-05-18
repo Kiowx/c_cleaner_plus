@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+
+build/
+dist/
+
+tools/fast_large_files/target/

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.6.5
+C盘强力清理工具 v0.6.7
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -126,7 +126,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.6.5"
+CURRENT_VERSION = "0.6.7"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -221,7 +221,7 @@ def emit_error_summary(log_fn, prefix, errors, total_count):
     if extra > 0:
         log_fn(f"[{prefix}] 另有 {extra} 条异常未展开")
 
-def write_text_file_atomic(path, text, encoding="utf-8"):
+def write_text_file_atomic(path, text, encoding="utf-8", durable=False):
     target = os.path.abspath(os.path.expandvars(path))
     parent = os.path.dirname(target)
     if parent:
@@ -235,7 +235,8 @@ def write_text_file_atomic(path, text, encoding="utf-8"):
             with os.fdopen(fd, "w", encoding=encoding, newline="") as f:
                 f.write(text)
                 f.flush()
-                os.fsync(f.fileno())
+                if durable:
+                    os.fsync(f.fileno())
             os.replace(tmp_path, target)
         finally:
             if fd is not None:
@@ -251,9 +252,9 @@ def write_text_file_atomic(path, text, encoding="utf-8"):
                 pass
         raise
 
-def write_json_file_atomic(path, payload, ensure_ascii=False, indent=2):
+def write_json_file_atomic(path, payload, ensure_ascii=False, indent=2, durable=False):
     text = json.dumps(payload, ensure_ascii=ensure_ascii, indent=indent)
-    write_text_file_atomic(path, text, encoding="utf-8")
+    write_text_file_atomic(path, text, encoding="utf-8", durable=durable)
 
 def read_json_file(path, default=None, expected_type=None, log_context="读取 JSON"):
     fallback = default() if callable(default) else default
@@ -466,9 +467,127 @@ def run_scheduled_app_task(task_name):
     return False, err
 
 def list_scheduled_app_tasks():
-    prefix = APP_SCHEDULED_TASK_PREFIX.replace("'", "''")
+    prefix = APP_SCHEDULED_TASK_PREFIX.lower()
+    try:
+        import win32com.client
+        import datetime
+        service = win32com.client.Dispatch('Schedule.Service')
+        service.Connect()
+        folder = service.GetFolder('\\')
+        tasks = folder.GetTasks(0)
+        
+        results = []
+        for i in range(1, tasks.Count + 1):
+            task = tasks.Item(i)
+            name = task.Name
+            if not name.lower().startswith(prefix):
+                continue
+                
+            state_map = {1: "Disabled", 2: "Queued", 3: "Ready", 4: "Running"}
+            state = state_map.get(task.State, "Unknown")
+            
+            def format_time(dt):
+                if not dt or dt.year < 1900:
+                    return ""
+                try:
+                    return dt.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    return ""
+                    
+            next_run = format_time(task.NextRunTime)
+            last_run = format_time(task.LastRunTime)
+            last_result = task.LastTaskResult
+            
+            triggers_list = []
+            df = task.Definition
+            for j in range(1, df.Triggers.Count + 1):
+                tr = df.Triggers.Item(j)
+                t_type = tr.Type
+                cls = {
+                    1: "MSFT_TaskDailyTrigger",
+                    2: "MSFT_TaskWeeklyTrigger",
+                    3: "MSFT_TaskMonthlyTrigger",
+                    4: "MSFT_TaskMonthlyDOWTrigger",
+                    5: "MSFT_TaskIdleTrigger",
+                    6: "MSFT_TaskRegistrationTrigger",
+                    7: "MSFT_TaskBootTrigger",
+                    8: "MSFT_TaskLogonTrigger",
+                    9: "MSFT_TaskSessionStateChangeTrigger",
+                    11: "MSFT_TaskTimeTrigger"
+                }.get(t_type, "Unknown")
+                
+                start_time = ""
+                try:
+                    boundary = tr.StartBoundary
+                    if boundary:
+                        m = re.search(r"T(\d{2}):(\d{2})", boundary)
+                        if m:
+                            start_time = f"{m.group(1)}:{m.group(2)}"
+                except Exception:
+                    pass
+                    
+                days = ""
+                days_interval = 0
+                weeks_interval = 0
+                interval = ""
+                
+                try:
+                    rep = tr.Repetition
+                    if rep and rep.Interval:
+                        interval = rep.Interval
+                except Exception:
+                    pass
+                    
+                if t_type == 1:
+                    try:
+                        days_interval = tr.DaysInterval
+                    except Exception:
+                        pass
+                elif t_type == 2:
+                    try:
+                        weeks_interval = tr.WeeksInterval
+                        mask = tr.DaysOfWeek
+                        days_list = []
+                        mask_map = [
+                            (1, "Sunday"),
+                            (2, "Monday"),
+                            (4, "Tuesday"),
+                            (8, "Wednesday"),
+                            (16, "Thursday"),
+                            (32, "Friday"),
+                            (64, "Saturday")
+                        ]
+                        for m_val, m_name in mask_map:
+                            if mask & m_val:
+                                days_list.append(m_name)
+                        days = ",".join(days_list)
+                    except Exception:
+                        pass
+                        
+                triggers_list.append({
+                    "Class": cls,
+                    "Start": start_time,
+                    "Days": days,
+                    "DaysInterval": days_interval,
+                    "WeeksInterval": weeks_interval,
+                    "Interval": interval
+                })
+                
+            results.append({
+                "Name": name,
+                "State": state,
+                "NextRunTime": next_run,
+                "LastRunTime": last_run,
+                "LastTaskResult": last_result,
+                "Triggers": triggers_list
+            })
+        return results
+    except Exception as e:
+        log_sampled_background_error("COM读取定时任务失败，退回到PowerShell", e)
+
+    prefix_esc = APP_SCHEDULED_TASK_PREFIX.replace("'", "''")
     ps_script = f"""
-$tasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {{ $_.TaskName -like '{prefix}*' }} | ForEach-Object {{
+$tasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {{ $_.TaskName -like '{prefix_esc}*' }} | ForEach-Object {{
     $task = $_
     $info = Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath -ErrorAction SilentlyContinue
     $triggers = @()
@@ -707,15 +826,38 @@ class FluentOnlyCheckDelegate(TableItemDelegate):
         isAlternate = index.row() % 2 == 0 and self.parent().alternatingRowColors()
         isDark = isDarkTheme()
         c = 255 if isDark else 0
-        alpha = 0
+        
+        target_alpha = 0
         if index.row() not in self.selectedRows:
-            if isPressed: alpha = 9 if isDark else 6
-            elif isHover: alpha = 12
-            elif isAlternate: alpha = 5
+            if isPressed: target_alpha = 9 if isDark else 6
+            elif isHover: target_alpha = 12
+            elif isAlternate: target_alpha = 5
         else:
-            if isPressed: alpha = 15 if isDark else 9
-            elif isHover: alpha = 25
-            else: alpha = 17
+            if isPressed: target_alpha = 15 if isDark else 9
+            elif isHover: target_alpha = 25
+            else: target_alpha = 17
+
+        # Smooth alpha interpolation
+        if not hasattr(self, "_animated_alphas"):
+            self._animated_alphas = {}
+        row = index.row()
+        if row not in self._animated_alphas:
+            self._animated_alphas[row] = float(target_alpha)
+        
+        curr = self._animated_alphas[row]
+        diff = target_alpha - curr
+        if abs(diff) > 0.1:
+            step = diff / 6.0
+            if abs(step) < 0.5:
+                step = 0.5 if diff > 0 else -0.5
+            curr = min(float(target_alpha), curr + step) if diff > 0 else max(float(target_alpha), curr + step)
+            self._animated_alphas[row] = curr
+            QTimer.singleShot(16, self.parent().viewport().update)
+        else:
+            self._animated_alphas[row] = float(target_alpha)
+            curr = float(target_alpha)
+
+        alpha = int(curr)
 
         if index.data(Qt.ItemDataRole.BackgroundRole): painter.setBrush(index.data(Qt.ItemDataRole.BackgroundRole))
         else: painter.setBrush(QColor(c, c, c, alpha))
@@ -723,6 +865,64 @@ class FluentOnlyCheckDelegate(TableItemDelegate):
 
         if (index.row() in self.selectedRows and index.column() == 0 and self.parent().horizontalScrollBar().value() == 0):
             self._drawIndicator(painter, option, index)
+
+        # Check for badge drawing
+        text = str(index.data(Qt.ItemDataRole.DisplayRole) or "").strip()
+        is_badge = False
+        bg_color = None
+        fg_color = None
+        
+        if text in ("系统", "System"):
+            is_badge = True
+            bg_color = QColor(254, 240, 240) if not isDark else QColor(74, 30, 30)
+            fg_color = QColor(245, 108, 108) if not isDark else QColor(253, 156, 156)
+        elif text in ("高风险", "High Risk") or "高风险" in text:
+            is_badge = True
+            bg_color = QColor(255, 248, 231) if not isDark else QColor(74, 52, 20)
+            fg_color = QColor(217, 119, 6) if not isDark else QColor(245, 158, 11)
+        elif text in ("未知", "Unknown"):
+            is_badge = True
+            bg_color = QColor(253, 246, 236) if not isDark else QColor(74, 48, 20)
+            fg_color = QColor(230, 162, 60) if not isDark else QColor(245, 190, 100)
+        elif text in ("外部", "External"):
+            is_badge = True
+            bg_color = QColor(236, 245, 255) if not isDark else QColor(20, 48, 74)
+            fg_color = QColor(64, 158, 255) if not isDark else QColor(102, 177, 255)
+        elif text in ("用户", "User", "常用", "Common", "常规", "Normal"):
+            is_badge = True
+            bg_color = QColor(240, 249, 235) if not isDark else QColor(24, 48, 24)
+            fg_color = QColor(103, 194, 58) if not isDark else QColor(133, 206, 97)
+
+        if is_badge:
+            from PySide6.QtCore import QRect
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            font = painter.font()
+            font.setBold(True)
+            painter.setFont(font)
+            fm = painter.fontMetrics()
+            text_width = fm.horizontalAdvance(text)
+            text_height = fm.height()
+            
+            badge_w = text_width + 16
+            badge_h = text_height + 6
+            cell_rect = option.rect
+            badge_x = cell_rect.x() + (cell_rect.width() - badge_w) // 2
+            badge_y = cell_rect.y() + (cell_rect.height() - badge_h) // 2
+            badge_rect = QRect(badge_x, badge_y, badge_w, badge_h)
+            
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(bg_color)
+            painter.drawRoundedRect(badge_rect, 4, 4)
+            
+            painter.setPen(fg_color)
+            painter.drawText(badge_rect, int(Qt.AlignmentFlag.AlignCenter), text)
+            painter.restore()
+            
+            if index.data(Qt.ItemDataRole.CheckStateRole) is not None:
+                self._drawCheckBox(painter, option, index)
+            painter.restore()
+            return
 
         if index.data(Qt.ItemDataRole.CheckStateRole) is not None:
             self._drawCheckBox(painter, option, index)
@@ -1044,8 +1244,9 @@ class CleanRulesTableView(TableView):
 FOF_ALLOWUNDO = 0x0040; FOF_NOCONFIRMATION = 0x0010; FOF_SILENT = 0x0004; FOF_NOERRORUI = 0x0400
 
 class SHFILEOPSTRUCT(ctypes.Structure):
-    _fields_ = [("hwnd",ctypes.c_void_p),("wFunc",ctypes.c_uint),("pFrom",ctypes.c_wchar_p),("pTo",ctypes.c_wchar_p),
-                ("fFlags",ctypes.c_ushort),("fAnyOperationsAborted",ctypes.c_int),("hNameMappings",ctypes.c_void_p),("lpszProgressTitle",ctypes.c_wchar_p)]
+    _pack_ = 1 if ctypes.sizeof(ctypes.c_void_p) == 4 else 8
+    _fields_ = [("hwnd", ctypes.c_void_p), ("wFunc", ctypes.c_uint), ("pFrom", ctypes.c_wchar_p), ("pTo", ctypes.c_wchar_p),
+                ("fFlags", ctypes.c_ushort), ("fAnyOperationsAborted", ctypes.c_int), ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", ctypes.c_wchar_p)]
 
 def send_to_recycle_bin(path):
     op=SHFILEOPSTRUCT(); op.hwnd=None; op.wFunc=0x0003; op.pFrom=path+"\0\0"; op.pTo=None
@@ -1056,6 +1257,19 @@ def send_to_recycle_bin(path):
 def is_admin():
     try: return ctypes.windll.shell32.IsUserAnAdmin()!=0
     except Exception: return False
+
+def get_windows_accent_color():
+    import winreg
+    try:
+        registry_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\DWM")
+        value, regtype = winreg.QueryValueEx(registry_key, "AccentColor")
+        winreg.CloseKey(registry_key)
+        b = (value >> 16) & 0xff
+        g = (value >> 8) & 0xff
+        r = value & 0xff
+        return QColor(r, g, b)
+    except Exception:
+        return QColor(0, 120, 212)
 
 def human_size(n):
     s=float(n)
@@ -1118,6 +1332,17 @@ def estimate_rule_size(entry, stop_flag=None):
 
 def delete_path(path, perm, log_fn):
     import shutil
+    import stat
+    import sys
+    
+    def _make_writable_and_retry(func, p):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+            return True
+        except Exception:
+            return False
+
     try:
         if not os.path.lexists(path): return True
         if not perm:
@@ -1134,8 +1359,8 @@ def delete_path(path, perm, log_fn):
             try:
                 os.remove(path)
             except Exception as e:
-                # 核心黑科技：MOVEFILE_DELAY_UNTIL_REBOOT (数值 4)
-                # 当文件被内核死锁时，标记它在下次重启时被系统自动删除
+                if _make_writable_and_retry(os.remove, path):
+                    return True
                 if ctypes.windll.kernel32.MoveFileExW(path, None, 4):
                     log_fn(f"[延期粉碎] 发现内核级锁定，已安排在下次重启时销毁: {os.path.basename(path)}")
                     return True
@@ -1143,17 +1368,23 @@ def delete_path(path, perm, log_fn):
         else:
             delayed_paths = []
             failed_paths = []
-            def _onerror(func, p, exc_info):
-                # 遍历删文件夹遇到顽固驱动文件时触发
+            
+            def handle_error(func, p, exc_info):
+                if _make_writable_and_retry(func, p):
+                    return
                 if ctypes.windll.kernel32.MoveFileExW(p, None, 4):
                     log_fn(f"[延期粉碎] 锁定项已安排重启销毁: {os.path.basename(p)}")
                     delayed_paths.append(p)
                 else:
                     failed_paths.append(p)
                     
-            shutil.rmtree(path, onerror=_onerror)
+            kwargs = {}
+            if sys.version_info >= (3, 12):
+                kwargs["onexc"] = handle_error
+            else:
+                kwargs["onerror"] = handle_error
+            shutil.rmtree(path, **kwargs)
             
-            # 如果文件夹还没被彻底删掉(里面有延期删除的文件)，把文件夹自己也标记上
             if os.path.lexists(path):
                 if ctypes.windll.kernel32.MoveFileExW(path, None, 4):
                     delayed_paths.append(path)
@@ -2484,10 +2715,10 @@ class Sig(QObject):
     more_clr=Signal(); more_add_batch=Signal(object)
     uninst_clr=Signal(); uninst_add_batch=Signal(object)
 
-def style_table(tbl: TableWidget):
+def style_table(tbl):
     setFont(tbl, 12, QFont.Weight.Normal)
     setFont(tbl.horizontalHeader(), 12, QFont.Weight.DemiBold)
-    tbl.verticalHeader().setDefaultSectionSize(30)
+    tbl.verticalHeader().setDefaultSectionSize(38)
     tbl.setItemDelegate(FluentOnlyCheckDelegate(tbl))
 
 def append_capped_log(text_edit, text, max_lines=LOG_MAX_LINES):
@@ -3359,6 +3590,20 @@ class PageFooterWidget(QWidget):
         self.pb.setRange(0, 100)
         self.pb.setValue(0)
         self.pb.setFixedHeight(6)
+        self.pb.setStyleSheet("""
+            QProgressBar {
+                background-color: rgba(0, 0, 0, 0.08);
+                border: none;
+                border-radius: 3px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
+                                            stop: 0 #0078d4,
+                                            stop: 0.5 #2b88d8,
+                                            stop: 1 #0078d4);
+                border-radius: 3px;
+            }
+        """)
         pg.addWidget(self.pb, 1)
         self.sl = CaptionLabel("就绪")
         pg.addWidget(self.sl)
@@ -3714,11 +3959,42 @@ class DriveSelector(QWidget):
             chk = CheckBox(d)
             chk.setChecked(checked)
             chk.toggled.connect(lambda checked, _d=d: self._on_toggled(_d, checked))
+            
+            space_str = ""
+            used_ratio = 0.0
+            try:
+                import shutil
+                usage = shutil.disk_usage(d)
+                total_gb = usage.total / (1024**3)
+                free_gb = usage.free / (1024**3)
+                used_ratio = (usage.total - usage.free) / usage.total
+                space_str = f"{free_gb:.1f}G/{total_gb:.1f}G"
+            except Exception:
+                pass
+                
             container = QWidget()
             container.setFixedHeight(36)
             row_layout = QHBoxLayout(container)
             row_layout.setContentsMargins(12, 0, 12, 0)
+            row_layout.setSpacing(8)
             row_layout.addWidget(chk)
+            
+            if space_str:
+                lbl = CaptionLabel(space_str)
+                lbl.setTextColor(QColor(120, 120, 120))
+                row_layout.addWidget(lbl)
+                
+                pbar = ProgressBar()
+                pbar.setRange(0, 100)
+                pbar.setValue(int(used_ratio * 100))
+                pbar.setFixedHeight(4)
+                pbar.setFixedWidth(50)
+                if used_ratio > 0.90:
+                    pbar.setStyleSheet("QProgressBar::chunk { background-color: #e81123; border-radius: 2px; }")
+                else:
+                    pbar.setStyleSheet("QProgressBar::chunk { background-color: #0078d4; border-radius: 2px; }")
+                row_layout.addWidget(pbar)
+                
             self.menu.addWidget(container, selectable=False)
             self.drive_checks[d] = chk
             self._containers[d] = container
@@ -5955,6 +6231,8 @@ class ScheduledUninstallDialog(MessageBoxBase):
 class ToolboxEntryCard(CardWidget):
     def __init__(self, icon, title, desc, button_text, on_click, parent=None):
         super().__init__(parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
@@ -5984,6 +6262,43 @@ class ToolboxEntryCard(CardWidget):
         btn.clicked.connect(on_click)
         layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignRight)
 
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+        self.shadow = QGraphicsDropShadowEffect(self)
+        self.shadow.setBlurRadius(10)
+        self.shadow.setXOffset(0)
+        self.shadow.setYOffset(2)
+        from qfluentwidgets.common.style_sheet import isDarkTheme
+        self.shadow.setColor(QColor(0, 0, 0, 25 if isDarkTheme() else 40))
+        self.setGraphicsEffect(self.shadow)
+
+        from PySide6.QtCore import QVariantAnimation
+        self.anim = QVariantAnimation(self)
+        self.anim.setDuration(180)
+        self.anim.valueChanged.connect(self._on_anim_value)
+        self._offset = 0.0
+
+    def _on_anim_value(self, val):
+        self._offset = val
+        from qfluentwidgets.common.style_sheet import isDarkTheme
+        self.shadow.setYOffset(2 + int(val * 4))
+        self.shadow.setBlurRadius(10 + int(val * 8))
+        self.shadow.setColor(QColor(0, 0, 0, int((25 if isDarkTheme() else 40) + val * 15)))
+        margin = 16 - int(val * 4)
+        self.layout().setContentsMargins(16, margin, 16, 32 - margin)
+        self.update()
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.anim.setStartValue(self._offset)
+        self.anim.setEndValue(1.0)
+        self.anim.start()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self.anim.setStartValue(self._offset)
+        self.anim.setEndValue(0.0)
+        self.anim.start()
+
 class ToolboxPage(ScrollArea):
     toolLog = Signal(str)
     toolDone = Signal(bool, str)
@@ -6007,6 +6322,7 @@ class ToolboxPage(ScrollArea):
         self.enableTransparentBackground()
 
         self.view = QWidget()
+        self.view.setObjectName("toolboxView")
         self.setWidget(self.view)
         self.setWidgetResizable(True)
 
@@ -6027,9 +6343,11 @@ class ToolboxPage(ScrollArea):
         root.addWidget(desc)
 
         self.stack = QStackedWidget(self.view)
+        self.stack.setObjectName("toolboxStack")
         root.addWidget(self.stack, 1)
 
         self.home_page = QWidget(self.view)
+        self.home_page.setObjectName("toolboxHomePage")
         home_layout = QVBoxLayout(self.home_page)
         home_layout.setContentsMargins(0, 0, 0, 0)
         home_layout.setSpacing(12)
@@ -6060,6 +6378,7 @@ class ToolboxPage(ScrollArea):
         self.stack.addWidget(self.home_page)
 
         self.softlink_page = QWidget(self.view)
+        self.softlink_page.setObjectName("toolboxSoftlinkPage")
         soft_page_layout = QVBoxLayout(self.softlink_page)
         soft_page_layout.setContentsMargins(0, 0, 0, 0)
         soft_page_layout.setSpacing(12)
@@ -6286,6 +6605,7 @@ class ToolboxPage(ScrollArea):
         self.stack.addWidget(self.softlink_page)
 
         self.cache_preset_page = QWidget(self.view)
+        self.cache_preset_page.setObjectName("toolboxCachePresetPage")
         cache_layout = QVBoxLayout(self.cache_preset_page)
         cache_layout.setContentsMargins(0, 0, 0, 0)
         cache_layout.setSpacing(12)
@@ -6364,6 +6684,7 @@ class ToolboxPage(ScrollArea):
         self.stack.addWidget(self.cache_preset_page)
 
         self.download_page = QWidget(self.view)
+        self.download_page.setObjectName("toolboxDownloadPage")
         download_layout = QVBoxLayout(self.download_page)
         download_layout.setContentsMargins(0, 0, 0, 0)
         download_layout.setSpacing(12)
@@ -6444,6 +6765,7 @@ class ToolboxPage(ScrollArea):
         self.stack.addWidget(self.download_page)
 
         self.space_page = QWidget(self.view)
+        self.space_page.setObjectName("toolboxSpacePage")
         space_layout = QVBoxLayout(self.space_page)
         space_layout.setContentsMargins(0, 0, 0, 0)
         space_layout.setSpacing(12)
@@ -6524,7 +6846,41 @@ class ToolboxPage(ScrollArea):
         self._reset_link_analysis()
         self._update_link_preview()
         self._refresh_history()
+        self._apply_toolbox_style()
+        qconfig.themeChanged.connect(self._apply_toolbox_style)
+        qconfig.themeChangedFinished.connect(self._apply_toolbox_style)
         self._show_tool_home()
+
+    def _apply_toolbox_style(self):
+        self.viewport().setStyleSheet("background: transparent; border: none;")
+        self.setStyleSheet("""
+            QScrollArea#toolboxPage {
+                background: transparent;
+                border: none;
+            }
+            QWidget#toolboxView,
+            QStackedWidget#toolboxStack,
+            QWidget#toolboxHomePage,
+            QWidget#toolboxSoftlinkPage,
+            QWidget#toolboxCachePresetPage,
+            QWidget#toolboxDownloadPage,
+            QWidget#toolboxSpacePage {
+                background: transparent;
+                border: none;
+            }
+        """)
+        for widget in (
+            self.view,
+            self.stack,
+            self.home_page,
+            self.softlink_page,
+            self.cache_preset_page,
+            self.download_page,
+            self.space_page,
+        ):
+            widget.setAutoFillBackground(False)
+            widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            widget.update()
 
     def _show_softlink_tool(self):
         self._update_link_preview()
@@ -8224,6 +8580,7 @@ class SettingPage(ScrollArea):
 # ══════════════════════════════════════════════════════════
 #  页面：常规清理
 # ══════════════════════════════════════════════════════════
+
 class CleanPage(ScrollArea):
     def __init__(self, sig, targets, stop, targets_lock, parent=None):
         super().__init__(parent); self.sig=sig; self.targets=targets; self.stop=stop; self._targets_lock=targets_lock
@@ -8239,6 +8596,8 @@ class CleanPage(ScrollArea):
         title_row.insertSpacing(2, 2) 
         title_row.insertWidget(3, lbl_perm, 0, Qt.AlignmentFlag.AlignBottom)
         v.addLayout(title_row)
+
+
 
         search_row = QHBoxLayout()
         self.search_input = SearchLineEdit()
@@ -8288,7 +8647,7 @@ class CleanPage(ScrollArea):
         self.apply_language_layout()
         setFont(self.tbl, 12, QFont.Weight.Normal)
         setFont(self.tbl.horizontalHeader(), 12, QFont.Weight.DemiBold)
-        self.tbl.verticalHeader().setDefaultSectionSize(30)
+        self.tbl.verticalHeader().setDefaultSectionSize(38)
         self.tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tbl.customContextMenuRequested.connect(self._show_context_menu)
         self.tbl_model.dataChanged.connect(self._on_model_data_changed)
@@ -9202,6 +9561,7 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
         self.tbl = TableView()
         self.tbl_model = UninstallTableModel(self.tbl)
         self.tbl.setModel(self.tbl_model)
+        style_table(self.tbl)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -9883,6 +10243,7 @@ class BigFilePage(DeferredPageMixin, ScrollArea):
         self.tbl = TableView()
         self.tbl_model = BigFileTableModel(self.tbl)
         self.tbl.setModel(self.tbl_model)
+        style_table(self.tbl)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -10176,6 +10537,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         self.tbl = TableView()
         self.tbl_model = MoreCleanTableModel(self.tbl)
         self.tbl.setModel(self.tbl_model)
+        style_table(self.tbl)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -10824,6 +11186,7 @@ class MainWindow(MSFluentWindow):
     def __init__(self):
         super().__init__()
 
+        self._settings_lock = threading.RLock()
         # 1. 加载配置目录与全局设置
         self.app_dir = app_root_dir()
         self.default_config_dir = os.path.join(self.app_dir, "configs")
@@ -10917,6 +11280,7 @@ class MainWindow(MSFluentWindow):
         self._lazy_switch_pending = set()
         self._lazy_target_route = ""
         self._lazy_switch_token = 0
+        self._shutting_down = False
         self._detected_disk_info = None
         self._disk_detect_lock = threading.Lock()
         self._disk_detecting = False
@@ -10944,20 +11308,26 @@ class MainWindow(MSFluentWindow):
         self._more_flush_timer = QTimer(self)
         self._more_flush_timer.setSingleShot(True)
         self._more_flush_timer.timeout.connect(self._flush_more_rows)
+        app = QApplication.instance()
+        if app is not None:
+            try:
+                app.aboutToQuit.connect(self._prepare_shutdown)
+            except Exception:
+                pass
         self.apply_theme_mode()
 
         self._init_nav(); self._init_win(); self._init_tray(); self._conn()
         self.apply_language()
         self._request_disk_detect(force=False)
-        QTimer.singleShot(2000, lambda: self.check_updates(manual=False))
-        QTimer.singleShot(900, self._warmup_schedule_page)
-        QTimer.singleShot(1500, self._schedule_lazy_prewarm)
-        QTimer.singleShot(250, self._apply_initial_tray_state)
+        QTimer.singleShot(2000, lambda: None if self._is_shutting_down() else self.check_updates(manual=False))
+        QTimer.singleShot(900, lambda: None if self._is_shutting_down() else self._warmup_schedule_page())
+        QTimer.singleShot(1500, lambda: None if self._is_shutting_down() else self._schedule_lazy_prewarm())
+        QTimer.singleShot(250, lambda: None if self._is_shutting_down() else self._apply_initial_tray_state())
         if self.language_code == "en_us":
-            QTimer.singleShot(600, self._download_language_pack_async)
+            QTimer.singleShot(600, lambda: None if self._is_shutting_down() else self._download_language_pack_async())
         self._pending_legacy_migration = self._should_offer_legacy_migration()
         if self._pending_legacy_migration:
-            QTimer.singleShot(800, self._prompt_legacy_config_migration)
+            QTimer.singleShot(800, lambda: None if self._is_shutting_down() else self._prompt_legacy_config_migration())
 
     def apply_theme_mode(self):
         mode = normalize_theme_mode(self.global_settings.get("theme_mode", "auto"))
@@ -10967,6 +11337,12 @@ class MainWindow(MSFluentWindow):
             try:
                 self.pg_setting._apply_setting_style()
                 QTimer.singleShot(0, self.pg_setting._apply_setting_style)
+            except Exception:
+                pass
+        if hasattr(self, "pg_toolbox"):
+            try:
+                self.pg_toolbox._apply_toolbox_style()
+                QTimer.singleShot(0, self.pg_toolbox._apply_toolbox_style)
             except Exception:
                 pass
         for widget in (self, getattr(self, "pg_setting", None), getattr(self, "pg_clean", None),
@@ -11137,6 +11513,8 @@ class MainWindow(MSFluentWindow):
             self.apply_sidebar_style()
 
     def _download_language_pack_async(self):
+        if self._is_shutting_down():
+            return
         lang = getattr(self, "language_code", "zh_cn")
         if lang in ("auto", "zh_cn"):
             return
@@ -11144,12 +11522,18 @@ class MainWindow(MSFluentWindow):
 
         def _worker():
             manifest = load_language_manifest(config_dir, prefer_cloud=True)
+            if self._is_shutting_down():
+                return
             pack = load_language_pack(lang, config_dir, prefer_cloud=True, manifest=manifest)
+            if self._is_shutting_down():
+                return
             self.languagePackReady.emit(pack, lang)
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _apply_downloaded_language_pack(self, pack, lang):
+        if self._is_shutting_down():
+            return
         if normalize_language_mode(lang) != getattr(self, "language_code", "zh_cn"):
             return
         if not isinstance(pack, dict) or not pack:
@@ -11391,7 +11775,9 @@ class MainWindow(MSFluentWindow):
 
     def save_global_settings(self):
         try:
-            write_json_file_atomic(self.global_settings_path, self.global_settings, ensure_ascii=False, indent=2)
+            with self._settings_lock:
+                settings_copy = dict(self.global_settings)
+            write_json_file_atomic(self.global_settings_path, settings_copy, ensure_ascii=False, indent=2)
         except Exception as e:
             log_background_error("保存全局设置失败", e)
 
@@ -11459,15 +11845,83 @@ class MainWindow(MSFluentWindow):
             event.ignore()
             self._hide_to_tray()
             return
-        if self.global_settings.get("auto_save", True):
-            try:
-                self.pg_clean.save_custom_rules()
-                self.save_order_state()
-            except Exception as e:
-                log_background_error("关闭窗口时自动保存失败", e)
-        if self._tray_icon is not None:
-            self._tray_icon.hide()
+        self._prepare_shutdown()
+        self._save_before_exit()
         super().closeEvent(event)
+        QTimer.singleShot(0, QApplication.quit)
+
+    def _save_before_exit(self):
+        if not self.global_settings.get("auto_save", True):
+            return
+        try:
+            self.pg_clean._sync()
+            with self._targets_lock:
+                targets_snapshot = list(self.targets)
+            custom_payload = [
+                item
+                for item in (serialize_rule_entry(t) for t in targets_snapshot if parse_rule_entry(t) and parse_rule_entry(t)[5])
+                if item is not None
+            ]
+            state_payload = build_saved_rule_state(targets_snapshot)
+            custom_path = self.custom_rules_path
+            config_path = self.config_path
+
+            def _writer():
+                try:
+                    write_json_file_atomic(custom_path, custom_payload, ensure_ascii=False, indent=2)
+                    write_json_file_atomic(config_path, state_payload, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    log_background_error("关闭窗口时自动保存失败", e)
+
+            t = threading.Thread(target=_writer, daemon=True)
+            t.start()
+            t.join(timeout=1.5)
+            if t.is_alive():
+                log_background_error("关闭窗口时自动保存超时", "已继续退出，保存线程将在进程结束时终止")
+        except Exception as e:
+            log_background_error("关闭窗口时自动保存失败", e)
+
+    def _is_shutting_down(self):
+        return bool(getattr(self, "_shutting_down", False))
+
+    def _prepare_shutdown(self):
+        if getattr(self, "_shutting_down", False):
+            return
+        self._shutting_down = True
+        self.clean_stop.set()
+        self.uninstall_stop.set()
+        self.big_stop.set()
+        self.more_stop.set()
+        self.toolbox_stop.set()
+        self._lazy_switch_token += 1
+        self._lazy_switch_pending.clear()
+        self._lazy_target_route = ""
+        for timer_name in ("_big_flush_timer", "_uninstall_flush_timer", "_more_flush_timer"):
+            timer = getattr(self, timer_name, None)
+            try:
+                if timer is not None:
+                    timer.stop()
+            except Exception:
+                pass
+        self._pending_big_rows.clear()
+        self._pending_uninstall_rows.clear()
+        self._pending_more_rows.clear()
+        tray_icon = getattr(self, "_tray_icon", None)
+        if tray_icon is not None:
+            try:
+                tray_icon.hide()
+                tray_icon.setContextMenu(None)
+                tray_icon.activated.disconnect()
+            except Exception:
+                pass
+            try:
+                tray_icon.deleteLater()
+            except Exception:
+                pass
+            self._tray_icon = None
+        self._tray_menu = None
+        self._tray_restore_action = None
+        self._tray_exit_action = None
 
     def _setup_navigation_widget(self, force_rebuild=False):
         saved_style = str(self.global_settings.get("sidebar_style", "vertical")).strip().lower()
@@ -11630,15 +12084,21 @@ class MainWindow(MSFluentWindow):
         self._add_nav_action("about", FIF.INFO, "关于", self._about, position=NavigationItemPosition.BOTTOM)
 
     def _schedule_lazy_prewarm(self):
+        if self._is_shutting_down():
+            return
         self._prewarm_lazy_pages(0)
 
     def _warmup_schedule_page(self):
+        if self._is_shutting_down():
+            return
         try:
             self.pg_schedule.prepare_lightweight()
         except Exception as e:
             log_sampled_background_error("预热定时任务页面失败", e)
 
     def _prewarm_lazy_pages(self, index):
+        if self._is_shutting_down():
+            return
         if index >= len(self._prewarm_attr_names):
             return
         attr_name = self._prewarm_attr_names[index]
@@ -11648,7 +12108,7 @@ class MainWindow(MSFluentWindow):
                 page.prepare_lightweight()
         except Exception as e:
             log_sampled_background_error(f"预热页面失败:{attr_name}", e)
-        QTimer.singleShot(420, lambda idx=index + 1: self._prewarm_lazy_pages(idx))
+        QTimer.singleShot(420, lambda idx=index + 1: None if self._is_shutting_down() else self._prewarm_lazy_pages(idx))
 
     def _add_nav_page(self, interface, icon, text, position=NavigationItemPosition.TOP, isTransparent=False):
         if not interface.objectName():
@@ -11739,6 +12199,8 @@ class MainWindow(MSFluentWindow):
         self._updateStackedBackground()
 
     def _switch_to_lazy_page(self, attr_name):
+        if self._is_shutting_down():
+            return
         self._lazy_switch_token += 1
         switch_token = self._lazy_switch_token
         page = getattr(self, attr_name, None)
@@ -11763,6 +12225,8 @@ class MainWindow(MSFluentWindow):
 
         def build_and_switch():
             try:
+                if self._is_shutting_down():
+                    return
                 if switch_token != self._lazy_switch_token:
                     return
                 page = self._ensure_lazy_page(attr_name)
@@ -11779,11 +12243,13 @@ class MainWindow(MSFluentWindow):
         QTimer.singleShot(0, build_and_switch)
 
     def _activate_lazy_page_content(self, page, switch_token, retry=0):
+        if self._is_shutting_down():
+            return
         if page is None or switch_token != self._lazy_switch_token:
             return
         if self.stackedWidget.currentWidget() is not page:
             if retry < 6:
-                QTimer.singleShot(20, lambda p=page, token=switch_token, r=retry + 1: self._activate_lazy_page_content(p, token, r))
+                QTimer.singleShot(20, lambda p=page, token=switch_token, r=retry + 1: None if self._is_shutting_down() else self._activate_lazy_page_content(p, token, r))
             return
         ensure_fn = getattr(page, "_ensure_content", None)
         if not callable(ensure_fn):
@@ -11811,6 +12277,8 @@ class MainWindow(MSFluentWindow):
         self._updateStackedBackground()
 
     def _switch_interface(self, interface, duration=None):
+        if self._is_shutting_down():
+            return
         if interface is None:
             return
         if hasattr(interface, "verticalScrollBar") and callable(getattr(interface, "verticalScrollBar")):
@@ -11856,6 +12324,7 @@ class MainWindow(MSFluentWindow):
 
     def _init_win(self):
         self.resize(1200, 700); self.setMinimumSize(940, 560); self.setWindowTitle(f"{self.tr_text('C盘强力清理工具')} v{CURRENT_VERSION}")
+        self.setMicaEffectEnabled(True)
         icon_path = resource_path("icon.ico")
         if os.path.exists(icon_path): self.setWindowIcon(QIcon(icon_path))
         scr=QApplication.primaryScreen()
@@ -11938,6 +12407,8 @@ class MainWindow(MSFluentWindow):
             log_sampled_background_error("托盘提示", e, limit=2)
 
     def _hide_to_tray(self):
+        if self._is_shutting_down():
+            return
         if not self.global_settings.get("tray_enabled", False):
             return
         self._update_tray_visibility()
@@ -11945,15 +12416,22 @@ class MainWindow(MSFluentWindow):
         self._show_tray_notice()
 
     def _restore_from_tray(self):
+        if self._is_shutting_down():
+            return
         self.showNormal()
         self.raise_()
         self.activateWindow()
 
     def _exit_from_tray(self):
         self._tray_exit_requested = True
-        self.close()
+        self._prepare_shutdown()
+        self._save_before_exit()
+        self.hide()
+        QTimer.singleShot(0, QApplication.quit)
 
     def _on_tray_activated(self, reason):
+        if self._is_shutting_down():
+            return
         if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
             if self.isHidden() or self.isMinimized():
                 self._restore_from_tray()
@@ -12003,6 +12481,8 @@ class MainWindow(MSFluentWindow):
         self.pg_more.reset_result_view()
 
     def _request_disk_detect(self, force=False):
+        if self._is_shutting_down():
+            return
         try:
             with self._disk_detect_lock:
                 if self._disk_detecting:
@@ -12019,6 +12499,8 @@ class MainWindow(MSFluentWindow):
 
     def _async_detect(self, force=False):
         try:
+            if self._is_shutting_down():
+                return
             if force:
                 threads, dtype = get_scan_threads("C")
                 try:
@@ -12029,13 +12511,16 @@ class MainWindow(MSFluentWindow):
                     log_sampled_background_error("更新磁盘检测缓存失败", e)
             else:
                 threads, dtype = get_scan_threads_cached("C")
-            self._detected_disk_info = (dtype, threads)
-            self.sig.disk_ready.emit(dtype, threads)
+            if not self._is_shutting_down():
+                self._detected_disk_info = (dtype, threads)
+                self.sig.disk_ready.emit(dtype, threads)
         finally:
             with self._disk_detect_lock:
                 self._disk_detecting = False
 
     def check_updates(self, manual=False):
+        if self._is_shutting_down():
+            return
         with self._update_lock:
             if self._update_checking:
                 if manual:
@@ -12092,7 +12577,11 @@ class MainWindow(MSFluentWindow):
 
     def _check_update_worker(self, manual=False):
         try:
+            if self._is_shutting_down():
+                return
             latest = self._get_latest_update()
+            if self._is_shutting_down():
+                return
             if latest:
                 self.sig.update_latest.emit(f"最新版本：v{latest[0]}")
             else:
@@ -12103,8 +12592,9 @@ class MainWindow(MSFluentWindow):
             elif manual:
                 self.sig.update_status.emit("success", "提示", "当前已是最新版本")
         except Exception as e:
-            self.sig.update_latest.emit("最新版本：获取失败")
-            if manual:
+            if not self._is_shutting_down():
+                self.sig.update_latest.emit("最新版本：获取失败")
+            if manual and not self._is_shutting_down():
                 self.sig.update_status.emit("error", "检查失败", f"无法获取更新信息: {e}")
         finally:
             with self._update_lock:
@@ -12352,7 +12842,7 @@ def main():
         sys.exit(1)
     runtime_settings = load_runtime_global_settings()
     initial_theme_mode = normalize_theme_mode(runtime_settings.get("theme_mode", "auto"))
-    app = QApplication(sys.argv); setFontFamilies(["微软雅黑"]); setTheme(resolve_theme_enum(initial_theme_mode)); setThemeColor("#0078d4")
+    app = QApplication(sys.argv); setFontFamilies(["微软雅黑"]); setTheme(resolve_theme_enum(initial_theme_mode)); setThemeColor(get_windows_accent_color())
     w = MainWindow(); w.show(); sys.exit(app.exec())
 
 if __name__=="__main__": main()

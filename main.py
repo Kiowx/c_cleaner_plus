@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.6.7
+C盘强力清理工具 v0.6.8
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -11,7 +11,7 @@ import webbrowser
 from collections import defaultdict
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt, Signal, QObject, QPoint, QMetaObject, Slot, QFileInfo, QSize, QTimer, QAbstractTableModel, QModelIndex, QEvent, QMimeData, QLocale
+from PySide6.QtCore import Qt, Signal, QObject, QPoint, QRect, QRectF, QMetaObject, Slot, QFileInfo, QSize, QTimer, QAbstractTableModel, QModelIndex, QEvent, QMimeData, QLocale
 from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QDrag, QPixmap, QRegion, QTextCursor, QAction
 from qfluentwidgets import isDarkTheme, themeColor, qconfig
 from PySide6.QtWidgets import (
@@ -126,7 +126,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.6.7"
+CURRENT_VERSION = "0.6.8"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -957,8 +957,13 @@ class LeftAlignedPushButton(PushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         painter.setPen(self.palette().buttonText().color())
-        rect = self.rect().adjusted(12, 0, -12, 0)
-        painter.drawText(rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), self._display_text)
+        text_rect = self.rect().adjusted(12, 0, -24, 0)
+        painter.drawText(text_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), self._display_text)
+        rect = QRectF(self.width() - 22, self.height() / 2 - 5, 10, 10)
+        if isDarkTheme():
+            FIF.ARROW_DOWN.render(painter, rect)
+        else:
+            FIF.ARROW_DOWN.render(painter, rect, fill="#646464")
 
 
 class SizeTableWidgetItem(QTableWidgetItem):
@@ -3590,20 +3595,6 @@ class PageFooterWidget(QWidget):
         self.pb.setRange(0, 100)
         self.pb.setValue(0)
         self.pb.setFixedHeight(6)
-        self.pb.setStyleSheet("""
-            QProgressBar {
-                background-color: rgba(0, 0, 0, 0.08);
-                border: none;
-                border-radius: 3px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
-                                            stop: 0 #0078d4,
-                                            stop: 0.5 #2b88d8,
-                                            stop: 1 #0078d4);
-                border-radius: 3px;
-            }
-        """)
         pg.addWidget(self.pb, 1)
         self.sl = CaptionLabel("就绪")
         pg.addWidget(self.sl)
@@ -3619,6 +3610,30 @@ class PageFooterWidget(QWidget):
         if auto_hide_log:
             self.log.hide()
         layout.addWidget(self.log)
+
+        self._apply_pb_style()
+        qconfig.themeChanged.connect(self._apply_pb_style)
+        qconfig.themeChangedFinished.connect(self._apply_pb_style)
+
+    def _apply_pb_style(self):
+        dark = isDarkTheme()
+        bg = "rgba(255, 255, 255, 0.10)" if dark else "rgba(0, 0, 0, 0.08)"
+        self.pb.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: {bg};
+                border: none;
+                border-radius: 3px;
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
+                                            stop: 0 #0078d4,
+                                            stop: 0.5 #2b88d8,
+                                            stop: 1 #0078d4);
+                border-radius: 3px;
+            }}
+        """)
+        log_bg = "rgba(255, 255, 255, 0.04)" if dark else "rgba(0, 0, 0, 0.02)"
+        self.log.setStyleSheet(f"QTextEdit {{ background-color: {log_bg}; border-radius: 4px; }}")
 
     def show_log_if_hidden(self):
         if self._auto_hide_log and self.log.isHidden():
@@ -3947,6 +3962,7 @@ class DriveSelector(QWidget):
         self.drive_checks = {}
         self.drive_states = {}
         self._containers = {}
+        self._drive_pbars = {}
         self._menu_last_close = 0
 
         self.btn = LeftAlignedPushButton("磁盘: (未选择)")
@@ -3968,15 +3984,15 @@ class DriveSelector(QWidget):
                 total_gb = usage.total / (1024**3)
                 free_gb = usage.free / (1024**3)
                 used_ratio = (usage.total - usage.free) / usage.total
-                space_str = f"{free_gb:.1f}G/{total_gb:.1f}G"
+                space_str = f"{free_gb:.0f}/{total_gb:.0f}G"
             except Exception:
                 pass
                 
             container = QWidget()
             container.setFixedHeight(36)
             row_layout = QHBoxLayout(container)
-            row_layout.setContentsMargins(12, 0, 12, 0)
-            row_layout.setSpacing(8)
+            row_layout.setContentsMargins(8, 0, 8, 0)
+            row_layout.setSpacing(6)
             row_layout.addWidget(chk)
             
             if space_str:
@@ -3988,11 +4004,8 @@ class DriveSelector(QWidget):
                 pbar.setRange(0, 100)
                 pbar.setValue(int(used_ratio * 100))
                 pbar.setFixedHeight(4)
-                pbar.setFixedWidth(50)
-                if used_ratio > 0.90:
-                    pbar.setStyleSheet("QProgressBar::chunk { background-color: #e81123; border-radius: 2px; }")
-                else:
-                    pbar.setStyleSheet("QProgressBar::chunk { background-color: #0078d4; border-radius: 2px; }")
+                pbar.setFixedWidth(36)
+                self._drive_pbars[d] = (pbar, used_ratio)
                 row_layout.addWidget(pbar)
                 
             self.menu.addWidget(container, selectable=False)
@@ -4002,6 +4015,15 @@ class DriveSelector(QWidget):
         self.btn.clicked.connect(self._show_menu)
         layout.addWidget(self.btn)
         self._update_text()
+        self._apply_drive_pbar_styles()
+        qconfig.themeChanged.connect(self._apply_drive_pbar_styles)
+        qconfig.themeChangedFinished.connect(self._apply_drive_pbar_styles)
+
+    def _apply_drive_pbar_styles(self):
+        dark = isDarkTheme()
+        for d, (pbar, ratio) in self._drive_pbars.items():
+            color = ("#ff6b6b" if dark else "#e81123") if ratio > 0.90 else ("#4fa8e8" if dark else "#0078d4")
+            pbar.setStyleSheet(f"QProgressBar::chunk {{ background-color: {color}; border-radius: 2px; }}")
 
     def selected_drives(self):
         return [d for d, s in self.drive_states.items() if s]
@@ -5577,9 +5599,13 @@ class AddRuleDialog(MessageBoxBase):
         self.descInput = LineEdit(); self.descInput.setPlaceholderText("说明备注 (例如: 仅限个人使用)")
         
         self.viewLayout.addWidget(StrongBodyLabel("规则名称:")); self.viewLayout.addWidget(self.nameInput)
+        self.viewLayout.addSpacing(6)
         self.viewLayout.addWidget(StrongBodyLabel("目标路径:")); self.viewLayout.addLayout(self.pathLayout)
+        self.viewLayout.addSpacing(6)
         self.viewLayout.addWidget(StrongBodyLabel("目标类型:")); self.viewLayout.addWidget(self.typeCombo)
+        self.viewLayout.addSpacing(6)
         self.viewLayout.addWidget(StrongBodyLabel("匹配模式:")); self.viewLayout.addLayout(self.patternLayout)
+        self.viewLayout.addSpacing(6)
         self.viewLayout.addWidget(StrongBodyLabel("备注说明:")); self.viewLayout.addWidget(self.descInput)
         
         self.widget.setMinimumWidth(450); self.yesButton.setText("添加"); self.cancelButton.setText("取消")
@@ -8346,7 +8372,7 @@ class SettingPage(ScrollArea):
         card = CardWidget(self.view)
         card.setObjectName("settingGroup")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(16, 8, 16, 8)
         layout.setSpacing(0)
         for idx, row in enumerate(rows):
             layout.addWidget(row)
@@ -8378,12 +8404,12 @@ class SettingPage(ScrollArea):
 
         tile = QWidget(row)
         tile.setObjectName("settingIconTile")
-        tile.setFixedSize(28, 28)
+        tile.setFixedSize(32, 32)
         tile_layout = QHBoxLayout(tile)
         tile_layout.setContentsMargins(0, 0, 0, 0)
         tile_layout.setSpacing(0)
         icon_widget = IconWidget(icon)
-        icon_widget.setFixedSize(16, 16)
+        icon_widget.setFixedSize(18, 18)
         tile_layout.addWidget(icon_widget, 0, Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(tile, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -8619,10 +8645,10 @@ class CleanPage(ScrollArea):
         self.chk_rst=CheckBox("创建还原点"); opt.addWidget(self.chk_rst)
         opt.addStretch()
         
-        b_add = PushButton(FIF.ADD, "新建"); b_add.clicked.connect(self.do_add_rule); opt.addWidget(b_add)
-        b_del = PushButton(FIF.DELETE, "删除"); b_del.clicked.connect(self.do_del_rule); opt.addWidget(b_del)
-        b_imp = PushButton(FIF.DOCUMENT, "导入"); b_imp.clicked.connect(self.do_import_rules); opt.addWidget(b_imp)
-        b_exp = PushButton(FIF.SAVE, "导出"); b_exp.clicked.connect(self.do_export_rules); opt.addWidget(b_exp)
+        b_add = PushButton(FIF.ADD, "新建"); b_add.setFixedHeight(30); b_add.clicked.connect(self.do_add_rule); opt.addWidget(b_add)
+        b_del = PushButton(FIF.DELETE, "删除"); b_del.setFixedHeight(30); b_del.clicked.connect(self.do_del_rule); opt.addWidget(b_del)
+        b_imp = PushButton(FIF.DOCUMENT, "导入"); b_imp.setFixedHeight(30); b_imp.clicked.connect(self.do_import_rules); opt.addWidget(b_imp)
+        b_exp = PushButton(FIF.SAVE, "导出"); b_exp.setFixedHeight(30); b_exp.clicked.connect(self.do_export_rules); opt.addWidget(b_exp)
         v.addLayout(opt)
 
         self.tbl = CleanRulesTableView()

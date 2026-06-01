@@ -8,7 +8,10 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 base_dir = os.path.abspath(SPECPATH)
 
 qfw_datas = collect_data_files("qfluentwidgets", include_py_files=False)
-qfw_hidden = collect_submodules("qfluentwidgets")
+qfw_hidden = collect_submodules(
+    "qfluentwidgets",
+    filter=lambda name: not name.startswith("qfluentwidgets.multimedia"),
+)
 
 datas = [item for item in qfw_datas if item and len(item) == 2]
 binaries = []
@@ -103,6 +106,31 @@ a = Analysis(
         "PySide6.QtDBus",
         "PySide6.QtHttpServer",
         "PySide6.QtSpatialAudio",
+        "numpy",
+        "scipy",
+        "PIL",
+        "Pillow",
+        "colorthief",
+        "matplotlib",
+        "pandas",
+        "torch",
+        "torchvision",
+        "torchaudio",
+        "transformers",
+        "sklearn",
+        "skimage",
+        "nltk",
+        "IPython",
+        "ipykernel",
+        "jupyter",
+        "jupyter_client",
+        "jupyter_core",
+        "nbclient",
+        "nbconvert",
+        "nbformat",
+        "notebook",
+        "sympy",
+        "traitlets",
     ],
     noarchive=False,
     optimize=2,

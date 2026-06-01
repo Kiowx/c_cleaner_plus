@@ -8611,6 +8611,7 @@ class CleanPage(ScrollArea):
     def __init__(self, sig, targets, stop, targets_lock, parent=None):
         super().__init__(parent); self.sig=sig; self.targets=targets; self.stop=stop; self._targets_lock=targets_lock
         self.estimated_sizes = {}
+        self._size_sort_order = Qt.SortOrder.DescendingOrder
         self.view=QWidget(); self.setWidget(self.view); self.setWidgetResizable(True); self.setObjectName("cleanPage"); self.enableTransparentBackground()
         v=QVBoxLayout(self.view); v.setContentsMargins(28,12,28,20); v.setSpacing(8)
         title_row = make_title_row(FIF.BROOM, "常规清理")
@@ -8664,12 +8665,16 @@ class CleanPage(ScrollArea):
         self.tbl.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tbl.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tbl.verticalScrollBar().setSingleStep(36)
-        self.tbl.horizontalHeader().setStretchLastSection(True)
-        self.tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        self.tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        header = self.tbl.horizontalHeader()
+        header.setStretchLastSection(True)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(False)
+        header.sectionClicked.connect(self._on_header_section_clicked)
         self.apply_language_layout()
         setFont(self.tbl, 12, QFont.Weight.Normal)
         setFont(self.tbl.horizontalHeader(), 12, QFont.Weight.DemiBold)
@@ -8745,7 +8750,7 @@ class CleanPage(ScrollArea):
                 duplicate_count=duplicate_count,
             ))
         self.tbl_model.set_rows(rows)
-        self.tbl_model.set_drag_enabled(getattr(self, "cb_sort", None) is None or self.cb_sort.currentIndex() == 0)
+        self._apply_sort_state()
         self._filter_rules(self.search_input.text())
 
     def _rule_cache_key(self, entry):
@@ -8764,14 +8769,42 @@ class CleanPage(ScrollArea):
             items.sort(key=lambda x: rule_display_target(cache[x[0]][1], cache[x[0]][2], cache[x[0]][6]).lower())
         elif mode == 3:
             cache = {i: self._rule_cache_key(t) for i, t in items}
-            items.sort(key=lambda x: self.estimated_sizes.get(cache[x[0]], 0), reverse=True)
+            reverse = self._size_sort_order != Qt.SortOrder.AscendingOrder
+            items.sort(key=lambda x: self.estimated_sizes.get(cache[x[0]], 0), reverse=reverse)
         return items
 
     def _on_sort_mode_changed(self, _):
+        if self.cb_sort.currentIndex() == 3:
+            self._size_sort_order = Qt.SortOrder.DescendingOrder
+        self.reload_table()
+
+    def _on_header_section_clicked(self, section):
+        if section != 4:
+            return
+        if self.cb_sort.currentIndex() == 3:
+            self._size_sort_order = (
+                Qt.SortOrder.AscendingOrder
+                if self._size_sort_order == Qt.SortOrder.DescendingOrder
+                else Qt.SortOrder.DescendingOrder
+            )
+        else:
+            self._size_sort_order = Qt.SortOrder.DescendingOrder
+        self._sync()
+        self.cb_sort.blockSignals(True)
+        self.cb_sort.setCurrentIndex(3)
+        self.cb_sort.blockSignals(False)
+        self.reload_table()
+
+    def _apply_sort_state(self):
         is_default = self.cb_sort.currentIndex() == 0
         self.tbl.setDragEnabled(is_default)
         self.tbl_model.set_drag_enabled(is_default)
-        self.reload_table()
+        header = self.tbl.horizontalHeader()
+        if self.cb_sort.currentIndex() == 3:
+            header.setSortIndicator(4, self._size_sort_order)
+            header.setSortIndicatorShown(True)
+        else:
+            header.setSortIndicatorShown(False)
 
     def _filter_rules(self, text):
         query = str(text or "").strip().lower()
@@ -9155,11 +9188,11 @@ class CleanPage(ScrollArea):
                 + "\n\n这些规则可能影响系统、程序或用户目录是否继续清理？"
             )
             if not MessageBox("风险提示", content, self.window()).exec():
-                self.tbl.setDragEnabled(True)
+                self._apply_sort_state()
                 return
         if self.chk_perm.isChecked():
-            if not MessageBox("确认", "当前为强力模式，删除后无法恢复继续？", self.window()).exec(): 
-                self.tbl.setDragEnabled(True)
+            if not MessageBox("确认", "当前为强力模式，删除后无法恢复继续？", self.window()).exec():
+                self._apply_sort_state()
                 return
         self.stop.clear(); threading.Thread(target=self._cln_w, daemon=True).start()
     
@@ -9177,7 +9210,14 @@ class CleanPage(ScrollArea):
         # 清理前创建还原点
         self._try_rst()
         
-        ok=fl=st=0; tot=len(sel); lf=lambda s:self.sig.clean_log.emit(s)
+        ok=fl=st=0; tot=len(sel); freed_bytes=0; lf=lambda s:self.sig.clean_log.emit(s)
+        def _candidate_size(path):
+            try:
+                if os.path.isdir(path) and not os.path.islink(path):
+                    return dir_size(path, stop_flag=self.stop)
+                return safe_getsize(path)
+            except Exception:
+                return 0
         for nm, pa, tp, _, nt, _, pattern in sel:
             if self.stop.is_set():
                 self.sig.clean_done.emit(f"清理已取消：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
@@ -9191,7 +9231,11 @@ class CleanPage(ScrollArea):
                         entries = []
                     for e in entries:
                         if self.stop.is_set(): break
-                        if delete_path(os.path.join(p,e),pm,lf): ok+=1
+                        target = os.path.join(p,e)
+                        size_before = _candidate_size(target)
+                        if self.stop.is_set(): break
+                        if delete_path(target,pm,lf):
+                            ok+=1; freed_bytes+=size_before
                         else: fl+=1
                 elif tp=="glob":
                     rule_pattern = normalize_rule_pattern(tp, pattern, nt)
@@ -9202,16 +9246,25 @@ class CleanPage(ScrollArea):
                     for f in entries:
                         if self.stop.is_set(): break
                         if fnmatch.fnmatch(f.lower(), rule_pattern.lower()):
-                            if delete_path(os.path.join(p,f),pm,lf): ok+=1
+                            target = os.path.join(p,f)
+                            size_before = _candidate_size(target)
+                            if self.stop.is_set(): break
+                            if delete_path(target,pm,lf):
+                                ok+=1; freed_bytes+=size_before
                             else: fl+=1
                 elif tp=="file":
-                    if delete_path(p,pm,lf): ok+=1
+                    size_before = _candidate_size(p)
+                    if self.stop.is_set():
+                        self.sig.clean_done.emit(f"清理已取消：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
+                        return
+                    if delete_path(p,pm,lf):
+                        ok+=1; freed_bytes+=size_before
                     else: fl+=1
             except Exception as e:
                 fl += 1
                 lf(f"[规则失败] {nm} -> {p} -> {format_exception_text(e)}")
             self.sig.clean_prog.emit(st,tot)
-        self.sig.clean_done.emit(f"清理完成：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
+        self.sig.clean_done.emit(f"清理完成：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒，共释放 {human_size(freed_bytes)} 空间")
 
     def _dedupe_rule_targets(self, rules):
         deduped = []
@@ -12700,8 +12753,7 @@ class MainWindow(MSFluentWindow):
         self._request_memory_trim(force=True)
 
     def _clean_done(self, msg):
-        self.pg_clean.tbl.setDragEnabled(True)
-        self.pg_clean.tbl_model.set_drag_enabled(True)
+        self.pg_clean._apply_sort_state()
         self._finish_page(self.pg_clean, msg)
 
     def _uninst_done(self, msg):

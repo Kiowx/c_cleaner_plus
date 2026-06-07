@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.6.9
+C盘强力清理工具 v0.7.0
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -126,7 +126,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.6.9"
+CURRENT_VERSION = "0.7.0"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -1335,6 +1335,64 @@ def estimate_rule_size(entry, stop_flag=None):
         return 0
     return 0
 
+_PROTECTED_SYSTEM_PATHS = None
+
+def _protected_system_paths():
+    """返回一组规范化后的系统关键目录（精确匹配），删除其自身将被拒绝。"""
+    global _PROTECTED_SYSTEM_PATHS
+    if _PROTECTED_SYSTEM_PATHS is not None:
+        return _PROTECTED_SYSTEM_PATHS
+    paths = set()
+
+    def _add(p):
+        try:
+            if not p:
+                return
+            norm = os.path.normcase(os.path.abspath(os.path.expandvars(str(p)))).rstrip("\\/")
+            if norm:
+                paths.add(norm)
+        except Exception:
+            pass
+
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    system_drive = os.environ.get("SystemDrive", "C:")
+    _add(system_root)
+    _add(os.path.join(system_root, "System32"))
+    _add(os.path.join(system_root, "SysWOW64"))
+    _add(os.environ.get("ProgramData", r"C:\ProgramData"))
+    _add(os.path.join(system_drive + "\\", "Users"))
+    _add(os.environ.get("PUBLIC", r"C:\Users\Public"))
+    _add(os.environ.get("USERPROFILE"))
+    _add(os.environ.get("LOCALAPPDATA"))
+    _PROTECTED_SYSTEM_PATHS = paths
+    return paths
+
+def is_protected_system_path(path):
+    """判断路径是否为受保护的系统关键路径（盘根、UNC 根或系统关键目录本身）。
+
+    仅拦截这些目录“自身”，其子路径（如 C:\\Windows\\Temp 下的文件）不受影响，
+    以免误伤清理器的正常工作目标。出现异常时保守返回 True（拒绝删除）。
+    """
+    try:
+        raw = str(path or "").strip()
+        if not raw:
+            return True
+        normalized = os.path.normcase(os.path.abspath(os.path.expandvars(raw))).rstrip("\\/")
+        if not normalized:
+            return True
+        # 盘根，例如 C:\
+        drive, tail = os.path.splitdrive(normalized)
+        if drive and tail in ("", "\\", "/"):
+            return True
+        # UNC 根，例如 \\server 或 \\server\share
+        if normalized.startswith("\\\\"):
+            parts = [seg for seg in normalized.split("\\") if seg]
+            if len(parts) <= 2:
+                return True
+        return normalized in _protected_system_paths()
+    except Exception:
+        return True
+
 def delete_path(path, perm, log_fn):
     import shutil
     import stat
@@ -1349,6 +1407,9 @@ def delete_path(path, perm, log_fn):
             return False
 
     try:
+        if is_protected_system_path(path):
+            log_fn(f"[安全拦截] 已拒绝删除受保护的系统关键路径: {path}")
+            return False
         if not os.path.lexists(path): return True
         if not perm:
             if send_to_recycle_bin(path):
@@ -1459,11 +1520,18 @@ def resolve_shortcut_target_info(path, log_context="解析快捷方式"):
         log_sampled_background_error(log_context, e)
         return {"status": "unresolved", "target": "", "detail": "快捷方式无法读取"}
 
-    m = re.search(rb"[a-zA-Z]:\\[^\x00]+", data)
+    m = re.search(rb"[a-zA-Z]:\\[^\x00\r\n\t]+", data)
     if m:
-        fallback_target = m.group().decode("mbcs", "ignore").strip()
-        normalized = norm_path(fallback_target)
-        return {"status": "resolved", "target": normalized or fallback_target, "detail": ""}
+        # 收集所有候选路径，优先返回磁盘上真实存在的目标，
+        # 避免贪婪匹配误抓到工作目录、图标路径或参数串。
+        candidates = []
+        for raw_match in re.findall(rb"[a-zA-Z]:\\[^\x00\r\n\t]+", data):
+            text = raw_match.decode("mbcs", "ignore").strip().strip('"')
+            if text:
+                candidates.append(norm_path(text) or text)
+        if candidates:
+            chosen = next((p for p in candidates if os.path.exists(p)), candidates[0])
+            return {"status": "resolved", "target": chosen, "detail": ""}
 
     if not _has_valid_lnk_header(data):
         return {"status": "invalid", "target": "", "detail": "快捷方式文件已损坏"}
@@ -1502,7 +1570,20 @@ def force_delete_registry(full_path, log_fn):
             return "failed"
         cmd = ['reg', 'delete', path_text, '/f']
         # creationflags=subprocess.CREATE_NO_WINDOW 防止弹黑框
-        r = subprocess.run(cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        # 显式 gbk 解码（Windows 控制台默认中文编码），并加超时，避免受保护项导致挂起
+        try:
+            r = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="gbk",
+                errors="replace",
+                timeout=60,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except subprocess.TimeoutExpired:
+            log_fn(f"[强删注册表] 操作超时(可能受系统保护): {path_text}")
+            return "failed"
         if r.returncode == 0:
             log_fn(f"[强删注册表] 成功: {path_text}")
             return "deleted"
@@ -1839,8 +1920,12 @@ def run_uninstall_command(app_name, command_text, quiet_command="", prefer_silen
     if log_fn:
         log_fn(f"{prefix} 正在调用{mode_text}卸载: {name}")
     try:
+        # 不经过 cmd /c，直接交给 CreateProcess 解析命令行，
+        # 避免卸载串中的 shell 元字符（& | > ^ 等）被重新解释造成命令注入。
+        # 先自行展开环境变量，补足 cmd 原本会做的 %VAR% 替换。
+        expanded_cmd = os.path.expandvars(cmd)
         proc = subprocess.Popen(
-            ["cmd", "/c", cmd],
+            expanded_cmd,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
         try:
@@ -8607,6 +8692,36 @@ class SettingPage(ScrollArea):
 #  页面：常规清理
 # ══════════════════════════════════════════════════════════
 
+def start_page_worker(page, target, args=(), before_start=None,
+                      busy_message="当前已有任务正在执行，请先点击停止或等待其完成"):
+    """串行化同一页面的后台任务。
+
+    各页面共享单个 ``page.stop`` 事件。若上一个任务尚未结束就再次启动，
+    旧代码会先 ``stop.clear()`` 抹掉停止信号，导致两个线程共用同一事件、
+    停止语义错乱。此处在启动前检查是否已有存活的工作线程：
+    - 若有，提示用户并拒绝启动（返回 None）；
+    - 若无，清除停止标志、记录线程引用后再启动。
+    """
+    existing = getattr(page, "_active_worker", None)
+    if existing is not None and existing.is_alive():
+        try:
+            InfoBar.warning(
+                "任务进行中", busy_message,
+                orient=Qt.Orientation.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP, duration=3000,
+                parent=page.window(),
+            )
+        except Exception:
+            pass
+        return None
+    page.stop.clear()
+    if before_start is not None:
+        before_start()
+    worker = threading.Thread(target=target, args=tuple(args), daemon=True)
+    page._active_worker = worker
+    worker.start()
+    return worker
+
 class CleanPage(ScrollArea):
     def __init__(self, sig, targets, stop, targets_lock, parent=None):
         super().__init__(parent); self.sig=sig; self.targets=targets; self.stop=stop; self._targets_lock=targets_lock
@@ -9101,8 +9216,7 @@ class CleanPage(ScrollArea):
         self.tbl.setDragEnabled(False)
         self.tbl_model.set_drag_enabled(False)
         self._sync()
-        self.stop.clear()
-        threading.Thread(target=self._est_w, args=(checked_only,), daemon=True).start()
+        start_page_worker(self, self._est_w, args=(checked_only,))
         
     def _est_w(self, checked_only=True):
         t0 = time.time()
@@ -9194,7 +9308,7 @@ class CleanPage(ScrollArea):
             if not MessageBox("确认", "当前为强力模式，删除后无法恢复继续？", self.window()).exec():
                 self._apply_sort_state()
                 return
-        self.stop.clear(); threading.Thread(target=self._cln_w, daemon=True).start()
+        start_page_worker(self, self._cln_w)
     
     def _cln_w(self):
         t0 = time.time()
@@ -9790,8 +9904,9 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
 
     def do_scan(self):
         self._ensure_heavy_content(immediate=True)
-        self.stop.clear(); self.sig.uninst_clr.emit(); self.sig.uninst_log.emit("开始扫描系统软件列表...")
-        threading.Thread(target=self._scan_w, daemon=True).start()
+        def _prep():
+            self.sig.uninst_clr.emit(); self.sig.uninst_log.emit("开始扫描系统软件列表...")
+        start_page_worker(self, self._scan_w, before_start=_prep)
 
     def _scan_w(self):
         t0 = time.time()
@@ -9917,12 +10032,11 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
         if not self._confirm_risky_selection(data, "标准卸载"):
             self.sig.uninst_log.emit("已取消高风险标准卸载操作")
             return
-        self.stop.clear()
-        threading.Thread(
-            target=self._std_uninstall_w,
+        start_page_worker(
+            self,
+            self._std_uninstall_w,
             args=(data, self.chk_silent.isChecked(), self.sp_timeout.value() * 60),
-            daemon=True
-        ).start()
+        )
 
     def _std_uninstall_w(self, data, prefer_silent=False, timeout_sec=1200):
         t0 = time.time()
@@ -10026,12 +10140,11 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
             self.sig.uninst_log.emit("已取消高风险强力卸载操作")
             return
 
-        self.stop.clear()
-        threading.Thread(
-            target=self._force_uninstall_flow_w,
+        start_page_worker(
+            self,
+            self._force_uninstall_flow_w,
             args=(data, self.chk_silent.isChecked(), self.sp_timeout.value() * 60),
-            daemon=True
-        ).start()
+        )
 
     def _force_uninstall_flow_w(self, data, prefer_silent=False, timeout_sec=1200):
         t0 = time.time()
@@ -10464,8 +10577,9 @@ class BigFilePage(DeferredPageMixin, ScrollArea):
 
     def do_scan(self):
         self._ensure_heavy_content(immediate=True)
-        self.stop.clear(); self.btn_sel_all.setText("全选"); self.btn_sel_all.setIcon(FIF.ACCEPT)
-        threading.Thread(target=self._scan_w,daemon=True).start()
+        def _prep():
+            self.btn_sel_all.setText("全选"); self.btn_sel_all.setIcon(FIF.ACCEPT)
+        start_page_worker(self, self._scan_w, before_start=_prep)
 
     def _scan_w(self):
         t0 = time.time()
@@ -10515,7 +10629,7 @@ class BigFilePage(DeferredPageMixin, ScrollArea):
         if not paths: return
         pm=self.chk_perm.isChecked()
         if pm and not MessageBox("确认",f"将永久删除 {len(paths)} 个文件继续？",self.window()).exec(): return
-        self.stop.clear(); threading.Thread(target=self._del_w,args=(paths,pm),daemon=True).start()
+        start_page_worker(self, self._del_w, args=(paths, pm))
 
     def _del_w(self, paths, pm):
         t0 = time.time()
@@ -10772,18 +10886,26 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         self._ensure_heavy_content(immediate=True)
         idx = self.cb_mode.currentIndex(); roots = self.drive_sel.selected_drives()
         if idx not in (3, 4) and not roots: self.sig.more_done.emit("错误：未选择磁盘"); return
-        self.stop.clear(); self.sig.more_clr.emit(); self.sig.more_log.emit(f"开始 {self.cb_mode.currentText()}...")
-        
-        self._sync_select_all_button()
 
         big_page = getattr(self.window(), "pg_big", None)
         workers = big_page._disk_threads if big_page is not None else 4
 
-        if idx == 0: threading.Thread(target=self._scan_duplicates, args=(roots, workers), daemon=True).start()
-        elif idx == 1: threading.Thread(target=self._scan_empty_dirs, args=(roots, workers), daemon=True).start()
-        elif idx == 2: threading.Thread(target=self._scan_shortcuts, args=(roots, workers), daemon=True).start()
-        elif idx == 3: threading.Thread(target=self._scan_registry, daemon=True).start()
-        elif idx == 4: threading.Thread(target=self._scan_context_menu, daemon=True).start()
+        scan_targets = {
+            0: (self._scan_duplicates, (roots, workers)),
+            1: (self._scan_empty_dirs, (roots, workers)),
+            2: (self._scan_shortcuts, (roots, workers)),
+            3: (self._scan_registry, ()),
+            4: (self._scan_context_menu, ()),
+        }
+        target = scan_targets.get(idx)
+        if target is None:
+            return
+
+        def _prep():
+            self.sig.more_clr.emit(); self.sig.more_log.emit(f"开始 {self.cb_mode.currentText()}...")
+            self._sync_select_all_button()
+
+        start_page_worker(self, target[0], args=target[1], before_start=_prep)
 
     def _walk_files_threaded(self, roots, excl, workers, file_cb=None, dir_cb=None, ext_filter=None, collect_files=False, collect_dirs=False):
         return walk_files_threaded(
@@ -11149,7 +11271,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         if not MessageBox("恢复默认资源管理器关联", content, self.window()).exec():
             return
         self.sig.more_log.emit("[恢复关联] 正在恢复默认资源管理器关联...")
-        threading.Thread(target=self._restore_default_associations_w, daemon=True).start()
+        start_page_worker(self, self._restore_default_associations_w)
 
     def _restore_default_associations_w(self):
         ok, msg = restore_default_explorer_associations(self.sig.more_log.emit)
@@ -11209,9 +11331,10 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
                     return
 
         if not MessageBox("确认",f"确定清理这 {len(paths)} 个项目？不可恢复",self.window()).exec(): return
-        self.stop.clear()
-        if is_reg: threading.Thread(target=self._del_reg_w, args=(paths,), daemon=True).start()
-        else: threading.Thread(target=self._del_files_w, args=(paths, self.chk_perm.isChecked(), mode_idx == 1), daemon=True).start()
+        if is_reg:
+            start_page_worker(self, self._del_reg_w, args=(paths,))
+        else:
+            start_page_worker(self, self._del_files_w, args=(paths, self.chk_perm.isChecked(), mode_idx == 1))
 
     def _del_files_w(self, paths, pm, require_empty=False):
         t0 = time.time()

@@ -1289,15 +1289,33 @@ def safe_getsize(p):
     except Exception: return 0
 
 def dir_size(path, stop_flag=None):
-    t=0
-    for r,ds,fs in os.walk(path,topdown=True):
-        if stop_flag is not None and stop_flag.is_set():
-            break
-        ds[:]=[d for d in ds if not os.path.islink(os.path.join(r,d))]
-        for f in fs:
+    """递归统计目录总字节数。使用 os.scandir 复用 DirEntry 缓存 stat，
+    对每个文件仅一次系统调用；跳过符号链接以避免循环。"""
+    t = 0
+    try:
+        entries = os.scandir(path)
+    except (OSError, ValueError):
+        return 0
+    try:
+        for entry in entries:
             if stop_flag is not None and stop_flag.is_set():
                 break
-            t+=safe_getsize(os.path.join(r,f))
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    t += dir_size(entry.path, stop_flag=stop_flag)
+                elif entry.is_file(follow_symlinks=False):
+                    t += entry.stat(follow_symlinks=False).st_size
+            except OSError:
+                continue
+    except Exception:
+        pass
+    finally:
+        try:
+            entries.close()
+        except Exception:
+            pass
     return t
 
 def estimate_rule_size(entry, stop_flag=None):
@@ -1321,12 +1339,28 @@ def estimate_rule_size(entry, stop_flag=None):
             if not os.path.isdir(target):
                 return 0
             rule_pattern = normalize_rule_pattern(tp, pattern, nt)
+            rule_pattern_lower = rule_pattern.lower()
             total = 0
-            for name in os.listdir(target):
-                if stop_flag is not None and stop_flag.is_set():
-                    break
-                if fnmatch.fnmatch(name.lower(), rule_pattern.lower()):
-                    total += safe_getsize(os.path.join(target, name))
+            try:
+                entries = os.scandir(target)
+            except (OSError, ValueError):
+                return 0
+            try:
+                for entry in entries:
+                    if stop_flag is not None and stop_flag.is_set():
+                        break
+                    try:
+                        if not entry.is_file(follow_symlinks=False):
+                            continue
+                        if fnmatch.fnmatch(entry.name.lower(), rule_pattern_lower):
+                            total += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+            finally:
+                try:
+                    entries.close()
+                except Exception:
+                    pass
             return total
         if tp == "file":
             target = expand_env(pa)
@@ -1356,6 +1390,13 @@ def _protected_system_paths():
     """Return exact roots and descendant roots guarded from generic deletion."""
     system_root = os.environ.get("SystemRoot", r"C:\Windows")
     system_drive = os.environ.get("SystemDrive", "C:")
+    recycle_bin_roots = set()
+    try:
+        for drive in get_available_drives():
+            recycle_bin_roots.add(os.path.join(drive, "$Recycle.Bin"))
+            recycle_bin_roots.add(os.path.join(drive, "$RECYCLE.BIN"))
+    except Exception:
+        recycle_bin_roots.add(os.path.join(system_drive + "\\", "$Recycle.Bin"))
     exact_roots = {
         system_root,
         os.path.join(system_root, "System32"),
@@ -1368,6 +1409,7 @@ def _protected_system_paths():
         os.environ.get("USERPROFILE"),
         os.environ.get("LOCALAPPDATA"),
     }
+    exact_roots |= recycle_bin_roots
     descendant_roots = {
         system_root,
         os.environ.get("ProgramData", r"C:\ProgramData"),
@@ -2255,6 +2297,8 @@ def scan_installed_software_entries(stop_event=None):
 # ══════════════════════════════════════════════════════════
 CACHE_FILE = os.path.join(os.environ.get("TEMP", "."), "cdisk_cleaner_cache.json")
 
+_scan_threads_lock = threading.Lock()
+
 def _normalize_drive_letter(drive_letter="C"):
     text = str(drive_letter or "").strip()
     if not text:
@@ -2358,23 +2402,24 @@ def get_scan_threads(drive_letter="C"):
 
 def get_scan_threads_cached(drive_letter="C"):
     drive_letter = _normalize_drive_letter(drive_letter)
-    try:
-        drives = _load_scan_cache()
-        cache = drives.get(drive_letter, {})
-        dtype = cache.get("dtype", "Unknown")
-        ttl = 300 if dtype == "Unknown" else 86400
-        if time.time() - cache.get("ts", 0) < ttl:
-            return cache.get("threads", 4), cache.get("dtype", "Unknown")
-    except Exception as e:
-        log_background_error("读取线程缓存", e)
-    threads, dtype = get_scan_threads(drive_letter)
-    try:
-        drives = _load_scan_cache()
-        drives[drive_letter] = {"threads": threads, "dtype": dtype, "ts": time.time()}
-        _save_scan_cache(drives)
-    except Exception as e:
-        log_background_error("更新线程缓存", e)
-    return threads, dtype
+    with _scan_threads_lock:
+        try:
+            drives = _load_scan_cache()
+            cache = drives.get(drive_letter, {})
+            dtype = cache.get("dtype", "Unknown")
+            ttl = 300 if dtype == "Unknown" else 86400
+            if time.time() - cache.get("ts", 0) < ttl:
+                return cache.get("threads", 4), cache.get("dtype", "Unknown")
+        except Exception as e:
+            log_background_error("读取线程缓存", e)
+        threads, dtype = get_scan_threads(drive_letter)
+        try:
+            drives = _load_scan_cache()
+            drives[drive_letter] = {"threads": threads, "dtype": dtype, "ts": time.time()}
+            _save_scan_cache(drives)
+        except Exception as e:
+            log_background_error("更新线程缓存", e)
+        return threads, dtype
 
 def get_scan_threads_for_drives_cached(drives):
     letters = []
@@ -2603,6 +2648,8 @@ def _scan_big_files_fast_mft(roots, min_b, excl, stop, result_limit=None, progre
         log_sampled_background_error("Fast MFT large-file launch", e)
         return None
 
+    mft_wall_timeout = float(os.environ.get("C_CLEANER_PLUS_MFT_TIMEOUT", "60"))
+    deadline = time.time() + mft_wall_timeout
     while True:
         try:
             out, err = proc.communicate(timeout=0.1)
@@ -2615,6 +2662,17 @@ def _scan_big_files_fast_mft(roots, min_b, excl, stop, result_limit=None, progre
                 except Exception:
                     pass
                 return []
+            if time.time() >= deadline:
+                try:
+                    proc.kill()
+                    proc.communicate(timeout=1)
+                except Exception:
+                    pass
+                log_sampled_background_error(
+                    "Fast MFT large-file timeout",
+                    RuntimeError(f"MFT helper exceeded {int(mft_wall_timeout)}s wall clock"),
+                )
+                return None
 
     if proc.returncode != 0:
         if err:
@@ -2873,10 +2931,8 @@ def append_capped_log(text_edit, text, max_lines=LOG_MAX_LINES):
 
     cursor = QTextCursor(doc)
     cursor.movePosition(QTextCursor.MoveOperation.Start)
-    for _ in range(overflow):
-        cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
-        cursor.removeSelectedText()
-        cursor.deleteChar()
+    cursor.movePosition(QTextCursor.MoveOperation.Down, QTextCursor.MoveMode.KeepAnchor, overflow)
+    cursor.removeSelectedText()
 
 def norm_path(text):
     if not text: return ""
@@ -9372,7 +9428,9 @@ class CleanPage(ScrollArea):
         self.tbl.setDragEnabled(False)
         self.tbl_model.set_drag_enabled(False)
         self._sync()
-        selected_rules = [parse_rule_entry(t) for t in self.targets if t[3]]
+        with self._targets_lock:
+            rule_snapshot = list(self.targets)
+        selected_rules = [parse_rule_entry(t) for t in rule_snapshot if t[3]]
         selected_rules = [t for t in selected_rules if t]
         selected_rules, _ = self._dedupe_rule_targets(selected_rules)
 

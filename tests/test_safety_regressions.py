@@ -2,6 +2,7 @@ import inspect
 import io
 import os
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -140,6 +141,78 @@ class SafetyRegressionTests(unittest.TestCase):
             self.assertNotIn(forbidden, clean_source)
         for forbidden in ("self.sp_mb", "self.sp_mx", "self.drive_sel", "self.chk_skip_special"):
             self.assertNotIn(forbidden, big_source)
+
+    def test_link_plan_allows_existing_directory_target_for_resume(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = os.path.join(temp_dir, "uv-cache")
+            destination = os.path.join(temp_dir, "migrated")
+            target = os.path.join(destination, "uv-cache")
+            os.makedirs(source)
+            os.makedirs(target)
+            with open(os.path.join(source, "remaining.bin"), "wb") as stream:
+                stream.write(b"remaining")
+
+            ok, _message, plan = main.analyze_space_saving_plan(source, destination, "junction")
+
+            self.assertTrue(ok)
+            self.assertEqual(plan["target_path"], target)
+            self.assertTrue(any("断点续迁" in warning for warning in plan["warnings"]))
+
+    def test_incremental_directory_move_can_pause_and_resume(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = os.path.join(temp_dir, "cache")
+            target = os.path.join(temp_dir, "target", "cache")
+            os.makedirs(os.path.join(source, "nested"))
+            for index in range(3):
+                with open(os.path.join(source, "nested", f"item{index}.bin"), "wb") as stream:
+                    stream.write(f"payload-{index}".encode("utf-8"))
+
+            stop = threading.Event()
+
+            def stop_after_first_progress(_value, _status):
+                stop.set()
+
+            ok, message = main._move_directory_incremental(
+                source,
+                target,
+                stop_event=stop,
+                progress_fn=stop_after_first_progress,
+            )
+
+            self.assertFalse(ok)
+            self.assertIn("下次可继续", message)
+            self.assertTrue(os.path.isdir(source))
+            self.assertTrue(os.path.isdir(target))
+
+            stop.clear()
+            ok, message = main._move_directory_incremental(source, target, stop_event=stop)
+
+            self.assertTrue(ok, message)
+            self.assertFalse(os.path.exists(source))
+            for index in range(3):
+                self.assertTrue(os.path.exists(os.path.join(target, "nested", f"item{index}.bin")))
+
+    def test_incremental_directory_move_stops_on_target_conflict(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = os.path.join(temp_dir, "cache")
+            target = os.path.join(temp_dir, "target", "cache")
+            os.makedirs(source)
+            os.makedirs(target)
+            source_file = os.path.join(source, "item.bin")
+            target_file = os.path.join(target, "item.bin")
+            with open(source_file, "wb") as stream:
+                stream.write(b"source")
+            with open(target_file, "wb") as stream:
+                stream.write(b"target")
+
+            ok, message = main._move_directory_incremental(source, target)
+
+            self.assertFalse(ok)
+            self.assertIn("同名内容", message)
+            with open(source_file, "rb") as stream:
+                self.assertEqual(stream.read(), b"source")
+            with open(target_file, "rb") as stream:
+                self.assertEqual(stream.read(), b"target")
 
 
 if __name__ == "__main__":

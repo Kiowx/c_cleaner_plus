@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.7.2
+C盘强力清理工具 v0.7.3
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -127,7 +127,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.7.2"
+CURRENT_VERSION = "0.7.3"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -3184,6 +3184,21 @@ def _symlink_mode_available():
         pass
     return False, "需要管理员权限或开启 Windows 开发者模式"
 
+def _is_junction_path(path):
+    checker = getattr(os.path, "isjunction", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker(path))
+    except Exception:
+        return False
+
+def _is_link_like_path(path):
+    try:
+        return os.path.islink(path) or _is_junction_path(path)
+    except Exception:
+        return False
+
 def analyze_space_saving_plan(source_path, destination_root, link_mode="junction", stop_event=None):
     src = os.path.abspath(norm_path(source_path))
     dst_root = os.path.abspath(norm_path(destination_root))
@@ -3217,14 +3232,17 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
     if dst_root_norm.startswith(src_norm.rstrip("\\") + "\\"):
         return False, "目标目录不能位于源路径内部", plan
 
+    is_dir = os.path.isdir(src)
+    plan["source_kind"] = "目录" if is_dir else "文件"
     plan["target_path"] = build_space_saving_target_path(src, dst_root)
     if not plan["target_path"]:
         return False, "无法计算目标路径", plan
     if os.path.lexists(plan["target_path"]):
-        return False, f"目标已存在：{display_path(plan['target_path'])}", plan
+        if is_dir and os.path.isdir(plan["target_path"]) and not _is_link_like_path(plan["target_path"]):
+            plan["warnings"].append("目标目录已存在，将按断点续迁方式继续；如有同名冲突会停止")
+        else:
+            return False, f"目标已存在：{display_path(plan['target_path'])}", plan
 
-    is_dir = os.path.isdir(src)
-    plan["source_kind"] = "目录" if is_dir else "文件"
     if plan["mode"] not in {"junction", "symlink"}:
         return False, "未知的链接模式", plan
     if plan["mode"] == "junction" and not is_dir:
@@ -3262,6 +3280,104 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
 
     return True, "分析完成，可以开始迁移", plan
 
+def _move_directory_incremental(src, target_path, log_fn=None, stop_event=None, progress_fn=None):
+    moved_count = 0
+    moved_bytes = 0
+
+    def _log(message):
+        if callable(log_fn):
+            try:
+                log_fn(message)
+            except Exception as e:
+                log_sampled_background_error("工具箱日志", e, limit=3)
+
+    def _progress(value, status=""):
+        if callable(progress_fn):
+            try:
+                progress_fn(value, status)
+            except Exception:
+                pass
+
+    def _paused_message():
+        return (
+            f"迁移已暂停：已迁移 {moved_count} 项（{human_size(moved_bytes)}），"
+            "已完成部分保留在目标目录，下次可继续"
+        )
+
+    def _move_item(source_item, target_item):
+        nonlocal moved_count, moved_bytes
+        if stop_event is not None and stop_event.is_set():
+            return False, _paused_message()
+        if os.path.lexists(target_item):
+            return False, f"目标中已存在同名内容，已停止以避免覆盖：{display_path(target_item)}"
+
+        size = safe_getsize(source_item) if os.path.isfile(source_item) else 0
+        shutil.move(source_item, target_item)
+        moved_count += 1
+        moved_bytes += max(0, int(size))
+        if moved_count == 1 or moved_count % 100 == 0:
+            text = f"已迁移 {moved_count} 项，累计 {human_size(moved_bytes)}"
+            _log(f"[软链接] {text}")
+            _progress(35 + min(40, moved_count // 50), text)
+        return True, ""
+
+    try:
+        os.makedirs(target_path, exist_ok=True)
+        for root, dirs, files in os.walk(src, topdown=True):
+            if stop_event is not None and stop_event.is_set():
+                return False, _paused_message()
+
+            rel_path = os.path.relpath(root, src)
+            target_dir = target_path if rel_path == "." else os.path.join(target_path, rel_path)
+            if os.path.lexists(target_dir) and not os.path.isdir(target_dir):
+                return False, f"目标中已存在同名文件，无法创建目录：{display_path(target_dir)}"
+            os.makedirs(target_dir, exist_ok=True)
+
+            for dirname in list(dirs):
+                source_item = os.path.join(root, dirname)
+                target_item = os.path.join(target_dir, dirname)
+                if _is_link_like_path(source_item):
+                    dirs.remove(dirname)
+                    ok, message = _move_item(source_item, target_item)
+                    if not ok:
+                        return False, message
+                    continue
+                if os.path.lexists(target_item) and not os.path.isdir(target_item):
+                    return False, f"目标中已存在同名文件，无法创建目录：{display_path(target_item)}"
+                os.makedirs(target_item, exist_ok=True)
+
+            for filename in files:
+                ok, message = _move_item(
+                    os.path.join(root, filename),
+                    os.path.join(target_dir, filename),
+                )
+                if not ok:
+                    return False, message
+
+        for root, _dirs, _files in os.walk(src, topdown=False):
+            if stop_event is not None and stop_event.is_set():
+                return False, _paused_message()
+            try:
+                os.rmdir(root)
+            except OSError:
+                pass
+
+        if os.path.exists(src):
+            return False, (
+                "迁移未完全结束：源目录仍有剩余内容，已迁移部分保留在目标目录，"
+                "请处理剩余内容后重试"
+            )
+
+        text = f"目录内容迁移完成：共迁移 {moved_count} 项（{human_size(moved_bytes)}）"
+        _log(f"[软链接] {text}")
+        _progress(75, text)
+        return True, text
+    except Exception as e:
+        return False, (
+            "迁移已中断，已完成部分保留在目标目录，下次可继续："
+            f"{format_exception_text(e)}"
+        )
+
 def create_space_saving_link(source_path, destination_root, link_mode="junction", log_fn=None, stop_event=None, progress_fn=None):
     src = os.path.abspath(norm_path(source_path))
     dst_root = os.path.abspath(norm_path(destination_root))
@@ -3269,8 +3385,6 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
         return False, "源路径不能为空", ""
     if not dst_root:
         return False, "目标目录不能为空", ""
-    if not os.path.exists(src):
-        return False, "源路径不存在", ""
     if not os.path.isdir(dst_root):
         return False, "目标目录不存在", ""
 
@@ -3284,17 +3398,32 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
     target_path = build_space_saving_target_path(src, dst_root)
     if not target_path:
         return False, "无法计算目标路径", ""
-    if os.path.lexists(target_path):
-        return False, f"目标已存在：{display_path(target_path)}", target_path
     if os.path.normcase(target_path) == src_norm:
         return False, "目标路径与源路径相同", target_path
 
-    is_dir = os.path.isdir(src)
     selected_mode = str(link_mode or "").strip().lower()
     if selected_mode not in {"junction", "symlink"}:
         return False, "未知的链接模式", target_path
+
+    source_exists = os.path.exists(src)
+    target_exists = os.path.lexists(target_path)
+    resume_link_only = False
+    if source_exists:
+        is_dir = os.path.isdir(src)
+    elif target_exists:
+        is_dir = os.path.isdir(target_path)
+        resume_link_only = True
+    else:
+        return False, "源路径不存在", target_path
+
     if selected_mode == "junction" and not is_dir:
         return False, "目录联接只支持文件夹，请改用符号链接", target_path
+    resume_directory = False
+    if target_exists and not resume_link_only:
+        if is_dir and os.path.isdir(target_path) and not _is_link_like_path(target_path):
+            resume_directory = True
+        else:
+            return False, f"目标已存在：{display_path(target_path)}", target_path
 
     def _log(message):
         if callable(log_fn):
@@ -3319,36 +3448,58 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
     _log("[软链接] 权限检查通过")
 
     # ── P0: 迁移前磁盘空间预检 ──
-    _progress(15, "正在计算源路径体积...")
-    _log("[软链接] 正在计算源路径体积...")
-    if stop_event is not None and stop_event.is_set():
-        return False, "已取消", target_path
-    src_size = dir_size(src, stop_flag=stop_event) if is_dir else safe_getsize(src)
-    if stop_event is not None and stop_event.is_set():
-        return False, "已取消", target_path
-    try:
-        dst_free = shutil.disk_usage(dst_root).free
-    except Exception:
-        dst_free = -1
-    if dst_free >= 0 and src_size > 0 and src_size > dst_free:
-        need = human_size(src_size)
-        free = human_size(dst_free)
-        return False, f"目标磁盘空间不足：需要 {need}，仅剩 {free}", target_path
+    if not resume_link_only:
+        _progress(15, "正在计算源路径体积...")
+        _log("[软链接] 正在计算源路径体积...")
+        if resume_directory:
+            _log(f"[软链接] 检测到已有目标目录，将继续迁移剩余内容: {display_path(target_path)}")
+        if stop_event is not None and stop_event.is_set():
+            return False, "已取消", target_path
+        src_size = dir_size(src, stop_flag=stop_event) if is_dir else safe_getsize(src)
+        if stop_event is not None and stop_event.is_set():
+            return False, "已取消", target_path
+        try:
+            dst_free = shutil.disk_usage(dst_root).free
+        except Exception:
+            dst_free = -1
+        if dst_free >= 0 and src_size > 0 and src_size > dst_free:
+            need = human_size(src_size)
+            free = human_size(dst_free)
+            return False, f"目标磁盘空间不足：需要 {need}，仅剩 {free}", target_path
+    else:
+        _log(f"[软链接] 检测到源内容已在目标目录，将直接补创建链接: {display_path(target_path)}")
 
-    _progress(25, "正在迁移文件...")
+    _progress(25, "正在迁移文件..." if not resume_link_only else "正在补创建链接...")
 
     moved = False
+    incremental_move_started = False
     try:
         if stop_event is not None and stop_event.is_set():
             return False, "已取消", target_path
-        _log(f"[软链接] 正在迁移源内容: {display_path(src)}")
-        shutil.move(src, target_path)
-        moved = True
-        _log(f"[软链接] 已迁移到: {display_path(target_path)}")
+        if not resume_link_only:
+            _log(f"[软链接] 正在迁移源内容: {display_path(src)}")
+            if is_dir:
+                incremental_move_started = True
+                ok, move_message = _move_directory_incremental(
+                    src,
+                    target_path,
+                    log_fn=log_fn,
+                    stop_event=stop_event,
+                    progress_fn=progress_fn,
+                )
+                if not ok:
+                    _log(f"[软链接] {move_message}")
+                    return False, move_message, target_path
+            else:
+                shutil.move(src, target_path)
+            moved = True
+            _log(f"[软链接] 已迁移到: {display_path(target_path)}")
 
         _progress(80, "正在创建链接...")
 
         if stop_event is not None and stop_event.is_set():
+            if incremental_move_started:
+                return False, "迁移已暂停：内容已迁移到目标目录，尚未创建链接；下次可继续补创建链接", target_path
             raise RuntimeError("用户取消操作，正在回滚")
 
         if selected_mode == "junction":
@@ -3370,6 +3521,16 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
         append_link_history(src, target_path, selected_mode)
         return True, "已完成迁移并创建链接", target_path
     except Exception as e:
+        if incremental_move_started or resume_link_only:
+            try:
+                if os.path.lexists(src) and _is_link_like_path(src):
+                    _remove_link_only(src)
+            except Exception:
+                pass
+            detail = format_exception_text(e)
+            _log(f"[软链接] 创建失败: {detail}")
+            return False, f"{detail}；已迁移内容保留在目标目录，下次可继续", target_path
+
         rollback_errors = []
         try:
             if os.path.lexists(src):
@@ -6635,7 +6796,7 @@ class ToolboxPage(ScrollArea):
         soft_page_layout.setContentsMargins(0, 0, 0, 0)
         soft_page_layout.setSpacing(12)
 
-        intro_label = CaptionLabel("把原路径迁移到新的存储目录，并在原位置创建链接。目录推荐使用目录联接，文件请使用符号链接。")
+        intro_label = CaptionLabel("把原路径迁移到新的存储目录，并在原位置创建链接。目录会逐项迁移，取消或异常后可再次点击继续。")
         intro_label.setWordWrap(True)
         intro_label.setTextColor(QColor(128, 128, 128))
         soft_page_layout.addWidget(intro_label)
@@ -6745,7 +6906,7 @@ class ToolboxPage(ScrollArea):
         self.btn_analyze_link.setFixedHeight(34)
         self.btn_analyze_link.clicked.connect(self._start_link_analysis)
         option_row.addWidget(self.btn_analyze_link)
-        self.btn_run_link = PrimaryPushButton(FIF.SAVE, "开始迁移并创建链接")
+        self.btn_run_link = PrimaryPushButton(FIF.SAVE, "开始/继续迁移并创建链接")
         self.btn_run_link.setFixedHeight(34)
         self.btn_run_link.clicked.connect(self._start_link_task)
         option_row.addWidget(self.btn_run_link)

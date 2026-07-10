@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.7.3
+C盘强力清理工具 v0.7.4
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -59,9 +59,22 @@ def _runtime_tr(parent, text):
     pack = getattr(host, "language_pack", None)
     if not pack:
         return raw
+    if getattr(host, "_runtime_i18n_pack_ref", None) is not pack:
+        try:
+            host._runtime_i18n_pack_ref = pack
+            host._runtime_i18n_keys = None
+            host._runtime_i18n_cache = {}
+        except Exception:
+            pass
+    cache = getattr(host, "_runtime_i18n_cache", None)
+    if isinstance(cache, dict) and raw in cache:
+        return cache[raw]
     exact = pack.get(raw)
     if exact is not None:
-        return exact
+        result = str(exact)
+        if isinstance(cache, dict):
+            cache[raw] = result
+        return result
     if not re.search(r"[\u4e00-\u9fff]", raw):
         return raw
     if re.search(r"[A-Za-z]:\\|\\\\|/", raw):
@@ -81,6 +94,10 @@ def _runtime_tr(parent, text):
     for key in keys:
         if len(key) >= 3 and key in translated:
             translated = translated.replace(key, str(pack.get(key, key)))
+    if isinstance(cache, dict):
+        if len(cache) >= 2048:
+            cache.clear()
+        cache[raw] = translated
     return translated
 
 def MessageBox(title, content, parent=None, *args, **kwargs):
@@ -127,7 +144,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.7.3"
+CURRENT_VERSION = "0.7.4"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -1287,6 +1304,72 @@ def human_size(n):
 def safe_getsize(p):
     try: return os.path.getsize(p)
     except Exception: return 0
+
+def _file_stat_signature(st):
+    return (
+        int(st.st_size),
+        int(st.st_mtime_ns),
+        int(st.st_dev),
+        int(st.st_ino),
+    )
+
+def validate_duplicate_deletion_candidate(path, expectation, stop_event=None, chunk_size=1024 * 1024):
+    if not isinstance(expectation, dict):
+        return False, "缺少重复文件复核信息"
+    candidate_text = norm_path(path)
+    reference_text = norm_path(expectation.get("reference", ""))
+    candidate = os.path.abspath(candidate_text) if candidate_text else ""
+    reference = os.path.abspath(reference_text) if reference_text else ""
+    expected_digest = str(expectation.get("digest", "")).strip().lower()
+    try:
+        expected_size = int(expectation.get("size", -1))
+    except (TypeError, ValueError):
+        expected_size = -1
+    if not candidate or not reference or expected_size < 0 or not expected_digest:
+        return False, "重复文件复核信息不完整"
+    if os.path.normcase(candidate) == os.path.normcase(reference):
+        return False, "该文件是本组保留副本"
+    if not os.path.isfile(candidate) or not os.path.isfile(reference):
+        return False, "候选文件或保留副本已不存在"
+    if os.path.islink(candidate) or os.path.islink(reference):
+        return False, "候选文件或保留副本已变为链接"
+
+    try:
+        candidate_before = os.stat(candidate, follow_symlinks=False)
+        reference_before = os.stat(reference, follow_symlinks=False)
+        if candidate_before.st_size != expected_size or reference_before.st_size != expected_size:
+            return False, "文件大小在扫描后发生变化"
+
+        digest = hashlib.sha256()
+        with open(candidate, "rb") as candidate_stream, open(reference, "rb") as reference_stream:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    return False, "已取消重复文件复核"
+                candidate_chunk = candidate_stream.read(chunk_size)
+                reference_chunk = reference_stream.read(chunk_size)
+                if candidate_chunk != reference_chunk:
+                    return False, "文件内容在扫描后不再相同"
+                if not candidate_chunk:
+                    break
+                digest.update(candidate_chunk)
+
+            candidate_open_signature = _file_stat_signature(os.fstat(candidate_stream.fileno()))
+            reference_open_signature = _file_stat_signature(os.fstat(reference_stream.fileno()))
+
+        if digest.hexdigest().lower() != expected_digest:
+            return False, "文件内容与扫描结果不一致"
+        candidate_before_signature = _file_stat_signature(candidate_before)
+        reference_before_signature = _file_stat_signature(reference_before)
+        if candidate_open_signature != candidate_before_signature or reference_open_signature != reference_before_signature:
+            return False, "文件在复核过程中发生变化"
+        if (
+            _file_stat_signature(os.stat(candidate, follow_symlinks=False)) != candidate_before_signature
+            or _file_stat_signature(os.stat(reference, follow_symlinks=False)) != reference_before_signature
+        ):
+            return False, "文件在复核完成后发生变化"
+        return True, ""
+    except Exception as e:
+        return False, f"重复文件复核失败：{format_exception_text(e)}"
 
 def dir_size(path, stop_flag=None):
     """递归统计目录总字节数。使用 os.scandir 复用 DirEntry 缓存 stat，
@@ -2992,11 +3075,15 @@ def _remove_link_only(path):
 
 TOOLBOX_HISTORY_FILE = "toolbox_link_history.json"
 TOOLBOX_HISTORY_MAX = 200
+TOOLBOX_MIGRATION_JOURNAL_FILE = "toolbox_migration_journal.json"
+TOOLBOX_MIGRATION_JOURNAL_VERSION = 1
+_toolbox_history_lock = threading.RLock()
+_toolbox_migration_lock = threading.RLock()
 
 def _toolbox_history_path():
     return os.path.join(get_runtime_config_dir(), TOOLBOX_HISTORY_FILE)
 
-def load_link_history():
+def _load_link_history_unlocked():
     path = _toolbox_history_path()
     try:
         if os.path.exists(path):
@@ -3004,28 +3091,117 @@ def load_link_history():
                 data = json.load(f)
             if isinstance(data, list):
                 return data
-    except Exception:
-        pass
+    except Exception as e:
+        log_background_error("读取迁移历史失败", e)
     return []
+
+def load_link_history():
+    with _toolbox_history_lock:
+        return _load_link_history_unlocked()
 
 def save_link_history(history):
     path = _toolbox_history_path()
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(history[:TOOLBOX_HISTORY_MAX], f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    with _toolbox_history_lock:
+        try:
+            write_json_file_atomic(
+                path,
+                list(history or [])[-TOOLBOX_HISTORY_MAX:],
+                ensure_ascii=False,
+                indent=2,
+            )
+            return True
+        except Exception as e:
+            log_background_error("保存迁移历史失败", e)
+            return False
 
 def append_link_history(source, target, mode):
-    history = load_link_history()
-    history.append({
-        "source": source,
-        "target": target,
-        "mode": mode,
-        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-    })
-    save_link_history(history)
+    with _toolbox_history_lock:
+        history = _load_link_history_unlocked()
+        history.append({
+            "source": source,
+            "target": target,
+            "mode": mode,
+            "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        return save_link_history(history)
+
+def remove_link_history(source, target):
+    source_norm = os.path.normcase(os.path.abspath(norm_path(source)))
+    target_norm = os.path.normcase(os.path.abspath(norm_path(target)))
+    with _toolbox_history_lock:
+        history = [
+            item for item in _load_link_history_unlocked()
+            if not (
+                os.path.normcase(os.path.abspath(norm_path(item.get("source", "")))) == source_norm
+                and os.path.normcase(os.path.abspath(norm_path(item.get("target", "")))) == target_norm
+            )
+        ]
+        return save_link_history(history)
+
+def _toolbox_migration_journal_path():
+    return os.path.join(get_runtime_config_dir(), TOOLBOX_MIGRATION_JOURNAL_FILE)
+
+def _migration_record_key(source, target, mode):
+    source_norm = os.path.normcase(os.path.abspath(norm_path(source)))
+    target_norm = os.path.normcase(os.path.abspath(norm_path(target)))
+    raw = f"{source_norm}\0{target_norm}\0{str(mode or '').strip().lower()}"
+    return hashlib.sha256(raw.encode("utf-8", errors="surrogatepass")).hexdigest()
+
+def _load_migration_journal_unlocked():
+    payload = read_json_file(
+        _toolbox_migration_journal_path(),
+        default={},
+        expected_type=dict,
+        log_context="读取迁移断点记录失败",
+    )
+    if payload.get("version") != TOOLBOX_MIGRATION_JOURNAL_VERSION:
+        return {}
+    entries = payload.get("entries", {})
+    return entries if isinstance(entries, dict) else {}
+
+def _save_migration_journal_unlocked(entries):
+    try:
+        write_json_file_atomic(
+            _toolbox_migration_journal_path(),
+            {
+                "version": TOOLBOX_MIGRATION_JOURNAL_VERSION,
+                "entries": entries if isinstance(entries, dict) else {},
+            },
+            ensure_ascii=False,
+            indent=2,
+            durable=True,
+        )
+        return True
+    except Exception as e:
+        log_background_error("保存迁移断点记录失败", e)
+        return False
+
+def get_migration_record(source, target, mode):
+    key = _migration_record_key(source, target, mode)
+    with _toolbox_migration_lock:
+        record = _load_migration_journal_unlocked().get(key)
+        return dict(record) if isinstance(record, dict) else {}
+
+def set_migration_record(source, target, mode, state, source_kind="directory"):
+    key = _migration_record_key(source, target, mode)
+    with _toolbox_migration_lock:
+        entries = _load_migration_journal_unlocked()
+        entries[key] = {
+            "source": os.path.abspath(norm_path(source)),
+            "target": os.path.abspath(norm_path(target)),
+            "mode": str(mode or "").strip().lower(),
+            "source_kind": str(source_kind or "directory"),
+            "state": str(state or "moving"),
+            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        return _save_migration_journal_unlocked(entries)
+
+def clear_migration_record(source, target, mode):
+    key = _migration_record_key(source, target, mode)
+    with _toolbox_migration_lock:
+        entries = _load_migration_journal_unlocked()
+        entries.pop(key, None)
+        return _save_migration_journal_unlocked(entries)
 
 CACHE_MIGRATION_PRESETS = [
     {"category": "聊天软件", "name": "微信聊天文件", "path": r"%USERPROFILE%\Documents\WeChat Files", "reason": "聊天文件与缓存容易持续增长"},
@@ -3199,9 +3375,66 @@ def _is_link_like_path(path):
     except Exception:
         return False
 
+SPACE_SAVING_ANALYSIS_TTL_SEC = 300
+
+def _path_state_signature(path):
+    try:
+        st = os.stat(path, follow_symlinks=False)
+        return {
+            "size": int(st.st_size),
+            "mtime_ns": int(st.st_mtime_ns),
+            "device": int(st.st_dev),
+            "inode": int(st.st_ino),
+        }
+    except (OSError, ValueError, TypeError):
+        return {}
+
+def _migration_record_matches(record, source, target, mode):
+    if not isinstance(record, dict) or record.get("state") not in {"moving", "moved"}:
+        return False
+    try:
+        return (
+            os.path.normcase(os.path.abspath(norm_path(record.get("source", ""))))
+            == os.path.normcase(os.path.abspath(norm_path(source)))
+            and os.path.normcase(os.path.abspath(norm_path(record.get("target", ""))))
+            == os.path.normcase(os.path.abspath(norm_path(target)))
+            and str(record.get("mode", "")).strip().lower() == str(mode or "").strip().lower()
+            and record.get("source_kind") == "directory"
+        )
+    except Exception:
+        return False
+
+def _reusable_analysis_size(plan, source, destination_root, target_path, mode):
+    if not isinstance(plan, dict):
+        return None
+    try:
+        analyzed_at = float(plan.get("analyzed_at", 0))
+        if analyzed_at <= 0 or time.time() - analyzed_at > SPACE_SAVING_ANALYSIS_TTL_SEC:
+            return None
+        expected = (
+            os.path.normcase(os.path.abspath(norm_path(source))),
+            os.path.normcase(os.path.abspath(norm_path(destination_root))),
+            os.path.normcase(os.path.abspath(norm_path(target_path))),
+            str(mode or "").strip().lower(),
+        )
+        actual = (
+            os.path.normcase(os.path.abspath(norm_path(plan.get("source", "")))),
+            os.path.normcase(os.path.abspath(norm_path(plan.get("destination_root", "")))),
+            os.path.normcase(os.path.abspath(norm_path(plan.get("target_path", "")))),
+            str(plan.get("mode", "")).strip().lower(),
+        )
+        if actual != expected or plan.get("source_signature") != _path_state_signature(source):
+            return None
+        size = int(plan.get("source_size", -1))
+        return size if size >= 0 else None
+    except (TypeError, ValueError, OSError):
+        return None
+
 def analyze_space_saving_plan(source_path, destination_root, link_mode="junction", stop_event=None):
-    src = os.path.abspath(norm_path(source_path))
-    dst_root = os.path.abspath(norm_path(destination_root))
+    source_text = norm_path(source_path)
+    destination_text = norm_path(destination_root)
+    src = os.path.abspath(source_text) if source_text else ""
+    dst_root = os.path.abspath(destination_text) if destination_text else ""
     plan = {
         "source": src,
         "destination_root": dst_root,
@@ -3215,13 +3448,13 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
         "permission_text": "无需额外权限",
         "warnings": [],
         "mode": str(link_mode or "").strip().lower(),
+        "analyzed_at": 0,
+        "source_signature": {},
     }
     if not src:
         return False, "源路径不能为空", plan
     if not dst_root:
         return False, "目标目录不能为空", plan
-    if not os.path.exists(src):
-        return False, "源路径不存在", plan
     if not os.path.isdir(dst_root):
         return False, "目标目录不存在", plan
 
@@ -3232,19 +3465,47 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
     if dst_root_norm.startswith(src_norm.rstrip("\\") + "\\"):
         return False, "目标目录不能位于源路径内部", plan
 
-    is_dir = os.path.isdir(src)
-    plan["source_kind"] = "目录" if is_dir else "文件"
+    if plan["mode"] not in {"junction", "symlink"}:
+        return False, "未知的链接模式", plan
+
     plan["target_path"] = build_space_saving_target_path(src, dst_root)
     if not plan["target_path"]:
         return False, "无法计算目标路径", plan
-    if os.path.lexists(plan["target_path"]):
-        if is_dir and os.path.isdir(plan["target_path"]) and not _is_link_like_path(plan["target_path"]):
+
+    source_exists = os.path.exists(src)
+    target_exists = os.path.lexists(plan["target_path"])
+    record = get_migration_record(src, plan["target_path"], plan["mode"])
+    record_matches = _migration_record_matches(record, src, plan["target_path"], plan["mode"])
+    resume_link_only = False
+
+    if os.path.lexists(src) and _is_link_like_path(src):
+        return False, "源路径已经是链接，无需重复迁移", plan
+    if source_exists:
+        is_dir = os.path.isdir(src)
+    elif (
+        target_exists
+        and os.path.isdir(plan["target_path"])
+        and not _is_link_like_path(plan["target_path"])
+        and record_matches
+    ):
+        is_dir = True
+        resume_link_only = True
+        plan["warnings"].append("源内容已完成迁移，将根据断点记录补创建链接")
+    else:
+        return False, "源路径不存在，且没有匹配的迁移断点记录", plan
+
+    plan["source_kind"] = "目录" if is_dir else "文件"
+    if target_exists and not resume_link_only:
+        if (
+            is_dir
+            and os.path.isdir(plan["target_path"])
+            and not _is_link_like_path(plan["target_path"])
+            and record_matches
+        ):
             plan["warnings"].append("目标目录已存在，将按断点续迁方式继续；如有同名冲突会停止")
         else:
-            return False, f"目标已存在：{display_path(plan['target_path'])}", plan
+            return False, f"目标已存在但没有匹配的迁移断点记录：{display_path(plan['target_path'])}", plan
 
-    if plan["mode"] not in {"junction", "symlink"}:
-        return False, "未知的链接模式", plan
     if plan["mode"] == "junction" and not is_dir:
         return False, "目录联接只支持文件夹，请改用符号链接", plan
     if plan["mode"] == "symlink":
@@ -3256,11 +3517,13 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
 
     if stop_event is not None and stop_event.is_set():
         return False, "已取消", plan
-    size = dir_size(src, stop_flag=stop_event) if is_dir else safe_getsize(src)
+    size = 0 if resume_link_only else (dir_size(src, stop_flag=stop_event) if is_dir else safe_getsize(src))
     if stop_event is not None and stop_event.is_set():
         return False, "已取消", plan
     plan["source_size"] = int(size)
     plan["source_size_text"] = human_size(size)
+    plan["source_signature"] = {} if resume_link_only else _path_state_signature(src)
+    plan["analyzed_at"] = time.time()
 
     try:
         free = shutil.disk_usage(dst_root).free
@@ -3378,9 +3641,12 @@ def _move_directory_incremental(src, target_path, log_fn=None, stop_event=None, 
             f"{format_exception_text(e)}"
         )
 
-def create_space_saving_link(source_path, destination_root, link_mode="junction", log_fn=None, stop_event=None, progress_fn=None):
-    src = os.path.abspath(norm_path(source_path))
-    dst_root = os.path.abspath(norm_path(destination_root))
+def create_space_saving_link(source_path, destination_root, link_mode="junction", log_fn=None,
+                             stop_event=None, progress_fn=None, analysis_plan=None):
+    source_text = norm_path(source_path)
+    destination_text = norm_path(destination_root)
+    src = os.path.abspath(source_text) if source_text else ""
+    dst_root = os.path.abspath(destination_text) if destination_text else ""
     if not src:
         return False, "源路径不能为空", ""
     if not dst_root:
@@ -3407,23 +3673,37 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
 
     source_exists = os.path.exists(src)
     target_exists = os.path.lexists(target_path)
+    migration_record = get_migration_record(src, target_path, selected_mode)
+    record_matches = _migration_record_matches(migration_record, src, target_path, selected_mode)
     resume_link_only = False
+    if os.path.lexists(src) and _is_link_like_path(src):
+        return False, "源路径已经是链接，无需重复迁移", target_path
     if source_exists:
         is_dir = os.path.isdir(src)
-    elif target_exists:
+    elif (
+        target_exists
+        and os.path.isdir(target_path)
+        and not _is_link_like_path(target_path)
+        and record_matches
+    ):
         is_dir = os.path.isdir(target_path)
         resume_link_only = True
     else:
-        return False, "源路径不存在", target_path
+        return False, "源路径不存在，且没有匹配的迁移断点记录", target_path
 
     if selected_mode == "junction" and not is_dir:
         return False, "目录联接只支持文件夹，请改用符号链接", target_path
     resume_directory = False
     if target_exists and not resume_link_only:
-        if is_dir and os.path.isdir(target_path) and not _is_link_like_path(target_path):
+        if (
+            is_dir
+            and os.path.isdir(target_path)
+            and not _is_link_like_path(target_path)
+            and record_matches
+        ):
             resume_directory = True
         else:
-            return False, f"目标已存在：{display_path(target_path)}", target_path
+            return False, f"目标已存在但没有匹配的迁移断点记录：{display_path(target_path)}", target_path
 
     def _log(message):
         if callable(log_fn):
@@ -3449,13 +3729,23 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
 
     # ── P0: 迁移前磁盘空间预检 ──
     if not resume_link_only:
-        _progress(15, "正在计算源路径体积...")
-        _log("[软链接] 正在计算源路径体积...")
+        _progress(15, "正在检查源路径体积...")
         if resume_directory:
             _log(f"[软链接] 检测到已有目标目录，将继续迁移剩余内容: {display_path(target_path)}")
         if stop_event is not None and stop_event.is_set():
             return False, "已取消", target_path
-        src_size = dir_size(src, stop_flag=stop_event) if is_dir else safe_getsize(src)
+        src_size = _reusable_analysis_size(
+            analysis_plan,
+            src,
+            dst_root,
+            target_path,
+            selected_mode,
+        )
+        if src_size is None:
+            _log("[软链接] 正在计算源路径体积...")
+            src_size = dir_size(src, stop_flag=stop_event) if is_dir else safe_getsize(src)
+        else:
+            _log(f"[软链接] 已复用执行前分析结果: {human_size(src_size)}")
         if stop_event is not None and stop_event.is_set():
             return False, "已取消", target_path
         try:
@@ -3479,6 +3769,8 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
         if not resume_link_only:
             _log(f"[软链接] 正在迁移源内容: {display_path(src)}")
             if is_dir:
+                if not set_migration_record(src, target_path, selected_mode, "moving", "directory"):
+                    return False, "无法保存迁移断点记录，已停止迁移以避免无法安全续传", target_path
                 incremental_move_started = True
                 ok, move_message = _move_directory_incremental(
                     src,
@@ -3490,6 +3782,7 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
                 if not ok:
                     _log(f"[软链接] {move_message}")
                     return False, move_message, target_path
+                set_migration_record(src, target_path, selected_mode, "moved", "directory")
             else:
                 shutil.move(src, target_path)
             moved = True
@@ -3518,7 +3811,10 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
         _progress(95, "正在记录历史...")
 
         _log(f"[软链接] 已创建链接: {display_path(src)} -> {display_path(target_path)}")
-        append_link_history(src, target_path, selected_mode)
+        if not append_link_history(src, target_path, selected_mode):
+            _log("[软链接] 链接已创建，但迁移历史保存失败")
+        if is_dir:
+            clear_migration_record(src, target_path, selected_mode)
         return True, "已完成迁移并创建链接", target_path
     except Exception as e:
         if incremental_move_started or resume_link_only:
@@ -7720,6 +8016,7 @@ class ToolboxPage(ScrollArea):
 
     def _finish_link_task(self, ok, message):
         self._analysis_running = False
+        self._analysis_plan = None
         self.btn_analyze_link.setEnabled(True)
         self.btn_run_link.setEnabled(True)
         self.btn_recommend.setEnabled(True)
@@ -7883,6 +8180,8 @@ class ToolboxPage(ScrollArea):
             return
 
         self.stop_event.clear()
+        analysis_plan = self._analysis_plan
+        self.btn_analyze_link.setEnabled(False)
         self.btn_run_link.setEnabled(False)
         self.btn_recommend.setEnabled(False)
         self.btn_cancel_link.show()
@@ -7900,6 +8199,7 @@ class ToolboxPage(ScrollArea):
                 source, dest, mode,
                 log_fn=self.toolLog.emit, stop_event=stop,
                 progress_fn=progress,
+                analysis_plan=analysis_plan,
             )
             final_message = message if not target_path else f"{message}：{display_path(target_path)}"
             self.toolDone.emit(ok, final_message)
@@ -7974,12 +8274,7 @@ class ToolboxPage(ScrollArea):
             self.undoDone.emit(ok, message)
 
         def _remove_and_refresh():
-            history = load_link_history()
-            history = [h for h in history if not (
-                os.path.normcase(h.get("source", "")) == os.path.normcase(source)
-                and os.path.normcase(h.get("target", "")) == os.path.normcase(target)
-            )]
-            save_link_history(history)
+            remove_link_history(source, target)
 
         self._pending_history_remove = _remove_and_refresh
 
@@ -11310,7 +11605,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         self.sig.more_log.emit(f"[重复文件] 第二阶段：校验 {len(suspects)} 个可疑大小分组...")
 
         def _get_hash(path, head_bytes=None, tail_bytes=0, sample_offsets=None):
-            m = hashlib.md5()
+            m = hashlib.sha256()
             try:
                 with open(path, 'rb') as f:
                     if sample_offsets:
@@ -11398,9 +11693,9 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
                     fh = _get_hash(p)
                     if fh:
                         full_dict[fh].append(p)
-                for duplicates in full_dict.values():
+                for full_digest, duplicates in full_dict.items():
                     if len(duplicates) > 1:
-                        results.append((file_size, duplicates))
+                        results.append((file_size, full_digest, duplicates))
                 full_dict.clear()
             quick_dict.clear()
 
@@ -11410,20 +11705,27 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
             self.sig.more_done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒")
             return
 
-        for idx, (file_size, duplicates) in enumerate(results):
+        for idx, (file_size, full_digest, duplicates) in enumerate(results):
             duplicates.sort(key=lambda p: os.path.normcase(p))
-            results[idx] = (file_size, duplicates)
-        results.sort(key=lambda item: (-item[0], os.path.normcase(item[1][0])))
+            results[idx] = (file_size, full_digest, duplicates)
+        results.sort(key=lambda item: (-item[0], os.path.normcase(item[2][0])))
         suspects.clear()
 
         cnt = 0
         hidden_cnt = 0
         pending_rows = []
-        for grp_id, (file_size, dup_list) in enumerate(results, 1):
+        for grp_id, (file_size, full_digest, dup_list) in enumerate(results, 1):
             shown_list = dup_list[:DUPLICATE_GROUP_DISPLAY_LIMIT]
             hidden = max(0, len(dup_list) - len(shown_list))
+            reference_path = dup_list[0]
             for idx, p in enumerate(shown_list):
-                pending_rows.append(((idx > 0), "重复文件", f"组 {grp_id}", human_size(file_size), p))
+                duplicate_check = {
+                    "group": grp_id,
+                    "reference": reference_path,
+                    "size": int(file_size),
+                    "digest": full_digest,
+                }
+                pending_rows.append(((idx > 0), "重复文件", f"组 {grp_id}", human_size(file_size), p, duplicate_check))
                 cnt += 1
                 if len(pending_rows) >= UI_BATCH_CHUNK:
                     self._emit_more_rows(pending_rows)
@@ -11631,17 +11933,35 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         if not paths: return
         mode_idx = self.cb_mode.currentIndex()
         is_reg = mode_idx in (3, 4)
+        duplicate_expectations = None
 
         # 为避免误删系统盘内容，重复文件模式禁止清理 C 盘文件
         if mode_idx == 0:
             blocked = []
-            allowed = []
-            for p in paths:
+            retained = []
+            missing_checks = []
+            allowed_entries = []
+            for row in selected_entries:
+                p = row.get("path", "")
+                if not p:
+                    continue
                 drive = os.path.splitdrive(norm_path(p))[0].upper()
                 if drive == "C:":
                     blocked.append(p)
-                else:
-                    allowed.append(p)
+                    continue
+                check = row.get("duplicate_check")
+                if not isinstance(check, dict):
+                    missing_checks.append(p)
+                    continue
+                reference_text = norm_path(check.get("reference", ""))
+                if not reference_text:
+                    missing_checks.append(p)
+                    continue
+                reference = os.path.abspath(reference_text)
+                if os.path.normcase(os.path.abspath(norm_path(p))) == os.path.normcase(reference):
+                    retained.append(p)
+                    continue
+                allowed_entries.append(row)
 
             if blocked:
                 self.sig.more_log.emit(f"[保护] 已阻止清理 {len(blocked)} 个位于 C 盘的重复文件")
@@ -11654,7 +11974,17 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
                     duration=3500,
                     parent=self.window()
                 )
-                paths = allowed
+
+            if retained:
+                self.sig.more_log.emit(f"[重复文件复核] 已保留 {len(retained)} 个分组基准副本")
+            if missing_checks:
+                self.sig.more_log.emit(f"[重复文件复核] 已跳过 {len(missing_checks)} 个缺少复核信息的项目")
+
+            paths = [row.get("path", "") for row in allowed_entries]
+            duplicate_expectations = {
+                _normalize_safety_path(row.get("path", "")): dict(row["duplicate_check"])
+                for row in allowed_entries
+            }
 
             if not paths:
                 return
@@ -11680,15 +12010,31 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         if is_reg:
             start_page_worker(self, self._del_reg_w, args=(paths,))
         else:
-            start_page_worker(self, self._del_files_w, args=(paths, self.chk_perm.isChecked(), mode_idx == 1))
+            start_page_worker(
+                self,
+                self._del_files_w,
+                args=(paths, self.chk_perm.isChecked(), mode_idx == 1, duplicate_expectations),
+            )
 
-    def _del_files_w(self, paths, pm, require_empty=False):
+    def _del_files_w(self, paths, pm, require_empty=False, duplicate_expectations=None):
         t0 = time.time()
         ok=fl=sk=0; tot=len(paths); lf=lambda s:self.sig.more_log.emit(s)
         for i,p in enumerate(paths,1):
             if self.stop.is_set():
                 self.sig.more_done.emit(f"清理已取消：成功 {ok}，失败 {fl}，跳过 {sk}，耗时 {time.time()-t0:.1f} 秒")
                 return
+            if duplicate_expectations is not None:
+                expectation = duplicate_expectations.get(_normalize_safety_path(p))
+                valid, reason = validate_duplicate_deletion_candidate(
+                    p,
+                    expectation,
+                    stop_event=self.stop,
+                )
+                if not valid:
+                    sk += 1
+                    lf(f"[重复文件复核] 已跳过: {p} -> {reason}")
+                    self.sig.more_prog.emit(i,tot)
+                    continue
             if require_empty:
                 result = delete_empty_directory_safely(p, pm, lf)
                 if result == "deleted":
@@ -12027,8 +12373,8 @@ class MainWindow(MSFluentWindow):
             return
         self._sync_navigation_for_language()
         self.setWindowTitle(f"{self.tr_text('C盘强力清理工具')} v{CURRENT_VERSION}")
+        self.apply_language_to_widget(self)
         for widget in (
-            self,
             getattr(self, "pg_clean", None),
             getattr(self, "pg_toolbox", None),
             getattr(self, "pg_schedule", None),
@@ -12038,7 +12384,6 @@ class MainWindow(MSFluentWindow):
             getattr(self, "pg_uninstall", None),
             getattr(self, "pg_more", None),
         ):
-            self.apply_language_to_widget(widget)
             if widget is not None and hasattr(widget, "apply_language_layout"):
                 try:
                     widget.apply_language_layout()
@@ -12414,18 +12759,8 @@ class MainWindow(MSFluentWindow):
             custom_path = self.custom_rules_path
             config_path = self.config_path
 
-            def _writer():
-                try:
-                    write_json_file_atomic(custom_path, custom_payload, ensure_ascii=False, indent=2)
-                    write_json_file_atomic(config_path, state_payload, ensure_ascii=False, indent=2)
-                except Exception as e:
-                    log_background_error("关闭窗口时自动保存失败", e)
-
-            t = threading.Thread(target=_writer, daemon=True)
-            t.start()
-            t.join(timeout=1.5)
-            if t.is_alive():
-                log_background_error("关闭窗口时自动保存超时", "已继续退出，保存线程将在进程结束时终止")
+            write_json_file_atomic(custom_path, custom_payload, ensure_ascii=False, indent=2, durable=True)
+            write_json_file_atomic(config_path, state_payload, ensure_ascii=False, indent=2, durable=True)
         except Exception as e:
             log_background_error("关闭窗口时自动保存失败", e)
 
@@ -13278,14 +13613,18 @@ class MainWindow(MSFluentWindow):
         chunk = self._pending_more_rows[:UI_BATCH_CHUNK]
         del self._pending_more_rows[:len(chunk)]
         rows = []
-        for chk, tp, nm, det, pa in chunk:
-            rows.append({
+        for item in chunk:
+            chk, tp, nm, det, pa = item[:5]
+            row = {
                 "checked": bool(chk),
                 "type": tp,
                 "name": nm,
                 "detail": det,
                 "path": pa
-            })
+            }
+            if len(item) > 5 and isinstance(item[5], dict):
+                row["duplicate_check"] = dict(item[5])
+            rows.append(row)
         self.pg_more.add_result_rows(rows)
         if self._pending_more_rows:
             self._more_flush_timer.start(0)

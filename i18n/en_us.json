@@ -1,8 +1,8 @@
 {
   "code": "en_us",
   "label": "English",
-  "version": 6,
-  "updated_at": "2026-05-16",
+  "version": 7,
+  "updated_at": "2026-07-10",
   "translations": {
     "C盘强力清理工具": "C Cleaner Plus",
     "常规清理": "Standard Cleanup",
@@ -1158,6 +1158,16 @@
     "未导入任何规则或状态（可能全部重复）": "No rules or state were imported (possibly all duplicates)",
     "重复目标：": "Duplicate target:",
     "共有": "Total",
-    "条规则指向同一清理目标": "rules point to the same cleanup target"
+    "条规则指向同一清理目标": "rules point to the same cleanup target",
+    "开始/继续迁移并创建链接": "Start or resume migration and create link",
+    "源路径已经是链接，无需重复迁移": "The source path is already a link and does not need to be migrated again",
+    "源路径不存在，且没有匹配的迁移断点记录": "The source path is missing and no matching migration record was found",
+    "目标已存在但没有匹配的迁移断点记录：": "The target already exists but has no matching migration record:",
+    "源内容已完成迁移，将根据断点记录补创建链接": "Migration is complete; the link will be recreated from the saved migration record",
+    "无法保存迁移断点记录，已停止迁移以避免无法安全续传": "Migration stopped because its recovery record could not be saved safely",
+    "正在检查源路径体积...": "Checking source size...",
+    "已复用执行前分析结果:": "Reused pre-migration analysis:",
+    "重复文件复核": "Duplicate file verification",
+    "缺少重复文件复核信息": "Duplicate verification data is missing"
   }
 }

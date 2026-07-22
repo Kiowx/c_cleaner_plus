@@ -506,7 +506,10 @@ mod windows {
                 if offset + run_offset > offset + attr_len {
                     return Err(invalid_data("invalid $MFT data run offset").into());
                 }
-                let runs = parse_runlist(&record[offset + run_offset..offset + attr_len]);
+                let runs = parse_runlist(&record[offset + run_offset..offset + attr_len])?;
+                if runs.is_empty() {
+                    return Err(invalid_data("$MFT data run list is empty").into());
+                }
                 return Ok((runs, real_size));
             }
             offset += attr_len;
@@ -515,7 +518,7 @@ mod windows {
         Err(invalid_data("$MFT unnamed non-resident data attribute not found").into())
     }
 
-    fn parse_runlist(data: &[u8]) -> Vec<DataRun> {
+    fn parse_runlist(data: &[u8]) -> Result<Vec<DataRun>> {
         let mut runs = Vec::new();
         let mut idx = 0usize;
         let mut current_lcn = 0i64;
@@ -524,42 +527,66 @@ mod windows {
             let header = data[idx];
             idx += 1;
             if header == 0 {
-                break;
+                return Ok(runs);
             }
             let len_size = (header & 0x0F) as usize;
             let off_size = (header >> 4) as usize;
-            if len_size == 0 || idx + len_size + off_size > data.len() {
-                break;
+            if len_size == 0 || len_size > 8 || off_size > 8 {
+                return Err(invalid_data("invalid NTFS data run field width").into());
+            }
+            if idx + len_size + off_size > data.len() {
+                return Err(invalid_data("truncated NTFS data run").into());
             }
 
             let clusters = read_uint_var(&data[idx..idx + len_size]);
             idx += len_size;
+            if clusters == 0 {
+                return Err(invalid_data("NTFS data run has zero clusters").into());
+            }
+
+            if off_size == 0 {
+                runs.push(DataRun { lcn: -1, clusters });
+                continue;
+            }
+
             let lcn_delta = read_int_var(&data[idx..idx + off_size]);
             idx += off_size;
-            current_lcn = current_lcn.saturating_add(lcn_delta);
+            current_lcn = current_lcn
+                .checked_add(lcn_delta)
+                .ok_or_else(|| invalid_data("NTFS data run LCN overflow"))?;
+            if current_lcn < 0 {
+                return Err(invalid_data("NTFS data run resolved to a negative LCN").into());
+            }
             runs.push(DataRun {
                 lcn: current_lcn,
                 clusters,
             });
         }
 
-        runs
+        Err(invalid_data("unterminated NTFS data run list").into())
     }
 
     fn apply_fixup(record: &mut [u8], bytes_per_sector: usize) -> Result<()> {
-        if record.len() < 8 || bytes_per_sector == 0 {
+        if record.len() < 8 || bytes_per_sector < 2 {
             return Err(invalid_data("invalid file record").into());
         }
         let usa_offset = read_u16(record, 4) as usize;
         let usa_count = read_u16(record, 6) as usize;
-        if usa_count == 0 || usa_offset + usa_count * 2 > record.len() {
+        if usa_count < 2 || usa_offset + usa_count * 2 > record.len() {
             return Err(invalid_data("invalid update sequence array").into());
         }
 
+        let sequence = [record[usa_offset], record[usa_offset + 1]];
         for i in 1..usa_count {
-            let sector_tail = i * bytes_per_sector - 2;
+            let sector_tail = i
+                .checked_mul(bytes_per_sector)
+                .and_then(|value| value.checked_sub(2))
+                .ok_or_else(|| invalid_data("invalid update sequence sector offset"))?;
             if sector_tail + 2 > record.len() {
-                break;
+                return Err(invalid_data("update sequence exceeds file record").into());
+            }
+            if record[sector_tail..sector_tail + 2] != sequence {
+                return Err(invalid_data("file record update sequence mismatch").into());
             }
             let replacement = usa_offset + i * 2;
             let replacement_bytes = [record[replacement], record[replacement + 1]];
@@ -587,7 +614,7 @@ mod windows {
                 }
             })
             .collect();
-        refs.sort_by(|a, b| b.1.cmp(&a.1));
+        refs.sort_by_key(|item| std::cmp::Reverse(item.1));
 
         let mut rows = Vec::new();
         let mut seen = HashSet::new();
@@ -866,7 +893,7 @@ mod windows {
         for (i, byte) in data.iter().enumerate() {
             value |= (*byte as i64) << (i * 8);
         }
-        if data.last().copied().unwrap_or(0) & 0x80 != 0 {
+        if data.last().copied().unwrap_or(0) & 0x80 != 0 && data.len() < 8 {
             value |= -1i64 << (data.len() * 8);
         }
         value
@@ -956,6 +983,106 @@ mod windows {
             };
             self.cursor = new_cursor;
             Ok(new_cursor)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn runlist_parses_relative_and_sparse_runs() {
+            let data = [
+                0x11, 0x03, 0x05, // 3 clusters at LCN 5
+                0x01, 0x02, // 2 sparse clusters
+                0x11, 0x01, 0xFE, // 1 cluster, delta -2 => LCN 3
+                0x00,
+            ];
+            let runs = parse_runlist(&data).expect("valid runlist");
+            assert_eq!(runs.len(), 3);
+            assert_eq!((runs[0].lcn, runs[0].clusters), (5, 3));
+            assert_eq!((runs[1].lcn, runs[1].clusters), (-1, 2));
+            assert_eq!((runs[2].lcn, runs[2].clusters), (3, 1));
+        }
+
+        #[test]
+        fn runlist_rejects_truncated_or_oversized_fields() {
+            assert!(parse_runlist(&[0x11, 0x03]).is_err());
+            assert!(parse_runlist(&[0x91, 0x01, 0x00]).is_err());
+            assert!(parse_runlist(&[0x11, 0x00, 0x01, 0x00]).is_err());
+        }
+
+        #[test]
+        fn fixup_replaces_valid_sector_tails() {
+            let mut record = vec![0u8; 1024];
+            record[4..6].copy_from_slice(&(0x30u16).to_le_bytes());
+            record[6..8].copy_from_slice(&(3u16).to_le_bytes());
+            record[0x30..0x32].copy_from_slice(&[0xAA, 0xBB]);
+            record[0x32..0x34].copy_from_slice(&[0x11, 0x22]);
+            record[0x34..0x36].copy_from_slice(&[0x33, 0x44]);
+            record[510..512].copy_from_slice(&[0xAA, 0xBB]);
+            record[1022..1024].copy_from_slice(&[0xAA, 0xBB]);
+
+            apply_fixup(&mut record, 512).expect("valid fixup");
+            assert_eq!(&record[510..512], &[0x11, 0x22]);
+            assert_eq!(&record[1022..1024], &[0x33, 0x44]);
+        }
+
+        #[test]
+        fn fixup_rejects_sequence_mismatch() {
+            let mut record = vec![0u8; 1024];
+            record[4..6].copy_from_slice(&(0x30u16).to_le_bytes());
+            record[6..8].copy_from_slice(&(3u16).to_le_bytes());
+            record[0x30..0x32].copy_from_slice(&[0xAA, 0xBB]);
+            record[510..512].copy_from_slice(&[0xAA, 0xBC]);
+            record[1022..1024].copy_from_slice(&[0xAA, 0xBB]);
+
+            assert!(apply_fixup(&mut record, 512).is_err());
+        }
+
+        #[test]
+        fn signed_variable_integer_handles_eight_bytes() {
+            assert_eq!(read_int_var(&[0xFF; 8]), -1);
+            assert_eq!(read_int_var(&[0xFE]), -2);
+        }
+
+        #[test]
+        fn file_name_value_decodes_parent_and_unicode_name() {
+            let name: Vec<u16> = "测试".encode_utf16().collect();
+            let mut value = vec![0u8; 66 + name.len() * 2];
+            value[0..8].copy_from_slice(&(42u64).to_le_bytes());
+            value[56..60].copy_from_slice(&(FILE_ATTRIBUTE_REPARSE_POINT).to_le_bytes());
+            value[64] = name.len() as u8;
+            value[65] = 1;
+            for (idx, ch) in name.iter().enumerate() {
+                let offset = 66 + idx * 2;
+                value[offset..offset + 2].copy_from_slice(&ch.to_le_bytes());
+            }
+
+            let (score, parent, decoded, attrs) =
+                parse_file_name_value(&value).expect("valid file name");
+            assert_eq!(score, 3);
+            assert_eq!(parent, 42);
+            assert_eq!(decoded, "测试");
+            assert_eq!(attrs, FILE_ATTRIBUTE_REPARSE_POINT);
+        }
+
+        #[test]
+        fn build_path_rejects_parent_cycles() {
+            let mut records = vec![FastRecord::default(); 7];
+            records[ROOT_RECORD] = FastRecord {
+                active: true,
+                parent: ROOT_RECORD as u64,
+                is_dir: true,
+                ..FastRecord::default()
+            };
+            records[6] = FastRecord {
+                active: true,
+                parent: 6,
+                name: "loop".to_string(),
+                ..FastRecord::default()
+            };
+            assert!(build_path(&records, 6, Path::new("C:\\")).is_none());
         }
     }
 }

@@ -1313,7 +1313,44 @@ def _file_stat_signature(st):
         int(st.st_ino),
     )
 
-def validate_duplicate_deletion_candidate(path, expectation, stop_event=None, chunk_size=1024 * 1024):
+def _stable_file_digest(path, expected_size=None, stop_event=None, chunk_size=1024 * 1024):
+    if not os.path.isfile(path):
+        return False, "", (), "文件已不存在"
+    if os.path.islink(path):
+        return False, "", (), "文件已变为链接"
+    try:
+        before = os.stat(path, follow_symlinks=False)
+        before_signature = _file_stat_signature(before)
+        if expected_size is not None and before.st_size != int(expected_size):
+            return False, "", (), "文件大小在扫描后发生变化"
+
+        digest = hashlib.sha256()
+        with open(path, "rb") as stream:
+            if _file_stat_signature(os.fstat(stream.fileno())) != before_signature:
+                return False, "", (), "文件在复核开始前发生变化"
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    return False, "", (), "已取消重复文件复核"
+                chunk = stream.read(max(64 * 1024, int(chunk_size or 0)))
+                if not chunk:
+                    break
+                digest.update(chunk)
+            if _file_stat_signature(os.fstat(stream.fileno())) != before_signature:
+                return False, "", (), "文件在复核过程中发生变化"
+
+        if _file_stat_signature(os.stat(path, follow_symlinks=False)) != before_signature:
+            return False, "", (), "文件在复核完成后发生变化"
+        return True, digest.hexdigest().lower(), before_signature, ""
+    except Exception as e:
+        return False, "", (), f"重复文件复核失败：{format_exception_text(e)}"
+
+def validate_duplicate_deletion_candidate(
+    path,
+    expectation,
+    stop_event=None,
+    chunk_size=1024 * 1024,
+    reference_cache=None,
+):
     if not isinstance(expectation, dict):
         return False, "缺少重复文件复核信息"
     candidate_text = norm_path(path)
@@ -1334,72 +1371,107 @@ def validate_duplicate_deletion_candidate(path, expectation, stop_event=None, ch
     if os.path.islink(candidate) or os.path.islink(reference):
         return False, "候选文件或保留副本已变为链接"
 
+    cache = reference_cache if isinstance(reference_cache, dict) else {}
+    cache_key = (_normalize_safety_path(reference), expected_size, expected_digest)
+    reference_signature = cache.get(cache_key)
     try:
-        candidate_before = os.stat(candidate, follow_symlinks=False)
-        reference_before = os.stat(reference, follow_symlinks=False)
-        if candidate_before.st_size != expected_size or reference_before.st_size != expected_size:
-            return False, "文件大小在扫描后发生变化"
+        if reference_signature is None:
+            ok, digest, reference_signature, reason = _stable_file_digest(
+                reference,
+                expected_size=expected_size,
+                stop_event=stop_event,
+                chunk_size=chunk_size,
+            )
+            if not ok:
+                return False, reason
+            if digest != expected_digest:
+                return False, "保留副本内容与扫描结果不一致"
+            cache[cache_key] = reference_signature
+        else:
+            if (
+                not os.path.isfile(reference)
+                or os.path.islink(reference)
+                or _file_stat_signature(os.stat(reference, follow_symlinks=False)) != reference_signature
+            ):
+                cache.pop(cache_key, None)
+                return False, "保留副本在复核后发生变化"
 
-        digest = hashlib.sha256()
-        with open(candidate, "rb") as candidate_stream, open(reference, "rb") as reference_stream:
-            while True:
-                if stop_event is not None and stop_event.is_set():
-                    return False, "已取消重复文件复核"
-                candidate_chunk = candidate_stream.read(chunk_size)
-                reference_chunk = reference_stream.read(chunk_size)
-                if candidate_chunk != reference_chunk:
-                    return False, "文件内容在扫描后不再相同"
-                if not candidate_chunk:
-                    break
-                digest.update(candidate_chunk)
-
-            candidate_open_signature = _file_stat_signature(os.fstat(candidate_stream.fileno()))
-            reference_open_signature = _file_stat_signature(os.fstat(reference_stream.fileno()))
-
-        if digest.hexdigest().lower() != expected_digest:
-            return False, "文件内容与扫描结果不一致"
-        candidate_before_signature = _file_stat_signature(candidate_before)
-        reference_before_signature = _file_stat_signature(reference_before)
-        if candidate_open_signature != candidate_before_signature or reference_open_signature != reference_before_signature:
-            return False, "文件在复核过程中发生变化"
-        if (
-            _file_stat_signature(os.stat(candidate, follow_symlinks=False)) != candidate_before_signature
-            or _file_stat_signature(os.stat(reference, follow_symlinks=False)) != reference_before_signature
-        ):
-            return False, "文件在复核完成后发生变化"
+        ok, digest, _candidate_signature, reason = _stable_file_digest(
+            candidate,
+            expected_size=expected_size,
+            stop_event=stop_event,
+            chunk_size=chunk_size,
+        )
+        if not ok:
+            return False, reason
+        if digest != expected_digest:
+            return False, "文件内容在扫描后不再相同"
+        if _file_stat_signature(os.stat(reference, follow_symlinks=False)) != reference_signature:
+            cache.pop(cache_key, None)
+            return False, "保留副本在复核过程中发生变化"
         return True, ""
     except Exception as e:
+        cache.pop(cache_key, None)
         return False, f"重复文件复核失败：{format_exception_text(e)}"
 
-def dir_size(path, stop_flag=None):
-    """递归统计目录总字节数。使用 os.scandir 复用 DirEntry 缓存 stat，
-    对每个文件仅一次系统调用；跳过符号链接以避免循环。"""
-    t = 0
-    try:
-        entries = os.scandir(path)
-    except (OSError, ValueError):
-        return 0
-    try:
-        for entry in entries:
-            if stop_flag is not None and stop_flag.is_set():
-                break
-            try:
-                if entry.is_symlink():
-                    continue
-                if entry.is_dir(follow_symlinks=False):
-                    t += dir_size(entry.path, stop_flag=stop_flag)
-                elif entry.is_file(follow_symlinks=False):
-                    t += entry.stat(follow_symlinks=False).st_size
-            except OSError:
-                continue
-    except Exception:
-        pass
-    finally:
+@dataclass
+class DirectorySizeResult:
+    size: int = 0
+    complete: bool = True
+    errors: int = 0
+    cancelled: bool = False
+
+def dir_size_detailed(path, stop_flag=None):
+    """迭代统计目录大小，并明确返回取消及读取失败状态。"""
+    result = DirectorySizeResult()
+    stack = [path]
+    while stack:
+        if stop_flag is not None and stop_flag.is_set():
+            result.cancelled = True
+            result.complete = False
+            break
+        current = stack.pop()
         try:
-            entries.close()
-        except Exception:
-            pass
-    return t
+            entries = os.scandir(current)
+        except (OSError, ValueError, TypeError):
+            result.errors += 1
+            result.complete = False
+            continue
+        try:
+            for entry in entries:
+                if stop_flag is not None and stop_flag.is_set():
+                    result.cancelled = True
+                    result.complete = False
+                    break
+                try:
+                    entry_stat = entry.stat(follow_symlinks=False)
+                    file_attributes = int(getattr(entry_stat, "st_file_attributes", 0))
+                    is_reparse_directory = bool(
+                        file_attributes & 0x400 and file_attributes & 0x10
+                    )
+                    if entry.is_symlink() or is_reparse_directory:
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(entry.path)
+                    elif entry.is_file(follow_symlinks=False):
+                        result.size += int(entry_stat.st_size)
+                except (OSError, ValueError):
+                    result.errors += 1
+                    result.complete = False
+        except (OSError, ValueError):
+            result.errors += 1
+            result.complete = False
+        finally:
+            try:
+                entries.close()
+            except Exception:
+                pass
+        if result.cancelled:
+            break
+    return result
+
+def dir_size(path, stop_flag=None):
+    return dir_size_detailed(path, stop_flag=stop_flag).size
 
 def estimate_rule_size(entry, stop_flag=None):
     import fnmatch
@@ -3063,6 +3135,8 @@ def _remove_link_only(path):
     target = norm_path(path)
     if not target or not os.path.lexists(target):
         return
+    if not _is_link_like_path(target):
+        raise RuntimeError(f"拒绝删除非链接路径：{display_path(target)}")
     try:
         if os.path.isdir(target):
             result = subprocess.run(["cmd", "/c", "rmdir", target], capture_output=True, text=True, encoding="utf-8", errors="ignore")
@@ -3303,8 +3377,86 @@ def list_cache_migration_presets(category="全部", min_size_bytes=0, include_mi
     total_size = sum(int(item.get("size", 0)) for item in results if item.get("exists"))
     return results, f"已找到 {len(results)} 个缓存候选项，合计约 {human_size(total_size)}"
 
+def _is_junction_path(path):
+    checker = getattr(os.path, "isjunction", None)
+    if callable(checker):
+        try:
+            return bool(checker(path))
+        except Exception:
+            return False
+    if os.name != "nt":
+        return False
+    try:
+        getter = ctypes.windll.kernel32.GetFileAttributesW
+        getter.argtypes = [ctypes.c_wchar_p]
+        getter.restype = ctypes.c_uint32
+        attrs = int(getter(str(path)))
+        invalid = 0xFFFFFFFF
+        return attrs != invalid and bool(attrs & 0x10) and bool(attrs & 0x400)
+    except Exception:
+        return False
+
+def _is_link_like_path(path):
+    try:
+        return os.path.islink(path) or _is_junction_path(path)
+    except Exception:
+        return False
+
+def _link_points_to_target(source, target):
+    if not _is_link_like_path(source) or not os.path.exists(target):
+        return False
+    try:
+        return os.path.samefile(source, target)
+    except (OSError, ValueError, TypeError):
+        try:
+            source_real = os.path.normcase(os.path.abspath(os.path.realpath(source)))
+            target_real = os.path.normcase(os.path.abspath(os.path.realpath(target)))
+            return bool(source_real and target_real and source_real == target_real)
+        except (OSError, ValueError, TypeError):
+            return False
+
+def _operation_record_matches(record, source, target, mode, states, source_kind=None):
+    if not isinstance(record, dict) or record.get("state") not in set(states or ()):
+        return False
+    try:
+        identity_matches = (
+            os.path.normcase(os.path.abspath(norm_path(record.get("source", ""))))
+            == os.path.normcase(os.path.abspath(norm_path(source)))
+            and os.path.normcase(os.path.abspath(norm_path(record.get("target", ""))))
+            == os.path.normcase(os.path.abspath(norm_path(target)))
+            and str(record.get("mode", "")).strip().lower() == str(mode or "").strip().lower()
+        )
+        if not identity_matches:
+            return False
+        record_kind = str(record.get("source_kind", "")).strip().lower()
+        if record_kind not in {"directory", "file"}:
+            return False
+        return source_kind is None or record_kind == str(source_kind).strip().lower()
+    except Exception:
+        return False
+
+def _undo_record_matches(record, source, target, mode, source_kind=None):
+    return _operation_record_matches(
+        record,
+        source,
+        target,
+        mode,
+        {"undoing", "undo_moved"},
+        source_kind=source_kind,
+    )
+
+def _undo_completed_record_matches(record, source, target, mode, source_kind=None):
+    return _operation_record_matches(
+        record,
+        source,
+        target,
+        mode,
+        {"undo_moved"},
+        source_kind=source_kind,
+    )
+
 def undo_link_entry(source, target, mode, log_fn=None, stop_event=None):
-    """撤销一条迁移记录：删除链接，将目标移回源路径。"""
+    """安全撤销迁移；支持删除链接后或回移中断后的继续执行。"""
     def _log(message):
         if callable(log_fn):
             try:
@@ -3312,28 +3464,90 @@ def undo_link_entry(source, target, mode, log_fn=None, stop_event=None):
             except Exception:
                 pass
 
-    if not os.path.lexists(source):
-        return False, f"源链接不存在：{display_path(source)}"
-    if not os.path.exists(target):
-        return False, f"迁移目标不存在：{display_path(target)}"
+    source_text = norm_path(source)
+    target_text = norm_path(target)
+    src = os.path.abspath(source_text) if source_text else ""
+    dst = os.path.abspath(target_text) if target_text else ""
+    selected_mode = str(mode or "").strip().lower()
+    if not src or not dst:
+        return False, "迁移历史中的源路径或目标路径无效"
+    if selected_mode not in {"junction", "symlink"}:
+        return False, "迁移历史中的链接模式无效"
+    if stop_event is not None and stop_event.is_set():
+        return False, "已取消"
 
-    _log(f"[撤销] 正在删除链接: {display_path(source)}")
-    try:
-        _remove_link_only(source)
-    except Exception as e:
-        return False, f"删除链接失败：{format_exception_text(e)}"
+    record = get_migration_record(src, dst, selected_mode)
+    source_exists = os.path.lexists(src)
+    target_exists = os.path.exists(dst)
+    recorded_kind = str(record.get("source_kind", "")).strip().lower() if isinstance(record, dict) else ""
+    undo_matches = _undo_record_matches(record, src, dst, selected_mode)
+    undo_completed = _undo_completed_record_matches(record, src, dst, selected_mode)
+
+    if undo_completed and source_exists and not target_exists and not _is_link_like_path(src):
+        completed_kind = "directory" if os.path.isdir(src) else "file" if os.path.isfile(src) else ""
+        if not completed_kind or completed_kind != recorded_kind:
+            return False, "撤销断点记录与已恢复路径类型不一致"
+        clear_migration_record(src, dst, selected_mode)
+        _log(f"[撤销] 检测到上次回移已完成: {display_path(src)}")
+        return True, f"已恢复: {display_path(src)}"
+    if not target_exists:
+        if undo_matches:
+            return False, "迁移目标不存在，且撤销记录尚未标记完成，已保留断点供人工确认"
+        return False, f"迁移目标不存在：{display_path(dst)}"
+    if _is_link_like_path(dst):
+        return False, f"迁移目标已变为链接，已拒绝撤销：{display_path(dst)}"
+
+    source_kind = "directory" if os.path.isdir(dst) else "file"
+    if recorded_kind and recorded_kind != source_kind and undo_matches:
+        return False, "撤销断点记录与当前目标类型不一致"
+
+    if source_exists and _is_link_like_path(src):
+        if not _link_points_to_target(src, dst):
+            return False, "源链接已不再指向迁移目标，已拒绝删除"
+        if not set_migration_record(src, dst, selected_mode, "undoing", source_kind):
+            return False, "无法保存撤销断点记录，已停止以避免无法安全恢复"
+        _log(f"[撤销] 正在删除链接: {display_path(src)}")
+        try:
+            _remove_link_only(src)
+        except Exception as e:
+            return False, f"删除链接失败：{format_exception_text(e)}"
+        undo_matches = True
+    elif source_exists:
+        if not undo_matches:
+            return False, f"源路径已不是迁移链接，已拒绝覆盖：{display_path(src)}"
+        if source_kind == "directory" and not os.path.isdir(src):
+            return False, "撤销断点目标类型冲突，已拒绝继续"
+        if source_kind == "file" and not os.path.isfile(src):
+            return False, "撤销断点目标类型冲突，已拒绝继续"
+    elif not undo_matches:
+        return False, f"源链接不存在，且没有匹配的撤销断点记录：{display_path(src)}"
 
     if stop_event is not None and stop_event.is_set():
-        return False, "已取消（链接已删除，数据仍在目标路径）"
+        return False, "已取消（撤销断点已保存，下次可继续）"
 
-    _log(f"[撤销] 正在移回: {display_path(target)} -> {display_path(source)}")
-    try:
-        shutil.move(target, source)
-    except Exception as e:
-        return False, f"移回失败（链接已删除）：{format_exception_text(e)}"
+    _log(f"[撤销] 正在移回: {display_path(dst)} -> {display_path(src)}")
+    if source_kind == "directory":
+        ok, message = _move_directory_incremental(
+            dst,
+            src,
+            log_fn=log_fn,
+            stop_event=stop_event,
+        )
+    else:
+        ok, message, _moved_size = _move_regular_file_resumable(
+            dst,
+            src,
+            stop_event=stop_event,
+        )
+    if not ok:
+        return False, f"移回未完成（下次可继续）：{message}"
 
-    _log(f"[撤销] 已恢复: {display_path(source)}")
-    return True, f"已恢复: {display_path(source)}"
+    if not set_migration_record(src, dst, selected_mode, "undo_moved", source_kind):
+        _log("[撤销] 数据已恢复，但保存最终撤销状态失败")
+    if not clear_migration_record(src, dst, selected_mode):
+        _log("[撤销] 已恢复数据，但清理撤销断点记录失败")
+    _log(f"[撤销] 已恢复: {display_path(src)}")
+    return True, f"已恢复: {display_path(src)}"
 
 def build_space_saving_target_path(source_path, destination_root):
     src = norm_path(source_path)
@@ -3360,21 +3574,6 @@ def _symlink_mode_available():
         pass
     return False, "需要管理员权限或开启 Windows 开发者模式"
 
-def _is_junction_path(path):
-    checker = getattr(os.path, "isjunction", None)
-    if not callable(checker):
-        return False
-    try:
-        return bool(checker(path))
-    except Exception:
-        return False
-
-def _is_link_like_path(path):
-    try:
-        return os.path.islink(path) or _is_junction_path(path)
-    except Exception:
-        return False
-
 SPACE_SAVING_ANALYSIS_TTL_SEC = 300
 
 def _path_state_signature(path):
@@ -3389,20 +3588,15 @@ def _path_state_signature(path):
     except (OSError, ValueError, TypeError):
         return {}
 
-def _migration_record_matches(record, source, target, mode):
-    if not isinstance(record, dict) or record.get("state") not in {"moving", "moved"}:
-        return False
-    try:
-        return (
-            os.path.normcase(os.path.abspath(norm_path(record.get("source", ""))))
-            == os.path.normcase(os.path.abspath(norm_path(source)))
-            and os.path.normcase(os.path.abspath(norm_path(record.get("target", ""))))
-            == os.path.normcase(os.path.abspath(norm_path(target)))
-            and str(record.get("mode", "")).strip().lower() == str(mode or "").strip().lower()
-            and record.get("source_kind") == "directory"
-        )
-    except Exception:
-        return False
+def _migration_record_matches(record, source, target, mode, source_kind=None):
+    return _operation_record_matches(
+        record,
+        source,
+        target,
+        mode,
+        {"moving", "moved"},
+        source_kind=source_kind,
+    )
 
 def _reusable_analysis_size(plan, source, destination_root, target_path, mode):
     if not isinstance(plan, dict):
@@ -3423,7 +3617,11 @@ def _reusable_analysis_size(plan, source, destination_root, target_path, mode):
             os.path.normcase(os.path.abspath(norm_path(plan.get("target_path", "")))),
             str(plan.get("mode", "")).strip().lower(),
         )
-        if actual != expected or plan.get("source_signature") != _path_state_signature(source):
+        if (
+            actual != expected
+            or plan.get("source_signature") != _path_state_signature(source)
+            or plan.get("source_size_complete") is not True
+        ):
             return None
         size = int(plan.get("source_size", -1))
         return size if size >= 0 else None
@@ -3442,6 +3640,8 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
         "source_kind": "",
         "source_size": 0,
         "source_size_text": "-",
+        "source_size_complete": True,
+        "source_size_errors": 0,
         "target_free": -1,
         "target_free_text": "未知",
         "permission_ok": True,
@@ -3450,6 +3650,8 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
         "mode": str(link_mode or "").strip().lower(),
         "analyzed_at": 0,
         "source_signature": {},
+        "same_volume": False,
+        "resume_in_progress": False,
     }
     if not src:
         return False, "源路径不能为空", plan
@@ -3464,31 +3666,36 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
         return False, "目标目录不能与源路径相同", plan
     if dst_root_norm.startswith(src_norm.rstrip("\\") + "\\"):
         return False, "目标目录不能位于源路径内部", plan
-
     if plan["mode"] not in {"junction", "symlink"}:
         return False, "未知的链接模式", plan
 
-    plan["target_path"] = build_space_saving_target_path(src, dst_root)
-    if not plan["target_path"]:
+    target_path = build_space_saving_target_path(src, dst_root)
+    plan["target_path"] = target_path
+    if not target_path:
         return False, "无法计算目标路径", plan
 
     source_exists = os.path.exists(src)
-    target_exists = os.path.lexists(plan["target_path"])
-    record = get_migration_record(src, plan["target_path"], plan["mode"])
-    record_matches = _migration_record_matches(record, src, plan["target_path"], plan["mode"])
+    target_exists = os.path.lexists(target_path)
+    record = get_migration_record(src, target_path, plan["mode"])
     resume_link_only = False
 
     if os.path.lexists(src) and _is_link_like_path(src):
         return False, "源路径已经是链接，无需重复迁移", plan
+
     if source_exists:
         is_dir = os.path.isdir(src)
-    elif (
-        target_exists
-        and os.path.isdir(plan["target_path"])
-        and not _is_link_like_path(plan["target_path"])
-        and record_matches
-    ):
-        is_dir = True
+        source_kind = "directory" if is_dir else "file"
+        record_matches = _migration_record_matches(
+            record, src, target_path, plan["mode"], source_kind=source_kind
+        )
+    elif target_exists and not _is_link_like_path(target_path):
+        is_dir = os.path.isdir(target_path)
+        source_kind = "directory" if is_dir else "file"
+        record_matches = _migration_record_matches(
+            record, src, target_path, plan["mode"], source_kind=source_kind
+        )
+        if not record_matches:
+            return False, "源路径不存在，且没有匹配的迁移断点记录", plan
         resume_link_only = True
         plan["warnings"].append("源内容已完成迁移，将根据断点记录补创建链接")
     else:
@@ -3496,34 +3703,58 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
 
     plan["source_kind"] = "目录" if is_dir else "文件"
     if target_exists and not resume_link_only:
-        if (
-            is_dir
-            and os.path.isdir(plan["target_path"])
-            and not _is_link_like_path(plan["target_path"])
-            and record_matches
-        ):
-            plan["warnings"].append("目标目录已存在，将按断点续迁方式继续；如有同名冲突会停止")
+        target_kind_matches = os.path.isdir(target_path) == is_dir
+        if record_matches and target_kind_matches and not _is_link_like_path(target_path):
+            if is_dir:
+                plan["warnings"].append("目标目录已存在，将按断点续迁方式继续；冲突内容会先校验")
+            else:
+                plan["warnings"].append("目标文件已存在，将先校验是否为中断前已完成的副本")
         else:
-            return False, f"目标已存在但没有匹配的迁移断点记录：{display_path(plan['target_path'])}", plan
+            return False, f"目标已存在但没有匹配的迁移断点记录：{display_path(target_path)}", plan
+
+    partial_exists = bool(
+        not is_dir and os.path.lexists(_migration_partial_path(target_path))
+    )
+    resume_in_progress = bool(record_matches and (target_exists or partial_exists))
+    plan["resume_in_progress"] = resume_in_progress
 
     if plan["mode"] == "junction" and not is_dir:
         return False, "目录联接只支持文件夹，请改用符号链接", plan
     if plan["mode"] == "symlink":
-        ok, text = _symlink_mode_available()
+        ok, permission_text = _symlink_mode_available()
         plan["permission_ok"] = ok
-        plan["permission_text"] = text
+        plan["permission_text"] = permission_text
         if not ok:
             plan["warnings"].append("当前环境创建符号链接可能失败")
 
     if stop_event is not None and stop_event.is_set():
         return False, "已取消", plan
-    size = 0 if resume_link_only else (dir_size(src, stop_flag=stop_event) if is_dir else safe_getsize(src))
-    if stop_event is not None and stop_event.is_set():
-        return False, "已取消", plan
+
+    if resume_link_only:
+        size = 0
+    elif is_dir:
+        size_result = dir_size_detailed(src, stop_flag=stop_event)
+        plan["source_size_complete"] = bool(size_result.complete)
+        plan["source_size_errors"] = int(size_result.errors)
+        if size_result.cancelled:
+            return False, "已取消", plan
+        if not size_result.complete:
+            plan["warnings"].append(f"有 {size_result.errors} 处内容无法读取，空间统计不完整")
+            return False, "无法完整统计源目录，已停止迁移以避免空间判断失真", plan
+        size = size_result.size
+    else:
+        try:
+            size = os.path.getsize(src)
+        except OSError as e:
+            plan["source_size_complete"] = False
+            plan["source_size_errors"] = 1
+            return False, f"无法读取源文件大小：{format_exception_text(e)}", plan
+
     plan["source_size"] = int(size)
     plan["source_size_text"] = human_size(size)
     plan["source_signature"] = {} if resume_link_only else _path_state_signature(src)
     plan["analyzed_at"] = time.time()
+    plan["same_volume"] = bool(source_exists and _paths_share_volume(src, dst_root))
 
     try:
         free = shutil.disk_usage(dst_root).free
@@ -3531,9 +3762,16 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
         free = -1
     plan["target_free"] = int(free) if free >= 0 else -1
     plan["target_free_text"] = human_size(free) if free >= 0 else "未知"
-    if free >= 0 and size > free:
-        plan["warnings"].append(f"目标磁盘空间不足，仅剩 {human_size(free)}")
-        return False, f"目标磁盘空间不足：需要 {human_size(size)}，仅剩 {human_size(free)}", plan
+    if plan["same_volume"]:
+        plan["warnings"].append("源路径与目标位于同一磁盘，迁移将优先使用快速重命名")
+    elif free >= 0 and size > free:
+        if resume_in_progress:
+            plan["warnings"].append(
+                "当前空间可能不足以一次完成，断点续迁会按文件动态检查并保留进度"
+            )
+        else:
+            plan["warnings"].append(f"目标磁盘空间不足，仅剩 {human_size(free)}")
+            return False, f"目标磁盘空间不足：需要 {human_size(size)}，仅剩 {human_size(free)}", plan
 
     lowered_src = src.lower()
     if any(part in lowered_src for part in ("\\desktop", "\\documents", "\\downloads")):
@@ -3542,6 +3780,224 @@ def analyze_space_saving_plan(source_path, destination_root, link_mode="junction
         plan["warnings"].append("源路径位于系统或程序目录，迁移存在兼容性风险")
 
     return True, "分析完成，可以开始迁移", plan
+
+MIGRATION_COPY_CHUNK_SIZE = 4 * 1024 * 1024
+MIGRATION_SPACE_RECHECK_INTERVAL = 256 * 1024 * 1024
+MIGRATION_FREE_SPACE_RESERVE = 32 * 1024 * 1024
+MIGRATION_PARTIAL_SUFFIX = ".c_cleaner_plus.partial"
+
+def _migration_partial_path(target_path):
+    parent = os.path.dirname(target_path)
+    name = os.path.basename(target_path)
+    return os.path.join(parent, f".{name}{MIGRATION_PARTIAL_SUFFIX}")
+
+def _files_equal_exact(left, right, stop_event=None, chunk_size=MIGRATION_COPY_CHUNK_SIZE):
+    try:
+        if (
+            not os.path.isfile(left)
+            or not os.path.isfile(right)
+            or os.path.islink(left)
+            or os.path.islink(right)
+        ):
+            return False, "路径不是可比较的普通文件"
+        left_before = _file_stat_signature(os.stat(left, follow_symlinks=False))
+        right_before = _file_stat_signature(os.stat(right, follow_symlinks=False))
+        if left_before[0] != right_before[0]:
+            return False, "文件大小不同"
+        with open(left, "rb") as left_stream, open(right, "rb") as right_stream:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    return False, "已取消文件一致性校验"
+                left_chunk = left_stream.read(chunk_size)
+                right_chunk = right_stream.read(chunk_size)
+                if left_chunk != right_chunk:
+                    return False, "文件内容不同"
+                if not left_chunk:
+                    break
+            if (
+                _file_stat_signature(os.fstat(left_stream.fileno())) != left_before
+                or _file_stat_signature(os.fstat(right_stream.fileno())) != right_before
+            ):
+                return False, "文件在校验过程中发生变化"
+        if (
+            _file_stat_signature(os.stat(left, follow_symlinks=False)) != left_before
+            or _file_stat_signature(os.stat(right, follow_symlinks=False)) != right_before
+        ):
+            return False, "文件在校验后发生变化"
+        return True, ""
+    except Exception as e:
+        return False, format_exception_text(e)
+
+def _file_prefix_matches(source, partial, length, stop_event=None):
+    remaining = max(0, int(length or 0))
+    if remaining == 0:
+        return True, ""
+    try:
+        with open(source, "rb") as source_stream, open(partial, "rb") as partial_stream:
+            while remaining > 0:
+                if stop_event is not None and stop_event.is_set():
+                    return False, "已取消半成品校验"
+                read_size = min(MIGRATION_COPY_CHUNK_SIZE, remaining)
+                source_chunk = source_stream.read(read_size)
+                partial_chunk = partial_stream.read(read_size)
+                if source_chunk != partial_chunk or not source_chunk:
+                    return False, "半成品内容与源文件不一致"
+                remaining -= len(source_chunk)
+        return remaining == 0, "" if remaining == 0 else "半成品长度异常"
+    except Exception as e:
+        return False, format_exception_text(e)
+
+def _paths_share_volume(source, destination_parent):
+    try:
+        return os.stat(source, follow_symlinks=False).st_dev == os.stat(destination_parent).st_dev
+    except (OSError, ValueError, TypeError):
+        return False
+
+def _copy_space_available(destination_parent, remaining_bytes):
+    try:
+        free = int(shutil.disk_usage(destination_parent).free)
+    except Exception:
+        return True, -1
+    remaining = max(0, int(remaining_bytes or 0))
+    if remaining == 0:
+        return True, free
+    reserve = min(MIGRATION_FREE_SPACE_RESERVE, max(1024 * 1024, remaining // 100))
+    return free >= remaining + reserve, free
+
+def _commit_partial_file_without_replace(partial_path, target_path):
+    """原子提交半成品，绝不覆盖复制期间新出现的目标。"""
+    if os.name == "nt":
+        os.rename(partial_path, target_path)
+        return
+    os.link(partial_path, target_path)
+    os.unlink(partial_path)
+
+def _move_regular_file_resumable(source, target, stop_event=None):
+    """移动普通文件；跨卷时使用可识别半成品并在完成后原子提交。"""
+    source_path = os.path.abspath(norm_path(source))
+    target_path = os.path.abspath(norm_path(target))
+    if not os.path.isfile(source_path) or os.path.islink(source_path):
+        return False, f"源文件不存在或不是普通文件：{display_path(source_path)}", 0
+
+    target_parent = os.path.dirname(target_path)
+    try:
+        os.makedirs(target_parent, exist_ok=True)
+        source_before = _file_stat_signature(os.stat(source_path, follow_symlinks=False))
+    except Exception as e:
+        return False, f"无法读取源文件状态：{format_exception_text(e)}", 0
+    source_size = source_before[0]
+
+    if os.path.lexists(target_path):
+        if os.path.islink(target_path) or not os.path.isfile(target_path):
+            return False, f"目标中已存在非普通文件：{display_path(target_path)}", 0
+        same, reason = _files_equal_exact(source_path, target_path, stop_event=stop_event)
+        if not same:
+            return False, f"目标中已存在同名内容，且无法确认一致：{reason}", 0
+        try:
+            os.remove(source_path)
+            return True, "已确认中断前复制完成，继续清理源文件", source_size
+        except Exception as e:
+            return False, f"已确认目标完整，但删除源文件失败：{format_exception_text(e)}", 0
+
+    if stop_event is not None and stop_event.is_set():
+        return False, "迁移已暂停，文件尚未移动", 0
+
+    if _paths_share_volume(source_path, target_parent):
+        try:
+            os.rename(source_path, target_path)
+            return True, "", source_size
+        except OSError as e:
+            if getattr(e, "winerror", None) not in {17} and getattr(e, "errno", None) not in {18}:
+                return False, f"同卷移动失败：{format_exception_text(e)}", 0
+
+    partial_path = _migration_partial_path(target_path)
+    partial_size = 0
+    partial_exists = os.path.lexists(partial_path)
+    if partial_exists:
+        if os.path.islink(partial_path) or not os.path.isfile(partial_path):
+            return False, f"迁移半成品路径发生冲突：{display_path(partial_path)}", 0
+        partial_size = safe_getsize(partial_path)
+        if partial_size > source_size:
+            return False, f"迁移半成品大于源文件，已停止：{display_path(partial_path)}", 0
+        matches, reason = _file_prefix_matches(
+            source_path,
+            partial_path,
+            partial_size,
+            stop_event=stop_event,
+        )
+        if not matches:
+            return False, f"迁移半成品无法安全续传：{reason}", 0
+        try:
+            if _file_stat_signature(os.stat(source_path, follow_symlinks=False)) != source_before:
+                return False, "源文件在半成品校验过程中发生变化，已保留源文件", 0
+        except Exception as e:
+            return False, f"半成品校验后无法确认源文件状态：{format_exception_text(e)}", 0
+
+    enough, free = _copy_space_available(target_parent, source_size - partial_size)
+    if not enough:
+        return False, (
+            f"目标磁盘空间不足，剩余 {human_size(free)}，"
+            f"仍需复制约 {human_size(source_size - partial_size)}"
+        ), 0
+
+    mode = "r+b" if partial_exists else "xb"
+    try:
+        with open(source_path, "rb") as source_stream, open(partial_path, mode) as partial_stream:
+            if _file_stat_signature(os.fstat(source_stream.fileno())) != source_before:
+                return False, "源文件在复制开始前发生变化", 0
+            source_stream.seek(partial_size)
+            partial_stream.seek(partial_size)
+            partial_stream.truncate(partial_size)
+            bytes_since_space_check = 0
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    partial_stream.flush()
+                    os.fsync(partial_stream.fileno())
+                    return False, (
+                        f"迁移已暂停，当前文件已复制 {human_size(partial_stream.tell())}，"
+                        "下次可从半成品继续"
+                    ), 0
+                chunk = source_stream.read(MIGRATION_COPY_CHUNK_SIZE)
+                if not chunk:
+                    break
+                if bytes_since_space_check >= MIGRATION_SPACE_RECHECK_INTERVAL:
+                    remaining = max(0, source_size - partial_stream.tell())
+                    enough, free = _copy_space_available(target_parent, remaining)
+                    if not enough:
+                        partial_stream.flush()
+                        os.fsync(partial_stream.fileno())
+                        return False, (
+                            f"目标磁盘可用空间发生变化，剩余 {human_size(free)}，"
+                            f"仍需复制约 {human_size(remaining)}；半成品已保留"
+                        ), 0
+                    bytes_since_space_check = 0
+                partial_stream.write(chunk)
+                bytes_since_space_check += len(chunk)
+            partial_stream.flush()
+            os.fsync(partial_stream.fileno())
+            if _file_stat_signature(os.fstat(source_stream.fileno())) != source_before:
+                return False, "源文件在复制过程中发生变化，已保留源文件", 0
+
+        if _file_stat_signature(os.stat(source_path, follow_symlinks=False)) != source_before:
+            return False, "源文件在复制完成后发生变化，已保留源文件", 0
+        if safe_getsize(partial_path) != source_size:
+            return False, "迁移半成品大小校验失败，已保留源文件", 0
+        shutil.copystat(source_path, partial_path, follow_symlinks=False)
+        try:
+            _commit_partial_file_without_replace(partial_path, target_path)
+        except FileExistsError:
+            return False, (
+                "目标文件在提交前被其他程序占用，已保留源文件和迁移半成品："
+                f"{display_path(target_path)}"
+            ), 0
+        if _file_stat_signature(os.stat(source_path, follow_symlinks=False)) != source_before:
+            return False, "源文件在提交目标后发生变化，已保留源文件", 0
+        os.remove(source_path)
+        return True, "", source_size
+    except FileExistsError:
+        return False, f"迁移半成品路径已被占用：{display_path(partial_path)}", 0
+    except Exception as e:
+        return False, f"文件迁移中断，半成品已保留：{format_exception_text(e)}", 0
 
 def _move_directory_incremental(src, target_path, log_fn=None, stop_event=None, progress_fn=None):
     moved_count = 0
@@ -3571,11 +4027,32 @@ def _move_directory_incremental(src, target_path, log_fn=None, stop_event=None, 
         nonlocal moved_count, moved_bytes
         if stop_event is not None and stop_event.is_set():
             return False, _paused_message()
-        if os.path.lexists(target_item):
-            return False, f"目标中已存在同名内容，已停止以避免覆盖：{display_path(target_item)}"
 
-        size = safe_getsize(source_item) if os.path.isfile(source_item) else 0
-        shutil.move(source_item, target_item)
+        if _is_link_like_path(source_item):
+            if os.path.lexists(target_item):
+                return False, f"目标中已存在同名链接内容：{display_path(target_item)}"
+            try:
+                shutil.move(source_item, target_item)
+                size = 0
+            except Exception as e:
+                return False, f"链接迁移失败：{format_exception_text(e)}"
+        elif os.path.isfile(source_item):
+            ok, message, size = _move_regular_file_resumable(
+                source_item,
+                target_item,
+                stop_event=stop_event,
+            )
+            if not ok:
+                return False, message
+        else:
+            if os.path.lexists(target_item):
+                return False, f"目标中已存在同名内容，已停止以避免覆盖：{display_path(target_item)}"
+            try:
+                shutil.move(source_item, target_item)
+                size = 0
+            except Exception as e:
+                return False, f"迁移失败：{format_exception_text(e)}"
+
         moved_count += 1
         moved_bytes += max(0, int(size))
         if moved_count == 1 or moved_count % 100 == 0:
@@ -3674,36 +4151,55 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
     source_exists = os.path.exists(src)
     target_exists = os.path.lexists(target_path)
     migration_record = get_migration_record(src, target_path, selected_mode)
-    record_matches = _migration_record_matches(migration_record, src, target_path, selected_mode)
     resume_link_only = False
+
     if os.path.lexists(src) and _is_link_like_path(src):
         return False, "源路径已经是链接，无需重复迁移", target_path
     if source_exists:
         is_dir = os.path.isdir(src)
-    elif (
-        target_exists
-        and os.path.isdir(target_path)
-        and not _is_link_like_path(target_path)
-        and record_matches
-    ):
+        source_kind = "directory" if is_dir else "file"
+        record_matches = _migration_record_matches(
+            migration_record,
+            src,
+            target_path,
+            selected_mode,
+            source_kind=source_kind,
+        )
+    elif target_exists and not _is_link_like_path(target_path):
         is_dir = os.path.isdir(target_path)
+        source_kind = "directory" if is_dir else "file"
+        record_matches = _migration_record_matches(
+            migration_record,
+            src,
+            target_path,
+            selected_mode,
+            source_kind=source_kind,
+        )
+        if not record_matches:
+            return False, "源路径不存在，且没有匹配的迁移断点记录", target_path
         resume_link_only = True
     else:
         return False, "源路径不存在，且没有匹配的迁移断点记录", target_path
 
     if selected_mode == "junction" and not is_dir:
         return False, "目录联接只支持文件夹，请改用符号链接", target_path
-    resume_directory = False
+
+    resume_existing_target = False
     if target_exists and not resume_link_only:
         if (
-            is_dir
-            and os.path.isdir(target_path)
+            record_matches
+            and os.path.isdir(target_path) == is_dir
             and not _is_link_like_path(target_path)
-            and record_matches
         ):
-            resume_directory = True
+            resume_existing_target = True
         else:
             return False, f"目标已存在但没有匹配的迁移断点记录：{display_path(target_path)}", target_path
+    partial_exists = bool(
+        not is_dir and os.path.lexists(_migration_partial_path(target_path))
+    )
+    if source_exists and not target_exists and not record_matches and partial_exists:
+        return False, f"发现没有断点记录的迁移半成品：{display_path(_migration_partial_path(target_path))}", target_path
+    resume_in_progress = bool(record_matches and (target_exists or partial_exists))
 
     def _log(message):
         if callable(log_fn):
@@ -3719,81 +4215,143 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
             except Exception:
                 pass
 
-    # ── P1: 权限预检 ──
     _progress(10, "正在检查权限...")
     if selected_mode == "symlink":
-        _has_perm, _perm_text = _symlink_mode_available()
-        if not _has_perm:
-            return False, f"创建符号链接需要管理员权限或开启 Windows 开发者模式（当前状态：{_perm_text}）", target_path
+        has_perm, permission_text = _symlink_mode_available()
+        if not has_perm:
+            return False, (
+                "创建符号链接需要管理员权限或开启 Windows 开发者模式"
+                f"（当前状态：{permission_text}）"
+            ), target_path
     _log("[软链接] 权限检查通过")
 
-    # ── P0: 迁移前磁盘空间预检 ──
     if not resume_link_only:
         _progress(15, "正在检查源路径体积...")
-        if resume_directory:
-            _log(f"[软链接] 检测到已有目标目录，将继续迁移剩余内容: {display_path(target_path)}")
+        if resume_existing_target:
+            _log(f"[软链接] 检测到已有目标，将继续迁移剩余内容: {display_path(target_path)}")
         if stop_event is not None and stop_event.is_set():
             return False, "已取消", target_path
-        src_size = _reusable_analysis_size(
-            analysis_plan,
-            src,
-            dst_root,
-            target_path,
-            selected_mode,
-        )
-        if src_size is None:
-            _log("[软链接] 正在计算源路径体积...")
-            src_size = dir_size(src, stop_flag=stop_event) if is_dir else safe_getsize(src)
+
+        same_volume = _paths_share_volume(src, dst_root)
+        src_size = 0
+        reused_analysis = False
+        if not same_volume:
+            src_size = _reusable_analysis_size(
+                analysis_plan,
+                src,
+                dst_root,
+                target_path,
+                selected_mode,
+            )
+            reused_analysis = src_size is not None
+            if reused_analysis:
+                _log(f"[软链接] 已复用执行前分析估算: {human_size(src_size)}")
+            elif is_dir:
+                _log("[软链接] 正在计算源路径体积...")
+                size_result = dir_size_detailed(src, stop_flag=stop_event)
+                if size_result.cancelled:
+                    return False, "已取消", target_path
+                if not size_result.complete:
+                    return False, (
+                        f"无法完整统计源目录（{size_result.errors} 处读取失败），"
+                        "已停止以避免空间判断失真"
+                    ), target_path
+                src_size = size_result.size
+            else:
+                try:
+                    src_size = os.path.getsize(src)
+                except OSError as e:
+                    return False, f"无法读取源文件大小：{format_exception_text(e)}", target_path
+
+            try:
+                dst_free = shutil.disk_usage(dst_root).free
+            except Exception:
+                dst_free = -1
+            if dst_free >= 0 and src_size > dst_free:
+                if reused_analysis and is_dir and not resume_in_progress:
+                    _log("[软链接] 缓存估算显示空间不足，正在重新确认剩余体积...")
+                    size_result = dir_size_detailed(src, stop_flag=stop_event)
+                    if size_result.cancelled:
+                        return False, "已取消", target_path
+                    if not size_result.complete:
+                        return False, "无法完整复核剩余体积，已停止迁移", target_path
+                    src_size = size_result.size
+                if src_size > dst_free:
+                    if resume_in_progress:
+                        _log(
+                            "[软链接] 剩余空间可能不足以一次完成，将按文件动态检查并保留断点进度"
+                        )
+                    else:
+                        return False, (
+                            f"目标磁盘空间不足：需要 {human_size(src_size)}，"
+                            f"仅剩 {human_size(dst_free)}"
+                        ), target_path
         else:
-            _log(f"[软链接] 已复用执行前分析结果: {human_size(src_size)}")
-        if stop_event is not None and stop_event.is_set():
-            return False, "已取消", target_path
-        try:
-            dst_free = shutil.disk_usage(dst_root).free
-        except Exception:
-            dst_free = -1
-        if dst_free >= 0 and src_size > 0 and src_size > dst_free:
-            need = human_size(src_size)
-            free = human_size(dst_free)
-            return False, f"目标磁盘空间不足：需要 {need}，仅剩 {free}", target_path
+            _log("[软链接] 源路径与目标位于同一磁盘，将优先使用快速重命名")
     else:
         _log(f"[软链接] 检测到源内容已在目标目录，将直接补创建链接: {display_path(target_path)}")
 
     _progress(25, "正在迁移文件..." if not resume_link_only else "正在补创建链接...")
-
-    moved = False
-    incremental_move_started = False
+    operation_started = bool(resume_link_only)
     try:
         if stop_event is not None and stop_event.is_set():
             return False, "已取消", target_path
+
         if not resume_link_only:
+            if not set_migration_record(
+                src,
+                target_path,
+                selected_mode,
+                "moving",
+                source_kind,
+            ):
+                return False, "无法保存迁移断点记录，已停止迁移以避免无法安全续传", target_path
+            operation_started = True
             _log(f"[软链接] 正在迁移源内容: {display_path(src)}")
+
             if is_dir:
-                if not set_migration_record(src, target_path, selected_mode, "moving", "directory"):
-                    return False, "无法保存迁移断点记录，已停止迁移以避免无法安全续传", target_path
-                incremental_move_started = True
-                ok, move_message = _move_directory_incremental(
+                moved_fast = False
+                if not target_exists and _paths_share_volume(src, dst_root):
+                    try:
+                        os.rename(src, target_path)
+                        moved_fast = True
+                        _log("[软链接] 已通过同卷原子重命名完成目录迁移")
+                    except OSError as e:
+                        _log(f"[软链接] 快速重命名不可用，将切换到逐项迁移: {format_exception_text(e)}")
+                if not moved_fast:
+                    ok, move_message = _move_directory_incremental(
+                        src,
+                        target_path,
+                        log_fn=log_fn,
+                        stop_event=stop_event,
+                        progress_fn=progress_fn,
+                    )
+                    if not ok:
+                        _log(f"[软链接] {move_message}")
+                        return False, move_message, target_path
+            else:
+                ok, move_message, _moved_size = _move_regular_file_resumable(
                     src,
                     target_path,
-                    log_fn=log_fn,
                     stop_event=stop_event,
-                    progress_fn=progress_fn,
                 )
                 if not ok:
                     _log(f"[软链接] {move_message}")
                     return False, move_message, target_path
-                set_migration_record(src, target_path, selected_mode, "moved", "directory")
-            else:
-                shutil.move(src, target_path)
-            moved = True
+
+            if not set_migration_record(
+                src,
+                target_path,
+                selected_mode,
+                "moved",
+                source_kind,
+            ):
+                _log("[软链接] 内容已迁移，但更新断点状态失败；原有断点仍可用于恢复")
             _log(f"[软链接] 已迁移到: {display_path(target_path)}")
 
         _progress(80, "正在创建链接...")
-
         if stop_event is not None and stop_event.is_set():
-            if incremental_move_started:
-                return False, "迁移已暂停：内容已迁移到目标目录，尚未创建链接；下次可继续补创建链接", target_path
-            raise RuntimeError("用户取消操作，正在回滚")
+            return False, "迁移已暂停：内容已安全保留在目标目录，下次可继续补创建链接", target_path
 
         if selected_mode == "junction":
             result = subprocess.run(
@@ -3809,40 +4367,22 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
             os.symlink(target_path, src, target_is_directory=is_dir)
 
         _progress(95, "正在记录历史...")
-
         _log(f"[软链接] 已创建链接: {display_path(src)} -> {display_path(target_path)}")
         if not append_link_history(src, target_path, selected_mode):
             _log("[软链接] 链接已创建，但迁移历史保存失败")
-        if is_dir:
-            clear_migration_record(src, target_path, selected_mode)
+        if not clear_migration_record(src, target_path, selected_mode):
+            _log("[软链接] 链接已创建，但清理迁移断点记录失败")
         return True, "已完成迁移并创建链接", target_path
     except Exception as e:
-        if incremental_move_started or resume_link_only:
+        if os.path.lexists(src) and _is_link_like_path(src):
             try:
-                if os.path.lexists(src) and _is_link_like_path(src):
-                    _remove_link_only(src)
-            except Exception:
-                pass
-            detail = format_exception_text(e)
-            _log(f"[软链接] 创建失败: {detail}")
-            return False, f"{detail}；已迁移内容保留在目标目录，下次可继续", target_path
-
-        rollback_errors = []
-        try:
-            if os.path.lexists(src):
                 _remove_link_only(src)
-        except Exception as rollback_e:
-            rollback_errors.append(f"移除残留链接失败: {format_exception_text(rollback_e)}")
-        try:
-            if moved and os.path.lexists(target_path) and not os.path.lexists(src):
-                shutil.move(target_path, src)
-        except Exception as rollback_e:
-            rollback_errors.append(f"回滚源内容失败: {format_exception_text(rollback_e)}")
-
+            except Exception as cleanup_error:
+                _log(f"[软链接] 清理残留链接失败: {format_exception_text(cleanup_error)}")
         detail = format_exception_text(e)
-        if rollback_errors:
-            detail = f"{detail}；{'；'.join(rollback_errors)}"
         _log(f"[软链接] 创建失败: {detail}")
+        if operation_started:
+            return False, f"{detail}；已迁移内容保留在目标目录，下次可继续", target_path
         return False, detail, target_path
 
 RECOMMENDED_LINK_SCAN_LIMIT = 24
@@ -7020,6 +7560,7 @@ class ToolboxPage(ScrollArea):
     spaceScanDone = Signal(object, str)
     toolboxDeleteDone = Signal(str, bool, str)
     toolboxScopedLog = Signal(str, str)
+    toolboxTaskStateChanged = Signal(bool, str, int)
 
     def __init__(self, main_win, stop_event, parent=None):
         super().__init__(parent)
@@ -7027,6 +7568,10 @@ class ToolboxPage(ScrollArea):
         self.stop_event = stop_event
         self._analysis_plan = None
         self._analysis_running = False
+        self._task_lock = threading.Lock()
+        self._active_toolbox_worker = None
+        self._active_toolbox_task_name = ""
+        self._toolbox_task_generation = 0
         self.setObjectName("toolboxPage")
         self.enableTransparentBackground()
 
@@ -7552,6 +8097,7 @@ class ToolboxPage(ScrollArea):
         self.spaceScanDone.connect(self._finish_space_scan)
         self.toolboxDeleteDone.connect(self._finish_toolbox_delete)
         self.toolboxScopedLog.connect(self._append_scoped_tool_log)
+        self.toolboxTaskStateChanged.connect(self._set_toolbox_task_state)
         self._reset_link_analysis()
         self._update_link_preview()
         self._refresh_history()
@@ -7559,6 +8105,87 @@ class ToolboxPage(ScrollArea):
         qconfig.themeChanged.connect(self._apply_toolbox_style)
         qconfig.themeChangedFinished.connect(self._apply_toolbox_style)
         self._show_tool_home()
+
+    def _set_toolbox_task_state(self, running, task_name="", generation=0):
+        if int(generation or 0) != int(self._toolbox_task_generation):
+            return
+        self.btn_back.setEnabled(not bool(running))
+        self._active_toolbox_task_name = str(task_name or "") if running else ""
+
+    def _start_toolbox_worker(self, task_name, target, before_start=None, notify=True):
+        with self._task_lock:
+            existing = self._active_toolbox_worker
+            if existing is not None and existing.is_alive():
+                if notify:
+                    InfoBar.warning(
+                        "任务进行中",
+                        f"工具箱正在执行“{self._active_toolbox_task_name or '当前任务'}”，请先停止或等待完成",
+                        orient=Qt.Orientation.Horizontal,
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=3000,
+                        parent=self.main_win,
+                    )
+                return None
+
+            self.stop_event.clear()
+            try:
+                if before_start is not None:
+                    before_start()
+            except Exception as e:
+                log_background_error(f"准备工具箱任务 {task_name}", e)
+                return None
+
+            generation = int(getattr(self, "_toolbox_task_generation", 0)) + 1
+            self._toolbox_task_generation = generation
+
+            def _runner():
+                try:
+                    target()
+                except Exception as e:
+                    log_background_error(f"工具箱任务 {task_name}", e)
+                finally:
+                    current = threading.current_thread()
+                    with self._task_lock:
+                        if self._active_toolbox_worker is current:
+                            self._active_toolbox_worker = None
+                    self.toolboxTaskStateChanged.emit(False, task_name, generation)
+
+            worker = threading.Thread(
+                target=_runner,
+                name=f"Toolbox-{task_name}",
+                daemon=True,
+            )
+            self._active_toolbox_worker = worker
+            self._active_toolbox_task_name = str(task_name or "")
+            self.toolboxTaskStateChanged.emit(True, task_name, generation)
+            worker.start()
+            return worker
+
+    def _invoke_when_toolbox_idle(self, callback, retries=80):
+        shutdown_check = getattr(self.main_win, "_is_shutting_down", None)
+        if callable(shutdown_check) and shutdown_check():
+            return False
+        with self._task_lock:
+            worker = self._active_toolbox_worker
+        if worker is not None and worker.is_alive():
+            if retries > 0:
+                QTimer.singleShot(
+                    25,
+                    lambda: self._invoke_when_toolbox_idle(callback, retries - 1),
+                )
+            return False
+        callback()
+        return True
+
+    def wait_for_active_task(self, timeout=8.0):
+        self.stop_event.set()
+        with self._task_lock:
+            worker = self._active_toolbox_worker
+        if worker is None or worker is threading.current_thread():
+            return True
+        worker.join(timeout=max(0.0, float(timeout or 0)))
+        return not worker.is_alive()
 
     def _apply_toolbox_style(self):
         self.viewport().setStyleSheet("background: transparent; border: none;")
@@ -7716,19 +8343,11 @@ class ToolboxPage(ScrollArea):
             self._append_space_log(text)
 
     def _start_download_scan(self):
-        self.stop_event.clear()
         root_text = self.edit_download_dir.text().strip()
         roots = [root_text] if root_text else default_download_dirs()
         min_size_bytes = int(self.sp_download_min_mb.value()) * 1024 * 1024
         min_age_days = int(self.sp_download_min_days.value())
         include_dirs = self.chk_download_dirs.isChecked()
-        self.tbl_downloads.setRowCount(0)
-        self.btn_select_downloads.setText("全选")
-        self.btn_select_downloads.setIcon(FIF.ACCEPT)
-        self.btn_scan_downloads.setEnabled(False)
-        self.lbl_download_hint.setText("扫描结果：正在扫描下载目录...")
-        self.download_footer.pb.setValue(15)
-        self.download_footer.set_status("正在扫描下载目录...")
         stop = self.stop_event
 
         def _worker():
@@ -7745,7 +8364,16 @@ class ToolboxPage(ScrollArea):
             except Exception as e:
                 self.downloadScanDone.emit([], f"扫描失败：{format_exception_text(e)}")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _prepare():
+            self.tbl_downloads.setRowCount(0)
+            self.btn_select_downloads.setText("全选")
+            self.btn_select_downloads.setIcon(FIF.ACCEPT)
+            self.btn_scan_downloads.setEnabled(False)
+            self.lbl_download_hint.setText("扫描结果：正在扫描下载目录...")
+            self.download_footer.pb.setValue(15)
+            self.download_footer.set_status("正在扫描下载目录...")
+
+        self._start_toolbox_worker("下载目录扫描", _worker, before_start=_prepare)
 
     def _finish_download_scan(self, items, message):
         items = list(items or [])
@@ -7772,20 +8400,12 @@ class ToolboxPage(ScrollArea):
         self.download_footer.set_status(message, 100 if items else None)
 
     def _start_space_scan(self):
-        self.stop_event.clear()
         manual_root = self.edit_space_dir.text().strip()
         roots = [manual_root] if manual_root else self.space_drive_sel.selected_drives()
         min_size_bytes = int(self.sp_space_min_mb.value()) * 1024 * 1024
         if not roots:
             InfoBar.warning("提示", "请先选择磁盘或指定目录", parent=self.main_win)
             return
-        self.tbl_space.setRowCount(0)
-        self.btn_select_space.setText("全选")
-        self.btn_select_space.setIcon(FIF.ACCEPT)
-        self.btn_scan_space.setEnabled(False)
-        self.lbl_space_hint.setText("分析结果：正在分析空间占用...")
-        self.space_footer.pb.setValue(15)
-        self.space_footer.set_status("正在分析空间占用...")
         stop = self.stop_event
 
         def _worker():
@@ -7800,7 +8420,16 @@ class ToolboxPage(ScrollArea):
             except Exception as e:
                 self.spaceScanDone.emit([], f"分析失败：{format_exception_text(e)}")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _prepare():
+            self.tbl_space.setRowCount(0)
+            self.btn_select_space.setText("全选")
+            self.btn_select_space.setIcon(FIF.ACCEPT)
+            self.btn_scan_space.setEnabled(False)
+            self.lbl_space_hint.setText("分析结果：正在分析空间占用...")
+            self.space_footer.pb.setValue(15)
+            self.space_footer.set_status("正在分析空间占用...")
+
+        self._start_toolbox_worker("空间占用扫描", _worker, before_start=_prepare)
 
     def _finish_space_scan(self, items, message):
         items = list(items or [])
@@ -7848,15 +8477,6 @@ class ToolboxPage(ScrollArea):
         self._start_toolbox_delete("space", paths, permanent)
 
     def _start_toolbox_delete(self, kind, paths, permanent):
-        self.stop_event.clear()
-        if kind == "download":
-            self.btn_delete_downloads.setEnabled(False)
-            self.download_footer.show_log_if_hidden()
-            self.download_footer.set_status("正在清理已勾选项目...")
-        else:
-            self.btn_delete_space.setEnabled(False)
-            self.space_footer.show_log_if_hidden()
-            self.space_footer.set_status("正在清理已勾选项目...")
         stop = self.stop_event
 
         def _worker():
@@ -7868,19 +8488,29 @@ class ToolboxPage(ScrollArea):
             )
             self.toolboxDeleteDone.emit(kind, ok, message)
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _prepare():
+            if kind == "download":
+                self.btn_delete_downloads.setEnabled(False)
+                self.download_footer.show_log_if_hidden()
+                self.download_footer.set_status("正在清理已勾选项目...")
+            else:
+                self.btn_delete_space.setEnabled(False)
+                self.space_footer.show_log_if_hidden()
+                self.space_footer.set_status("正在清理已勾选项目...")
+
+        self._start_toolbox_worker("下载清理" if kind == "download" else "空间清理", _worker, before_start=_prepare)
 
     def _finish_toolbox_delete(self, kind, ok, message):
         if kind == "download":
             self.btn_delete_downloads.setEnabled(True)
             self.download_footer.pb.setValue(100 if ok else 0)
             self.download_footer.set_status(message, 100 if ok else None)
-            QTimer.singleShot(0, self._start_download_scan)
+            self._invoke_when_toolbox_idle(self._start_download_scan)
         elif kind == "space":
             self.btn_delete_space.setEnabled(True)
             self.space_footer.pb.setValue(100 if ok else 0)
             self.space_footer.set_status(message, 100 if ok else None)
-            QTimer.singleShot(0, self._start_space_scan)
+            self._invoke_when_toolbox_idle(self._start_space_scan)
 
     def _show_tool_home(self):
         self.btn_back.hide()
@@ -7888,14 +8518,8 @@ class ToolboxPage(ScrollArea):
         QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
 
     def _start_cache_preset_scan(self):
-        self.stop_event.clear()
         category = self.cb_cache_category.currentText() or "全部"
         min_size_bytes = int(self.sp_cache_min_mb.value()) * 1024 * 1024
-        self.btn_scan_cache_presets.setEnabled(False)
-        self.lbl_cache_preset_hint.setText("扫描结果：正在扫描常用缓存目录...")
-        self.cache_preset_footer.pb.setValue(20)
-        self.cache_preset_footer.set_status("正在扫描缓存预设...")
-
         stop = self.stop_event
 
         def _worker():
@@ -7910,7 +8534,13 @@ class ToolboxPage(ScrollArea):
             except Exception as e:
                 self.cachePresetDone.emit([], f"扫描失败：{format_exception_text(e)}")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _prepare():
+            self.btn_scan_cache_presets.setEnabled(False)
+            self.lbl_cache_preset_hint.setText("扫描结果：正在扫描常用缓存目录...")
+            self.cache_preset_footer.pb.setValue(20)
+            self.cache_preset_footer.set_status("正在扫描缓存预设...")
+
+        self._start_toolbox_worker("缓存预设扫描", _worker, before_start=_prepare)
 
     def _finish_cache_preset_scan(self, items, message):
         items = list(items or [])
@@ -8037,18 +8667,6 @@ class ToolboxPage(ScrollArea):
             InfoBar.warning("提示", "请先填写源路径和目标目录", parent=self.main_win)
             return
 
-        self.stop_event.clear()
-        self._analysis_running = True
-        self._analysis_plan = None
-        self.btn_analyze_link.setEnabled(False)
-        self.btn_run_link.setEnabled(False)
-        self.btn_recommend.setEnabled(False)
-        self.btn_cancel_link.show()
-        self.lbl_analysis_status.setText("分析状态：正在分析，请稍候...")
-        self.lbl_analysis_warnings.setText("风险提示：正在收集...")
-        self.footer.pb.setValue(15)
-        self.footer.set_status("正在执行迁移前分析...")
-
         stop = self.stop_event
         progress = self.progressUpdate.emit
 
@@ -8056,15 +8674,24 @@ class ToolboxPage(ScrollArea):
             try:
                 progress(25, "正在分析源路径...")
                 ok, message, plan = analyze_space_saving_plan(source, dest, mode, stop_event=stop)
-                if ok:
-                    progress(100, "分析完成")
-                else:
-                    progress(0, message)
+                progress(100 if ok else 0, "分析完成" if ok else message)
                 self.analysisDone.emit(ok, message, plan)
             except Exception as e:
                 self.analysisDone.emit(False, f"分析失败：{format_exception_text(e)}", {})
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _prepare():
+            self._analysis_running = True
+            self._analysis_plan = None
+            self.btn_analyze_link.setEnabled(False)
+            self.btn_run_link.setEnabled(False)
+            self.btn_recommend.setEnabled(False)
+            self.btn_cancel_link.show()
+            self.lbl_analysis_status.setText("分析状态：正在分析，请稍候...")
+            self.lbl_analysis_warnings.setText("风险提示：正在收集...")
+            self.footer.pb.setValue(15)
+            self.footer.set_status("正在执行迁移前分析...")
+
+        self._start_toolbox_worker("迁移分析", _worker, before_start=_prepare)
 
     def _finish_link_analysis(self, ok, message, plan):
         self._analysis_running = False
@@ -8100,24 +8727,31 @@ class ToolboxPage(ScrollArea):
             InfoBar.warning("提示", "请先选择需要分析的磁盘", parent=self.main_win)
             return
 
-        self.stop_event.clear()
-        self.btn_run_link.setEnabled(False)
-        self.btn_recommend.setText("停止扫描")
-        self.btn_recommend.setIcon(FIF.CANCEL)
-        self.btn_recommend.clicked.disconnect()
-        self.btn_recommend.clicked.connect(self._cancel_recommend_scan)
-        self.tbl_recommend.setRowCount(0)
-        self.lbl_recommend_hint.setText("推荐结果：正在按所选磁盘分析，请稍候...")
-        self.footer.set_status("正在分析推荐目录...")
-        self.footer.pb.setValue(20)
-
         stop = self.stop_event
 
         def _worker():
-            items, message = recommend_link_targets(roots, log_fn=self.toolLog.emit, stop_event=stop)
-            self.recommendDone.emit(items, message)
+            try:
+                items, message = recommend_link_targets(
+                    roots,
+                    log_fn=self.toolLog.emit,
+                    stop_event=stop,
+                )
+                self.recommendDone.emit(items, message)
+            except Exception as e:
+                self.recommendDone.emit([], f"推荐扫描失败：{format_exception_text(e)}")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _prepare():
+            self.btn_run_link.setEnabled(False)
+            self.btn_recommend.setText("停止扫描")
+            self.btn_recommend.setIcon(FIF.CANCEL)
+            self.btn_recommend.clicked.disconnect()
+            self.btn_recommend.clicked.connect(self._cancel_recommend_scan)
+            self.tbl_recommend.setRowCount(0)
+            self.lbl_recommend_hint.setText("推荐结果：正在按所选磁盘分析，请稍候...")
+            self.footer.set_status("正在分析推荐目录...")
+            self.footer.pb.setValue(20)
+
+        self._start_toolbox_worker("迁移推荐扫描", _worker, before_start=_prepare)
 
     def _cancel_recommend_scan(self):
         self.stop_event.set()
@@ -8179,32 +8813,38 @@ class ToolboxPage(ScrollArea):
             InfoBar.warning("提示", "请先填写源路径和目标目录", parent=self.main_win)
             return
 
-        self.stop_event.clear()
         analysis_plan = self._analysis_plan
-        self.btn_analyze_link.setEnabled(False)
-        self.btn_run_link.setEnabled(False)
-        self.btn_recommend.setEnabled(False)
-        self.btn_cancel_link.show()
-        self.footer.log.clear()
-        if self.footer._auto_hide_log:
-            self.footer.log.hide()
-        self.footer.pb.setValue(5)
-        self.footer.set_status("正在准备...")
-
         stop = self.stop_event
         progress = self.progressUpdate.emit
 
         def _worker():
-            ok, message, target_path = create_space_saving_link(
-                source, dest, mode,
-                log_fn=self.toolLog.emit, stop_event=stop,
-                progress_fn=progress,
-                analysis_plan=analysis_plan,
-            )
-            final_message = message if not target_path else f"{message}：{display_path(target_path)}"
-            self.toolDone.emit(ok, final_message)
+            try:
+                ok, message, target_path = create_space_saving_link(
+                    source,
+                    dest,
+                    mode,
+                    log_fn=self.toolLog.emit,
+                    stop_event=stop,
+                    progress_fn=progress,
+                    analysis_plan=analysis_plan,
+                )
+                final_message = message if not target_path else f"{message}：{display_path(target_path)}"
+                self.toolDone.emit(ok, final_message)
+            except Exception as e:
+                self.toolDone.emit(False, f"迁移失败：{format_exception_text(e)}")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _prepare():
+            self.btn_analyze_link.setEnabled(False)
+            self.btn_run_link.setEnabled(False)
+            self.btn_recommend.setEnabled(False)
+            self.btn_cancel_link.show()
+            self.footer.log.clear()
+            if self.footer._auto_hide_log:
+                self.footer.log.hide()
+            self.footer.pb.setValue(5)
+            self.footer.set_status("正在准备...")
+
+        self._start_toolbox_worker("文件迁移", _worker, before_start=_prepare)
 
     def _cancel_link_task(self):
         self.stop_event.set()
@@ -8260,25 +8900,33 @@ class ToolboxPage(ScrollArea):
             InfoBar.warning("提示", "历史记录数据不完整", parent=self.main_win)
             return
 
-        self.stop_event.clear()
-        self.btn_undo_link.setEnabled(False)
-        self.btn_run_link.setEnabled(False)
-        self.btn_recommend.setEnabled(False)
-        self.footer.pb.setValue(30)
-        self.footer.set_status(f"正在撤销: {display_path(source)}")
-
         stop = self.stop_event
 
         def _worker():
-            ok, message = undo_link_entry(source, target, mode, log_fn=self.toolLog.emit, stop_event=stop)
-            self.undoDone.emit(ok, message)
+            try:
+                ok, message = undo_link_entry(
+                    source,
+                    target,
+                    mode,
+                    log_fn=self.toolLog.emit,
+                    stop_event=stop,
+                )
+                self.undoDone.emit(ok, message)
+            except Exception as e:
+                self.undoDone.emit(False, f"撤销失败：{format_exception_text(e)}")
 
         def _remove_and_refresh():
             remove_link_history(source, target)
 
-        self._pending_history_remove = _remove_and_refresh
+        def _prepare():
+            self.btn_undo_link.setEnabled(False)
+            self.btn_run_link.setEnabled(False)
+            self.btn_recommend.setEnabled(False)
+            self.footer.pb.setValue(30)
+            self.footer.set_status(f"正在撤销: {display_path(source)}")
+            self._pending_history_remove = _remove_and_refresh
 
-        threading.Thread(target=_worker, daemon=True).start()
+        self._start_toolbox_worker("撤销迁移", _worker, before_start=_prepare)
 
     def _finish_undo_link(self, ok, message):
         self.btn_undo_link.setEnabled(True)
@@ -12019,6 +12667,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
     def _del_files_w(self, paths, pm, require_empty=False, duplicate_expectations=None):
         t0 = time.time()
         ok=fl=sk=0; tot=len(paths); lf=lambda s:self.sig.more_log.emit(s)
+        duplicate_reference_cache = {} if duplicate_expectations is not None else None
         for i,p in enumerate(paths,1):
             if self.stop.is_set():
                 self.sig.more_done.emit(f"清理已取消：成功 {ok}，失败 {fl}，跳过 {sk}，耗时 {time.time()-t0:.1f} 秒")
@@ -12029,6 +12678,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
                     p,
                     expectation,
                     stop_event=self.stop,
+                    reference_cache=duplicate_reference_cache,
                 )
                 if not valid:
                     sk += 1
@@ -12776,6 +13426,16 @@ class MainWindow(MSFluentWindow):
         self.big_stop.set()
         self.more_stop.set()
         self.toolbox_stop.set()
+        toolbox = getattr(self, "pg_toolbox", None)
+        if toolbox is not None and hasattr(toolbox, "wait_for_active_task"):
+            try:
+                if not toolbox.wait_for_active_task(timeout=8.0):
+                    append_session_log_line(
+                        f"[{time.strftime('%H:%M:%S')}] [安全退出] 工具箱任务未在等待时间内结束，"
+                        "可识别半成品与断点记录将保留供下次继续"
+                    )
+            except Exception as e:
+                log_background_error("等待工具箱任务安全停止失败", e)
         self._lazy_switch_token += 1
         self._lazy_switch_pending.clear()
         self._lazy_target_route = ""

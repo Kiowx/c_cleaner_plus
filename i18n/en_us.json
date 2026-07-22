@@ -1,8 +1,8 @@
 {
   "code": "en_us",
   "label": "English",
-  "version": 7,
-  "updated_at": "2026-07-10",
+  "version": 8,
+  "updated_at": "2026-07-22",
   "translations": {
     "C盘强力清理工具": "C Cleaner Plus",
     "常规清理": "Standard Cleanup",
@@ -1167,7 +1167,26 @@
     "无法保存迁移断点记录，已停止迁移以避免无法安全续传": "Migration stopped because its recovery record could not be saved safely",
     "正在检查源路径体积...": "Checking source size...",
     "已复用执行前分析结果:": "Reused pre-migration analysis:",
-    "重复文件复核": "Duplicate file verification",
-    "缺少重复文件复核信息": "Duplicate verification data is missing"
+    "重复文件复核": "Duplicate file revalidation",
+    "缺少重复文件复核信息": "Duplicate verification data is missing",
+    "源链接已不再指向迁移目标，已拒绝删除": "The source link no longer points to the migration target. Removal was blocked.",
+    "源路径已不是迁移链接，已拒绝覆盖：": "The source path is no longer the migration link. Overwrite was blocked: ",
+    "无法保存撤销断点记录，已停止以避免无法安全恢复": "The undo checkpoint could not be saved. The operation was stopped for safe recovery.",
+    "已取消（撤销断点已保存，下次可继续）": "Cancelled. The undo checkpoint was saved and can be resumed later.",
+    "迁移半成品无法安全续传：": "The partial migration file cannot be resumed safely: ",
+    "迁移已暂停，当前文件已复制": "Migration paused. The current file has copied",
+    "下次可从半成品继续": "and can resume from the partial file next time",
+    "无法完整统计源目录，已停止迁移以避免空间判断失真": "The source folder could not be measured completely. Migration was stopped to avoid an incorrect space check.",
+    "源路径与目标位于同一磁盘，将优先使用快速重命名": "The source and destination are on the same drive, so fast rename will be preferred.",
+    "目标文件已存在，将先校验是否为中断前已完成的副本": "The target file already exists and will be checked as a possibly completed copy from an interrupted run.",
+    "源路径已不是迁移链接": "The source path is no longer the migration link",
+    "撤销断点记录与已恢复路径类型不一致": "The undo checkpoint does not match the restored path type.",
+    "源文件在半成品校验过程中发生变化，已保留源文件": "The source file changed while validating the partial copy, so the source was preserved.",
+    "目标磁盘可用空间发生变化": "The available destination space changed",
+    "半成品已保留": "the partial copy was preserved",
+    "目标文件在提交前被其他程序占用": "The target file was claimed by another program before commit",
+    "当前空间可能不足以一次完成，断点续迁会按文件动态检查并保留进度": "The available space may not be enough for one pass. Resume will check each file dynamically and preserve progress.",
+    "剩余空间可能不足以一次完成，将按文件动态检查并保留断点进度": "The remaining space may not be enough for one pass. Files will be checked dynamically and checkpoint progress will be preserved.",
+    "迁移目标不存在，且撤销记录尚未标记完成，已保留断点供人工确认": "The migration target is missing and the undo was not marked complete. The checkpoint was kept for manual review."
   }
 }

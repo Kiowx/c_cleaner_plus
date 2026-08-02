@@ -145,6 +145,84 @@ class SafetyRegressionTests(unittest.TestCase):
         for forbidden in ("self.sp_mb", "self.sp_mx", "self.drive_sel", "self.chk_skip_special"):
             self.assertNotIn(forbidden, big_source)
 
+    def test_cache_target_replicates_drive_relative_structure(self):
+        target = main.build_mirrored_cache_target_path(
+            r"C:\Users\Test\AppData\Local\uv\cache",
+            r"D:\_linked",
+        )
+
+        self.assertEqual(
+            os.path.normcase(target),
+            os.path.normcase(r"D:\_linked\Users\Test\AppData\Local\uv\cache"),
+        )
+        self.assertEqual(main.build_mirrored_cache_target_path("C:\\", r"D:\_linked"), "")
+
+    def test_cache_batch_migration_continues_after_an_item_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = os.path.join(temp_dir, "migrated")
+            first_source = os.path.join(temp_dir, "uv-cache")
+            second_source = os.path.join(temp_dir, "pip-cache")
+            os.makedirs(destination)
+            os.makedirs(first_source)
+            os.makedirs(second_source)
+            first_target = main.build_mirrored_cache_target_path(first_source, destination)
+            second_target = main.build_mirrored_cache_target_path(second_source, destination)
+            progress = []
+
+            def migrate(source, destination_parent, mode, **_kwargs):
+                target = main.build_space_saving_target_path(source, destination_parent)
+                self.assertEqual(mode, "junction")
+                if os.path.normcase(source) == os.path.normcase(first_source):
+                    return True, "ok", target
+                return False, "blocked", target
+
+            items = [
+                {"name": "uv 缓存", "path": first_source, "kind": "目录"},
+                {"name": "pip 缓存", "path": second_source, "kind": "目录"},
+            ]
+            with mock.patch.object(
+                main,
+                "create_space_saving_link",
+                side_effect=migrate,
+            ) as migrate_mock:
+                results, message = main.migrate_cache_presets_batch(
+                    items,
+                    destination,
+                    progress_fn=lambda value, status: progress.append((value, status)),
+                )
+
+            self.assertEqual([item["status"] for item in results], ["success", "failed"])
+            self.assertIn("成功 1", message)
+            self.assertIn("失败 1", message)
+            self.assertEqual(migrate_mock.call_count, 2)
+            self.assertEqual(
+                os.path.normcase(migrate_mock.call_args_list[0].args[1]),
+                os.path.normcase(os.path.dirname(first_target)),
+            )
+            self.assertEqual(
+                os.path.normcase(migrate_mock.call_args_list[1].args[1]),
+                os.path.normcase(os.path.dirname(second_target)),
+            )
+            self.assertEqual(progress[-1][0], 100)
+
+    def test_cache_batch_rejects_a_target_inside_the_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = os.path.join(temp_dir, "cache")
+            destination = os.path.join(source, "migrated")
+            os.makedirs(destination)
+
+            with mock.patch.object(main, "create_space_saving_link") as migrate_mock:
+                results, message = main.migrate_cache_presets_batch(
+                    [{"name": "cache", "path": source, "kind": "目录"}],
+                    destination,
+                )
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["status"], "failed")
+            self.assertIn("目标路径不能位于源路径内部", results[0]["message"])
+            self.assertIn("失败 1", message)
+            migrate_mock.assert_not_called()
+
     def test_link_plan_allows_existing_directory_target_for_resume(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = os.path.join(temp_dir, "uv-cache")
@@ -801,6 +879,12 @@ class SafetyRegressionTests(unittest.TestCase):
             "当前空间可能不足以一次完成，断点续迁会按文件动态检查并保留进度",
             "迁移目标不存在，且撤销记录尚未标记完成，已保留断点供人工确认",
             "重复文件复核",
+            "批量目标根目录",
+            "目标路径",
+            "单项设置",
+            "一键迁移",
+            "已暂停（可继续）",
+            "失败（可重试）",
         }
         self.assertTrue(required.issubset(pack))
         self.assertEqual(payload["version"], manifest["languages"]["en_us"]["version"])

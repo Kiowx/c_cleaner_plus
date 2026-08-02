@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.7.5
+C盘强力清理工具 v0.7.6
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -144,7 +144,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.7.5"
+CURRENT_VERSION = "0.7.6"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -3345,13 +3345,26 @@ def list_cache_migration_presets(category="全部", min_size_bytes=0, include_mi
         status = "未找到"
         if exists:
             kind = "目录" if os.path.isdir(path) else "文件"
-            status = "可迁移"
-            _log(f"[缓存预设] 正在估算: {display_path(path)}")
-            try:
-                size = dir_size(path, stop_flag=stop_event) if os.path.isdir(path) else safe_getsize(path)
-            except Exception as e:
-                status = "估算失败"
-                _log(f"[缓存预设] 估算失败: {display_path(path)} -> {format_exception_text(e)}")
+            if _is_link_like_path(path):
+                status = "已是链接"
+            else:
+                status = "可迁移"
+                _log(f"[缓存预设] 正在估算: {display_path(path)}")
+                try:
+                    if os.path.isdir(path):
+                        size_result = dir_size_detailed(path, stop_flag=stop_event)
+                        size = size_result.size
+                        if not size_result.complete and not size_result.cancelled:
+                            status = "读取不完整"
+                            _log(
+                                f"[缓存预设] 读取不完整: {display_path(path)} -> "
+                                f"{size_result.errors} 处失败"
+                            )
+                    else:
+                        size = safe_getsize(path)
+                except Exception as e:
+                    status = "估算失败"
+                    _log(f"[缓存预设] 估算失败: {display_path(path)} -> {format_exception_text(e)}")
             if stop_event is not None and stop_event.is_set():
                 break
             if size < min_size:
@@ -3556,6 +3569,39 @@ def build_space_saving_target_path(source_path, destination_root):
         return ""
     base_name = os.path.basename(src.rstrip("\\/"))
     return os.path.join(dst_root, base_name)
+
+def build_mirrored_cache_target_path(source_path, destination_root):
+    """在目标根目录下复刻源盘相对目录结构。"""
+    source_text = norm_path(source_path)
+    destination_text = norm_path(destination_root)
+    if not source_text or not destination_text:
+        return ""
+
+    try:
+        source = os.path.abspath(source_text)
+        destination = os.path.abspath(destination_text)
+        drive, tail = os.path.splitdrive(source)
+        relative = tail.lstrip("\\/")
+        if not relative:
+            return ""
+
+        if drive.startswith("\\\\"):
+            unc_parts = [part for part in drive.strip("\\").split("\\") if part]
+            relative = os.path.join("_UNC", *unc_parts, relative)
+
+        target = os.path.abspath(os.path.join(destination, relative))
+        destination_key = _normalize_safety_path(destination)
+        target_key = _normalize_safety_path(target)
+        if (
+            not destination_key
+            or not target_key
+            or target_key == destination_key
+            or not _path_is_same_or_child(target_key, destination_key)
+        ):
+            return ""
+        return target
+    except (OSError, ValueError, TypeError):
+        return ""
 
 def _symlink_mode_available():
     if is_admin():
@@ -4384,6 +4430,144 @@ def create_space_saving_link(source_path, destination_root, link_mode="junction"
         if operation_started:
             return False, f"{detail}；已迁移内容保留在目标目录，下次可继续", target_path
         return False, detail, target_path
+
+def migrate_cache_presets_batch(items, destination_root, log_fn=None,
+                                stop_event=None, progress_fn=None):
+    """串行迁移缓存候选项，并为每项保留独立断点和结果。"""
+    candidates = [dict(item) for item in (items or []) if isinstance(item, dict)]
+    destination_text = norm_path(destination_root)
+    destination = os.path.abspath(destination_text) if destination_text else ""
+    if not candidates:
+        return [], "没有可迁移的缓存项"
+    if not destination or not os.path.isdir(destination):
+        return [], "批量目标根目录不存在"
+
+    def _log(message):
+        if callable(log_fn):
+            try:
+                log_fn(message)
+            except Exception as e:
+                log_sampled_background_error("缓存批量迁移日志", e, limit=3)
+
+    def _progress(value, status=""):
+        if callable(progress_fn):
+            try:
+                progress_fn(max(0, min(100, int(value))), status)
+            except Exception:
+                pass
+
+    results = []
+    target_keys = set()
+    total = len(candidates)
+    for index, item in enumerate(candidates):
+        if stop_event is not None and stop_event.is_set():
+            break
+
+        source_text = norm_path(item.get("path", ""))
+        source = os.path.abspath(source_text) if source_text else ""
+        name = str(item.get("name") or os.path.basename(source.rstrip("\\/")) or "缓存项")
+        target = build_mirrored_cache_target_path(source, destination)
+        result = {
+            "name": name,
+            "source": source,
+            "target": target,
+            "status": "failed",
+            "message": "",
+        }
+
+        if not source or not target:
+            result["message"] = "无法生成安全的目录复刻目标路径"
+            results.append(result)
+            _log(f"[缓存批量迁移] 已跳过 {name}: {result['message']}")
+            _progress((index + 1) * 100 // total, f"已处理 {index + 1}/{total}")
+            continue
+
+        source_key = _normalize_safety_path(source)
+        target_key = _normalize_safety_path(target)
+        if target_key in target_keys:
+            result["message"] = f"批量目标路径冲突：{display_path(target)}"
+            results.append(result)
+            _log(f"[缓存批量迁移] 已跳过 {name}: {result['message']}")
+            _progress((index + 1) * 100 // total, f"已处理 {index + 1}/{total}")
+            continue
+        target_keys.add(target_key)
+
+        if _path_is_same_or_child(target_key, source_key):
+            result["message"] = "目标路径不能位于源路径内部"
+            results.append(result)
+            _log(f"[缓存批量迁移] 已跳过 {name}: {result['message']}")
+            _progress((index + 1) * 100 // total, f"已处理 {index + 1}/{total}")
+            continue
+
+        kind = str(item.get("kind", "")).strip()
+        is_directory = kind == "目录" or (os.path.exists(source) and os.path.isdir(source))
+        mode = "junction" if is_directory else "symlink"
+        destination_parent = os.path.dirname(target)
+
+        try:
+            os.makedirs(destination_parent, exist_ok=True)
+        except Exception as e:
+            result["message"] = f"无法创建目标子目录：{format_exception_text(e)}"
+            results.append(result)
+            _log(f"[缓存批量迁移] {name} 失败: {result['message']}")
+            _progress((index + 1) * 100 // total, f"已处理 {index + 1}/{total}")
+            continue
+
+        _log(
+            f"[缓存批量迁移] {index + 1}/{total} {name}: "
+            f"{display_path(source)} -> {display_path(target)}"
+        )
+
+        def _item_progress(value, status="", item_index=index, item_name=name):
+            item_value = max(0, min(100, int(value or 0)))
+            overall = int(((item_index + item_value / 100.0) / total) * 100)
+            detail = f"{item_index + 1}/{total} {item_name}"
+            if status:
+                detail += f"：{status}"
+            _progress(overall, detail)
+
+        try:
+            ok, message, actual_target = create_space_saving_link(
+                source,
+                destination_parent,
+                mode,
+                log_fn=log_fn,
+                stop_event=stop_event,
+                progress_fn=_item_progress,
+            )
+        except Exception as e:
+            ok = False
+            message = f"迁移失败：{format_exception_text(e)}"
+            actual_target = target
+
+        result["target"] = actual_target or target
+        result["message"] = message
+        if ok:
+            result["status"] = "success"
+            _log(f"[缓存批量迁移] {name} 完成")
+        elif stop_event is not None and stop_event.is_set():
+            result["status"] = "cancelled"
+            _log(f"[缓存批量迁移] {name} 已暂停，可在下次继续")
+        else:
+            _log(f"[缓存批量迁移] {name} 失败: {message}")
+        results.append(result)
+        _progress((index + 1) * 100 // total, f"已处理 {index + 1}/{total}")
+
+        if stop_event is not None and stop_event.is_set():
+            break
+
+    success_count = sum(1 for item in results if item.get("status") == "success")
+    failed_count = sum(1 for item in results if item.get("status") == "failed")
+    cancelled_count = sum(1 for item in results if item.get("status") == "cancelled")
+    remaining_count = max(0, total - len(results))
+    if cancelled_count or remaining_count or (stop_event is not None and stop_event.is_set()):
+        message = (
+            f"批量迁移已暂停：成功 {success_count}，失败 {failed_count}，"
+            f"未完成 {cancelled_count + remaining_count}"
+        )
+    else:
+        message = f"批量迁移完成：成功 {success_count}，失败 {failed_count}"
+    return results, message
 
 RECOMMENDED_LINK_SCAN_LIMIT = 24
 RECOMMENDED_LINK_MIN_SIZE = 256 * 1024 * 1024
@@ -7556,6 +7740,8 @@ class ToolboxPage(ScrollArea):
     undoDone = Signal(bool, str)
     progressUpdate = Signal(int, str)
     cachePresetDone = Signal(object, str)
+    cacheBatchDone = Signal(object, str)
+    cacheBatchProgress = Signal(int, str)
     downloadScanDone = Signal(object, str)
     spaceScanDone = Signal(object, str)
     toolboxDeleteDone = Signal(str, bool, str)
@@ -7618,7 +7804,7 @@ class ToolboxPage(ScrollArea):
 
         entries = [
             (FIF.LINK, "软链接节省空间", "迁移文件或目录，并在原位置创建链接，减少系统盘占用。", "使用", self._show_softlink_tool),
-            (FIF.FOLDER, "常用缓存迁移", "扫描微信、浏览器、开发工具和模型缓存目录，一键填入迁移源路径。", "扫描", self._show_cache_preset_tool),
+            (FIF.FOLDER, "常用缓存迁移", "扫描常用缓存，选择目标根目录后可勾选多项批量迁移。", "扫描", self._show_cache_preset_tool),
             (FIF.FOLDER, "下载目录整理", "按安装包、压缩包、旧文件和大目录列出下载残留，支持定位与清理。", "整理", self._show_download_tool),
             (FIF.ZOOM, "空间占用分析", "按磁盘或目录统计一级目录占用，快速找出空间增长来源。", "分析", self._show_space_usage_tool),
         ]
@@ -7864,7 +8050,10 @@ class ToolboxPage(ScrollArea):
         cache_layout.setContentsMargins(0, 0, 0, 0)
         cache_layout.setSpacing(12)
 
-        cache_desc = CaptionLabel("按常见软件缓存路径扫描可迁移候选项。选中一项后会填入软链接源路径，目标目录仍由用户自行选择。")
+        cache_desc = CaptionLabel(
+            "扫描常见软件缓存后，可统一选择目标根目录并勾选多项一键迁移；"
+            "目标子目录会复刻源盘目录结构。"
+        )
         cache_desc.setWordWrap(True)
         cache_desc.setTextColor(QColor(128, 128, 128))
         cache_layout.addWidget(cache_desc)
@@ -7894,25 +8083,47 @@ class ToolboxPage(ScrollArea):
         cache_top.addWidget(self.btn_scan_cache_presets)
         cache_card_layout.addLayout(cache_top)
 
+        cache_dest_row = QHBoxLayout()
+        cache_dest_row.setSpacing(8)
+        cache_dest_row.addWidget(CaptionLabel("批量目标根目录"))
+        self.edit_cache_batch_dest = LineEdit()
+        self.edit_cache_batch_dest.setPlaceholderText(r"例如：D:\_linked")
+        self.edit_cache_batch_dest.textChanged.connect(self._update_cache_target_previews)
+        cache_dest_row.addWidget(self.edit_cache_batch_dest, 1)
+        self.btn_pick_cache_batch_dest = PushButton(FIF.FOLDER, "选择")
+        self.btn_pick_cache_batch_dest.clicked.connect(self._choose_cache_batch_dest)
+        cache_dest_row.addWidget(self.btn_pick_cache_batch_dest)
+        cache_card_layout.addLayout(cache_dest_row)
+
         self.lbl_cache_preset_hint = CaptionLabel("扫描结果：未开始")
         self.lbl_cache_preset_hint.setWordWrap(True)
         self.lbl_cache_preset_hint.setTextColor(QColor(128, 128, 128))
         cache_card_layout.addWidget(self.lbl_cache_preset_hint)
 
         self.tbl_cache_presets = TableWidget()
-        self.tbl_cache_presets.setColumnCount(6)
-        self.tbl_cache_presets.setHorizontalHeaderLabels(["分类", "名称", "大小", "状态", "路径", "建议"])
+        self.tbl_cache_presets.setColumnCount(8)
+        self.tbl_cache_presets.setHorizontalHeaderLabels(
+            [" ", "分类", "名称", "大小", "状态", "源路径", "目标路径", "建议"]
+        )
         self.tbl_cache_presets.verticalHeader().setVisible(False)
         self.tbl_cache_presets.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_cache_presets.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tbl_cache_presets.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tbl_cache_presets.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tbl_cache_presets.customContextMenuRequested.connect(
+            lambda pos: make_ctx(self, self.tbl_cache_presets, pos, 5)
+        )
         cache_header = self.tbl_cache_presets.horizontalHeader()
-        cache_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        cache_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.tbl_cache_presets.setColumnWidth(0, 44)
         cache_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         cache_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         cache_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        cache_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        cache_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         cache_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        cache_header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        cache_header.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
+        self.tbl_cache_presets.setColumnWidth(7, 180)
         self.tbl_cache_presets.setMinimumHeight(240)
         style_table(self.tbl_cache_presets)
         self.tbl_cache_presets.itemDoubleClicked.connect(lambda _: self._use_selected_cache_preset())
@@ -7920,7 +8131,11 @@ class ToolboxPage(ScrollArea):
 
         cache_actions = QHBoxLayout()
         cache_actions.setSpacing(8)
-        self.btn_use_cache_preset = PrimaryPushButton(FIF.ACCEPT, "使用所选项")
+        self.btn_select_cache_presets = PushButton(FIF.ACCEPT, "全选")
+        self.btn_select_cache_presets.setFixedHeight(30)
+        self.btn_select_cache_presets.clicked.connect(self._toggle_cache_preset_checks)
+        cache_actions.addWidget(self.btn_select_cache_presets)
+        self.btn_use_cache_preset = PushButton(FIF.LINK, "单项设置")
         self.btn_use_cache_preset.setFixedHeight(30)
         self.btn_use_cache_preset.clicked.connect(self._use_selected_cache_preset)
         cache_actions.addWidget(self.btn_use_cache_preset)
@@ -7929,6 +8144,15 @@ class ToolboxPage(ScrollArea):
         self.btn_locate_cache_preset.clicked.connect(self._open_selected_cache_preset)
         cache_actions.addWidget(self.btn_locate_cache_preset)
         cache_actions.addStretch(1)
+        self.btn_cancel_cache_batch = PushButton(FIF.CANCEL, "停止")
+        self.btn_cancel_cache_batch.setFixedHeight(30)
+        self.btn_cancel_cache_batch.clicked.connect(self._cancel_cache_batch_migration)
+        self.btn_cancel_cache_batch.hide()
+        cache_actions.addWidget(self.btn_cancel_cache_batch)
+        self.btn_migrate_cache_batch = PrimaryPushButton(FIF.LINK, "一键迁移")
+        self.btn_migrate_cache_batch.setFixedHeight(30)
+        self.btn_migrate_cache_batch.clicked.connect(self._start_cache_batch_migration)
+        cache_actions.addWidget(self.btn_migrate_cache_batch)
         cache_card_layout.addLayout(cache_actions)
         cache_layout.addWidget(cache_card)
 
@@ -8093,6 +8317,8 @@ class ToolboxPage(ScrollArea):
         self.undoDone.connect(self._finish_undo_link)
         self.progressUpdate.connect(self._on_progress_update)
         self.cachePresetDone.connect(self._finish_cache_preset_scan)
+        self.cacheBatchDone.connect(self._finish_cache_batch_migration)
+        self.cacheBatchProgress.connect(self._on_cache_batch_progress)
         self.downloadScanDone.connect(self._finish_download_scan)
         self.spaceScanDone.connect(self._finish_space_scan)
         self.toolboxDeleteDone.connect(self._finish_toolbox_delete)
@@ -8336,11 +8562,22 @@ class ToolboxPage(ScrollArea):
         self.space_footer.show_log_if_hidden()
         append_capped_log(self.space_footer.log, text, LOG_MAX_LINES)
 
+    def _append_cache_log(self, text):
+        self.cache_preset_footer.show_log_if_hidden()
+        append_capped_log(self.cache_preset_footer.log, text, LOG_MAX_LINES)
+
     def _append_scoped_tool_log(self, kind, text):
         if kind == "download":
             self._append_download_log(text)
         elif kind == "space":
             self._append_space_log(text)
+        elif kind == "cache":
+            self._append_cache_log(text)
+
+    def _on_cache_batch_progress(self, value, status):
+        self.cache_preset_footer.pb.setValue(value)
+        if status:
+            self.cache_preset_footer.set_status(status, value)
 
     def _start_download_scan(self):
         root_text = self.edit_download_dir.text().strip()
@@ -8546,17 +8783,34 @@ class ToolboxPage(ScrollArea):
         items = list(items or [])
         self.btn_scan_cache_presets.setEnabled(True)
         self.tbl_cache_presets.setRowCount(len(items))
+        destination = self.edit_cache_batch_dest.text().strip()
         for row, data in enumerate(items):
-            category_item = QTableWidgetItem(data.get("category", ""))
-            category_item.setData(Qt.ItemDataRole.UserRole, data)
-            self.tbl_cache_presets.setItem(row, 0, category_item)
-            self.tbl_cache_presets.setItem(row, 1, QTableWidgetItem(data.get("name", "")))
-            self.tbl_cache_presets.setItem(row, 2, QTableWidgetItem(human_size(data.get("size", 0))))
-            self.tbl_cache_presets.setItem(row, 3, QTableWidgetItem(data.get("status", "")))
-            self.tbl_cache_presets.setItem(row, 4, QTableWidgetItem(display_path(data.get("path", ""))))
-            self.tbl_cache_presets.setItem(row, 5, QTableWidgetItem(data.get("reason", "")))
+            row_data = dict(data)
+            target = build_mirrored_cache_target_path(row_data.get("path", ""), destination)
+            row_data["target_path"] = target
+            check_item = make_check_item(False)
+            check_item.setData(Qt.ItemDataRole.UserRole, row_data)
+            if row_data.get("status") != "可迁移":
+                check_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            self.tbl_cache_presets.setItem(row, 0, check_item)
+            self.tbl_cache_presets.setItem(row, 1, QTableWidgetItem(row_data.get("category", "")))
+            self.tbl_cache_presets.setItem(row, 2, QTableWidgetItem(row_data.get("name", "")))
+            size_item = SizeTableWidgetItem(human_size(row_data.get("size", 0)))
+            size_item.setData(Qt.ItemDataRole.UserRole, int(row_data.get("size", 0)))
+            self.tbl_cache_presets.setItem(row, 3, size_item)
+            self.tbl_cache_presets.setItem(row, 4, QTableWidgetItem(row_data.get("status", "")))
+            self.tbl_cache_presets.setItem(row, 5, QTableWidgetItem(display_path(row_data.get("path", ""))))
+            target_text = display_path(target) if target else ("请选择目标根目录" if not destination else "无法生成目标路径")
+            target_item = QTableWidgetItem(target_text)
+            target_item.setToolTip(display_path(target) if target else "")
+            self.tbl_cache_presets.setItem(row, 6, target_item)
+            reason_item = QTableWidgetItem(row_data.get("reason", ""))
+            reason_item.setToolTip(row_data.get("reason", ""))
+            self.tbl_cache_presets.setItem(row, 7, reason_item)
         if items:
             self.tbl_cache_presets.selectRow(0)
+        self.btn_select_cache_presets.setText("全选")
+        self.btn_select_cache_presets.setIcon(FIF.ACCEPT)
         self.lbl_cache_preset_hint.setText(f"扫描结果：{message}")
         self.cache_preset_footer.pb.setValue(100 if items else 0)
         self.cache_preset_footer.set_status(message, 100 if items else None)
@@ -8564,6 +8818,210 @@ class ToolboxPage(ScrollArea):
             InfoBar.success("扫描完成", message, parent=self.main_win)
         else:
             InfoBar.warning("扫描结果", message, parent=self.main_win)
+
+    def _update_cache_target_previews(self, *_args):
+        destination = self.edit_cache_batch_dest.text().strip()
+        for row in range(self.tbl_cache_presets.rowCount()):
+            check_item = self.tbl_cache_presets.item(row, 0)
+            data = check_item.data(Qt.ItemDataRole.UserRole) if check_item else None
+            if not isinstance(data, dict):
+                continue
+            row_data = dict(data)
+            target = build_mirrored_cache_target_path(row_data.get("path", ""), destination)
+            row_data["target_path"] = target
+            check_item.setData(Qt.ItemDataRole.UserRole, row_data)
+            target_item = self.tbl_cache_presets.item(row, 6)
+            if target_item is None:
+                target_item = QTableWidgetItem()
+                self.tbl_cache_presets.setItem(row, 6, target_item)
+            target_item.setText(
+                display_path(target)
+                if target
+                else ("请选择目标根目录" if not destination else "无法生成目标路径")
+            )
+            target_item.setToolTip(display_path(target) if target else "")
+
+    def _toggle_cache_preset_checks(self):
+        eligible_rows = []
+        for row in range(self.tbl_cache_presets.rowCount()):
+            item = self.tbl_cache_presets.item(row, 0)
+            if item is not None and item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                eligible_rows.append(row)
+        if not eligible_rows:
+            return
+        checked_count = sum(1 for row in eligible_rows if is_row_checked(self.tbl_cache_presets, row))
+        checked = checked_count < len(eligible_rows)
+        for row in eligible_rows:
+            set_row_checked(self.tbl_cache_presets, row, checked)
+        self.btn_select_cache_presets.setText("取消全选" if checked else "全选")
+        self.btn_select_cache_presets.setIcon(FIF.CLOSE if checked else FIF.ACCEPT)
+
+    def _checked_cache_presets(self):
+        selected = []
+        for row in range(self.tbl_cache_presets.rowCount()):
+            if not is_row_checked(self.tbl_cache_presets, row):
+                continue
+            item = self.tbl_cache_presets.item(row, 0)
+            data = item.data(Qt.ItemDataRole.UserRole) if item else None
+            if isinstance(data, dict) and data.get("status") == "可迁移":
+                selected.append(dict(data))
+        return selected
+
+    def _choose_cache_batch_dest(self):
+        current = self.edit_cache_batch_dest.text().strip()
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "选择批量迁移目标根目录",
+            current or "D:\\",
+        )
+        if folder:
+            self.edit_cache_batch_dest.setText(folder)
+
+    def _set_cache_batch_controls_enabled(self, enabled):
+        for widget in (
+            self.btn_scan_cache_presets,
+            self.btn_select_cache_presets,
+            self.btn_use_cache_preset,
+            self.btn_locate_cache_preset,
+            self.btn_migrate_cache_batch,
+            self.edit_cache_batch_dest,
+            self.btn_pick_cache_batch_dest,
+        ):
+            widget.setEnabled(bool(enabled))
+
+    def _start_cache_batch_migration(self):
+        items = self._checked_cache_presets()
+        if not items:
+            InfoBar.warning("提示", "请先勾选需要迁移的缓存项", parent=self.main_win)
+            return
+
+        destination_text = self.edit_cache_batch_dest.text().strip()
+        destination = os.path.abspath(norm_path(destination_text)) if destination_text else ""
+        if not destination or not os.path.isdir(destination):
+            InfoBar.warning("提示", "请先选择存在的批量目标根目录", parent=self.main_win)
+            return
+
+        targets = [
+            build_mirrored_cache_target_path(item.get("path", ""), destination)
+            for item in items
+        ]
+        if any(not target for target in targets):
+            InfoBar.error("无法迁移", "部分缓存项无法生成安全的目标路径", parent=self.main_win)
+            return
+        if any(
+            _path_is_same_or_child(
+                _normalize_safety_path(target),
+                _normalize_safety_path(item.get("path", "")),
+            )
+            for item, target in zip(items, targets)
+        ):
+            InfoBar.error(
+                "无法迁移",
+                "目标根目录不能位于任何待迁移源路径内部",
+                parent=self.main_win,
+            )
+            return
+
+        total_size = sum(max(0, int(item.get("size", 0))) for item in items)
+        sample_target = display_path(targets[0])
+        confirmation = (
+            f"将迁移 {len(items)} 个缓存项（约 {human_size(total_size)}），"
+            "并在所选根目录下复刻源盘目录结构。\n\n"
+            f"目标示例：{sample_target}\n\n"
+            "每项会独立保存断点；取消或异常后可再次勾选继续。"
+        )
+        if not MessageBox("确认批量迁移", confirmation, self.main_win).exec():
+            return
+
+        stop = self.stop_event
+        selected_items = tuple(dict(item) for item in items)
+
+        def _worker():
+            try:
+                results, message = migrate_cache_presets_batch(
+                    selected_items,
+                    destination,
+                    log_fn=lambda text: self.toolboxScopedLog.emit("cache", text),
+                    stop_event=stop,
+                    progress_fn=self.cacheBatchProgress.emit,
+                )
+                self.cacheBatchDone.emit(results, message)
+            except Exception as e:
+                self.cacheBatchDone.emit([], f"批量迁移失败：{format_exception_text(e)}")
+
+        def _prepare():
+            self._set_cache_batch_controls_enabled(False)
+            self.btn_cancel_cache_batch.setEnabled(True)
+            self.btn_cancel_cache_batch.show()
+            self.cache_preset_footer.log.clear()
+            self.cache_preset_footer.show_log_if_hidden()
+            self.cache_preset_footer.pb.setValue(0)
+            self.cache_preset_footer.set_status(f"正在迁移 0/{len(selected_items)}...")
+
+        self._start_toolbox_worker("缓存批量迁移", _worker, before_start=_prepare)
+
+    def _cancel_cache_batch_migration(self):
+        self.stop_event.set()
+        self.btn_cancel_cache_batch.setEnabled(False)
+        self.cache_preset_footer.set_status("正在安全停止，已完成进度会保留...")
+
+    def _finish_cache_batch_migration(self, results, message):
+        results = list(results or [])
+        by_source = {
+            _normalize_safety_path(item.get("source", "")): item
+            for item in results
+            if isinstance(item, dict) and item.get("source")
+        }
+        for row in range(self.tbl_cache_presets.rowCount()):
+            check_item = self.tbl_cache_presets.item(row, 0)
+            data = check_item.data(Qt.ItemDataRole.UserRole) if check_item else None
+            if not isinstance(data, dict):
+                continue
+            result = by_source.get(_normalize_safety_path(data.get("path", "")))
+            if not result:
+                continue
+
+            row_data = dict(data)
+            target = result.get("target") or row_data.get("target_path", "")
+            row_data["target_path"] = target
+            status = result.get("status")
+            if status == "success":
+                row_data["status"] = "已是链接"
+                check_item.setCheckState(Qt.CheckState.Unchecked)
+                check_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                status_text = "已迁移"
+            elif status == "cancelled":
+                status_text = "已暂停（可继续）"
+            else:
+                status_text = "失败（可重试）"
+            check_item.setData(Qt.ItemDataRole.UserRole, row_data)
+            self.tbl_cache_presets.item(row, 4).setText(status_text)
+            self.tbl_cache_presets.item(row, 6).setText(display_path(target))
+            self.tbl_cache_presets.item(row, 6).setToolTip(display_path(target))
+
+        self._set_cache_batch_controls_enabled(True)
+        self.btn_cancel_cache_batch.hide()
+        self.btn_cancel_cache_batch.setEnabled(True)
+        has_checked_item = any(
+            is_row_checked(self.tbl_cache_presets, row)
+            for row in range(self.tbl_cache_presets.rowCount())
+        )
+        self.btn_select_cache_presets.setText("取消全选" if has_checked_item else "全选")
+        self.btn_select_cache_presets.setIcon(FIF.CLOSE if has_checked_item else FIF.ACCEPT)
+        paused = "已暂停" in str(message)
+        if not paused:
+            self.cache_preset_footer.pb.setValue(100)
+        self.cache_preset_footer.set_status(message, None if paused else 100)
+        self._refresh_history()
+
+        success_count = sum(1 for item in results if item.get("status") == "success")
+        failed_count = sum(1 for item in results if item.get("status") == "failed")
+        if results and not paused and failed_count == 0:
+            InfoBar.success("批量迁移完成", message, parent=self.main_win)
+        elif success_count or failed_count or paused:
+            InfoBar.warning("批量迁移结果", message, parent=self.main_win)
+        else:
+            InfoBar.error("批量迁移失败", message, parent=self.main_win)
 
     def _selected_cache_preset(self):
         row = self.tbl_cache_presets.currentRow()
@@ -8583,6 +9041,12 @@ class ToolboxPage(ScrollArea):
             InfoBar.warning("无法填入", "该缓存路径不存在", parent=self.main_win)
             return
         self.edit_link_source.setText(path)
+        mirrored_target = build_mirrored_cache_target_path(
+            path,
+            self.edit_cache_batch_dest.text().strip(),
+        )
+        if mirrored_target:
+            self.edit_link_dest.setText(os.path.dirname(mirrored_target))
         self._show_softlink_tool()
         self.footer.set_status(f"已填入缓存目录：{display_path(path)}")
         InfoBar.success("已填入", f"已载入缓存目录：{display_path(path)}", parent=self.main_win)

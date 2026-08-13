@@ -183,36 +183,38 @@ a.datas = [
 print(f"[过滤] binaries: {before_b} -> {len(a.binaries)}")
 print(f"[过滤] datas: {before_d} -> {len(a.datas)}")
 
+upx_excludes = [
+    "python3.dll",
+    "python311.dll",
+    "python312.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "ucrtbase.dll",
+    "shiboken6.dll",
+    "shiboken6.abi3.dll",
+    "Qt6Core.dll",
+    "Qt6Gui.dll",
+    "Qt6Widgets.dll",
+    "qwindows.dll",
+    "fast_large_files.exe",
+]
+
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="c_cleaner_plus",
     icon=os.path.join(base_dir, "app.ico"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[
-        "python3.dll",
-        "python311.dll",
-        "python312.dll",
-        "vcruntime140.dll",
-        "vcruntime140_1.dll",
-        "msvcp140.dll",
-        "msvcp140_1.dll",
-        "msvcp140_2.dll",
-        "ucrtbase.dll",
-        "shiboken6.dll",
-        "shiboken6.abi3.dll",
-        "Qt6Core.dll",
-        "Qt6Gui.dll",
-        "Qt6Widgets.dll",
-        "qwindows.dll",
-        "fast_large_files.exe",
-    ],
+    upx_exclude=upx_excludes,
+    contents_directory="_internal",
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
@@ -221,4 +223,14 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
+)
+
+bundle = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=upx_excludes,
+    name="c_cleaner_plus",
 )

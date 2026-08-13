@@ -145,6 +145,52 @@ class SafetyRegressionTests(unittest.TestCase):
         for forbidden in ("self.sp_mb", "self.sp_mx", "self.drive_sel", "self.chk_skip_special"):
             self.assertNotIn(forbidden, big_source)
 
+    def test_clean_context_menu_is_not_scheduled_during_class_definition(self):
+        method_source = inspect.getsource(main.CleanPage._show_context_menu)
+        self.assertIn("QTimer.singleShot", method_source)
+
+    def test_toolbox_page_is_constructed_lazily(self):
+        init_source = inspect.getsource(main.MainWindow.__init__)
+        nav_source = inspect.getsource(main.MainWindow._register_nav_items)
+
+        self.assertIn("self.pg_toolbox = None", init_source)
+        self.assertIn('"pg_toolbox": lambda: ToolboxPage', init_source)
+        self.assertIn('_add_lazy_nav_page("pg_toolbox"', nav_source)
+        self.assertNotIn("_add_nav_page(self.pg_toolbox", nav_source)
+
+    def test_theme_mode_skips_reapplying_the_current_theme(self):
+        target_theme = object()
+        fake_window = types.SimpleNamespace(
+            global_settings={"theme_mode": "auto"},
+            titleBar=types.SimpleNamespace(raise_=lambda: None),
+        )
+
+        with (
+            mock.patch.object(main, "resolve_theme_enum", return_value=target_theme),
+            mock.patch.object(main, "qconfig", types.SimpleNamespace(theme=target_theme)),
+            mock.patch.object(main, "setTheme") as set_theme,
+        ):
+            main.MainWindow.apply_theme_mode(fake_window)
+
+        set_theme.assert_not_called()
+
+    def test_theme_mode_still_applies_a_changed_theme(self):
+        current_theme = object()
+        target_theme = object()
+        fake_window = types.SimpleNamespace(
+            global_settings={"theme_mode": "dark"},
+            titleBar=types.SimpleNamespace(raise_=lambda: None),
+        )
+
+        with (
+            mock.patch.object(main, "resolve_theme_enum", return_value=target_theme),
+            mock.patch.object(main, "qconfig", types.SimpleNamespace(theme=current_theme)),
+            mock.patch.object(main, "setTheme") as set_theme,
+        ):
+            main.MainWindow.apply_theme_mode(fake_window)
+
+        set_theme.assert_called_once_with(target_theme)
+
     def test_cache_target_replicates_drive_relative_structure(self):
         target = main.build_mirrored_cache_target_path(
             r"C:\Users\Test\AppData\Local\uv\cache",
@@ -888,6 +934,24 @@ class SafetyRegressionTests(unittest.TestCase):
         }
         self.assertTrue(required.issubset(pack))
         self.assertEqual(payload["version"], manifest["languages"]["en_us"]["version"])
+
+    def test_windows_release_packages_the_onedir_bundle_as_zip(self):
+        root = os.path.dirname(os.path.abspath(main.__file__))
+        with open(os.path.join(root, "c_cleaner_plus.spec"), "r", encoding="utf-8") as stream:
+            spec = stream.read()
+        with open(
+            os.path.join(root, ".github", "workflows", "build.yml"),
+            "r",
+            encoding="utf-8",
+        ) as stream:
+            workflow = stream.read()
+
+        self.assertIn("exclude_binaries=True", spec)
+        self.assertIn("bundle = COLLECT(", spec)
+        self.assertIn('contents_directory="_internal"', spec)
+        self.assertIn("Compress-Archive -LiteralPath $bundle", workflow)
+        self.assertIn("dist/c_cleaner_plus-*-windows-x64.zip", workflow)
+        self.assertNotIn("files: dist/*.exe", workflow)
 
 
 if __name__ == "__main__":

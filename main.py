@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.7.6
+C盘强力清理工具 v0.7.7
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -144,7 +144,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.7.6"
+CURRENT_VERSION = "0.7.7"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -11145,7 +11145,7 @@ class CleanPage(ScrollArea):
         a3.setEnabled(ex)
         m.addAction(a3)
         gp = self.tbl.viewport().mapToGlobal(pos)
-    QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
+        QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
 
 
 def build_uninstall_leftover_keywords(app_name="", publisher="", install_dir=""):
@@ -13265,7 +13265,7 @@ class MainWindow(MSFluentWindow):
         self.clean_stop = threading.Event(); self.uninstall_stop = threading.Event(); self.big_stop = threading.Event(); self.more_stop = threading.Event(); self.toolbox_stop = threading.Event(); self.sig = Sig()
         self._targets_lock = threading.Lock()
         self.pg_clean = CleanPage(self.sig, self.targets, self.clean_stop, self._targets_lock, self)
-        self.pg_toolbox = ToolboxPage(self, self.toolbox_stop, self)
+        self.pg_toolbox = None
         self.pg_rule_store = None
         self.pg_big = None
         self.pg_uninstall = None
@@ -13273,12 +13273,14 @@ class MainWindow(MSFluentWindow):
         self.pg_more = None
         self.pg_setting = SettingPage(self, self)
         self._lazy_route_keys = {
+            "pg_toolbox": "toolboxPage",
             "pg_rule_store": "ruleStorePage",
             "pg_big": "bigFilePage",
             "pg_uninstall": "uninstallPage",
             "pg_more": "moreCleanPage",
         }
         self._lazy_page_factories = {
+            "pg_toolbox": lambda: ToolboxPage(self, self.toolbox_stop, self),
             "pg_rule_store": lambda: RuleStorePage(self, self),
             "pg_big": lambda: BigFilePage(self.sig, self.big_stop, self),
             "pg_uninstall": lambda: UninstallPage(self.sig, self.uninstall_stop, self),
@@ -13340,17 +13342,24 @@ class MainWindow(MSFluentWindow):
     def apply_theme_mode(self):
         mode = normalize_theme_mode(self.global_settings.get("theme_mode", "auto"))
         self.global_settings["theme_mode"] = mode
-        setTheme(resolve_theme_enum(mode))
-        if hasattr(self, "pg_setting"):
+        target_theme = resolve_theme_enum(mode)
+        if qconfig.theme == target_theme:
+            self.titleBar.raise_()
+            return
+
+        setTheme(target_theme)
+        setting_page = getattr(self, "pg_setting", None)
+        if setting_page is not None:
             try:
-                self.pg_setting._apply_setting_style()
-                QTimer.singleShot(0, self.pg_setting._apply_setting_style)
+                setting_page._apply_setting_style()
+                QTimer.singleShot(0, setting_page._apply_setting_style)
             except Exception:
                 pass
-        if hasattr(self, "pg_toolbox"):
+        toolbox_page = getattr(self, "pg_toolbox", None)
+        if toolbox_page is not None:
             try:
-                self.pg_toolbox._apply_toolbox_style()
-                QTimer.singleShot(0, self.pg_toolbox._apply_toolbox_style)
+                toolbox_page._apply_toolbox_style()
+                QTimer.singleShot(0, toolbox_page._apply_toolbox_style)
             except Exception:
                 pass
         for widget in (self, getattr(self, "pg_setting", None), getattr(self, "pg_clean", None),
@@ -14083,7 +14092,7 @@ class MainWindow(MSFluentWindow):
         self._add_nav_page(self.pg_clean, FIF.BROOM, "常规清理")
         self._add_lazy_nav_page("pg_rule_store", FIF.DOCUMENT, "规则商店")
         self._add_nav_page(self.pg_schedule, FIF.SYNC, "定时任务")
-        self._add_nav_page(self.pg_toolbox, FIF.DEVELOPER_TOOLS, "工具箱")
+        self._add_lazy_nav_page("pg_toolbox", FIF.DEVELOPER_TOOLS, "工具箱")
         self._add_lazy_nav_page("pg_big", FIF.ZOOM, "大文件扫描")
         self._add_lazy_nav_page("pg_uninstall", FIF.APPLICATION, "应用强力卸载")
         self._add_lazy_nav_page("pg_more", FIF.MORE, "更多清理")

@@ -43,35 +43,35 @@
   ],
   [
     "Cherry Studio 缓存",
-    "%APPDATA%\\Cherry Studio\\Cache",
+    "%APPDATA%\\CherryStudio\\Cache",
     "dir",
     false,
     "Cherry Studio 普通缓存"
   ],
   [
     "Cherry Studio 代码缓存",
-    "%APPDATA%\\Cherry Studio\\Code Cache",
+    "%APPDATA%\\CherryStudio\\Code Cache",
     "dir",
     false,
     "Cherry Studio 前端脚本缓存"
   ],
   [
     "Cherry Studio GPU 缓存",
-    "%APPDATA%\\Cherry Studio\\GPUCache",
+    "%APPDATA%\\CherryStudio\\GPUCache",
     "dir",
     false,
     "Cherry Studio 图形渲染缓存"
   ],
   [
-    "Cherry Studio Service Worker",
-    "%APPDATA%\\Cherry Studio\\Service Worker\\CacheStorage",
+    "Cherry Studio 崩溃报告",
+    "%APPDATA%\\CherryStudio\\Crashpad\\reports",
     "dir",
     false,
-    "Cherry Studio Service Worker 缓存"
+    "Cherry Studio 崩溃转储报告"
   ],
   [
     "Cherry Studio 日志",
-    "%APPDATA%\\Cherry Studio\\logs",
+    "%APPDATA%\\CherryStudio\\logs",
     "dir",
     false,
     "Cherry Studio 运行日志"
@@ -145,5 +145,305 @@
     "dir",
     false,
     "Claude Desktop 运行日志"
+  ],
+  [
+    "Claude Code shell 快照",
+    "%USERPROFILE%\\.claude\\shell-snapshots",
+    "dir",
+    false,
+    "Claude Code 每次会话生成的 shell 环境快照，可自动重建"
+  ],
+  [
+    "Claude Code 遥测缓存",
+    "%USERPROFILE%\\.claude\\telemetry",
+    "dir",
+    false,
+    "Claude Code 上报失败后暂存的遥测事件"
+  ],
+  [
+    "Claude Code IDE 锁文件",
+    "%USERPROFILE%\\.claude\\ide",
+    "glob",
+    false,
+    "Claude Code 与编辑器通信的端口锁文件，退出后常有残留",
+    false,
+    "*.lock"
+  ],
+  [
+    "Claude Code 配置备份",
+    "%USERPROFILE%\\.claude\\backups",
+    "glob",
+    false,
+    "Claude Code 自动生成的 .claude.json 历史备份",
+    false,
+    ".claude.json.backup.*"
+  ],
+  [
+    "Codex 插件缓存",
+    "%USERPROFILE%\\.codex\\plugins\\cache",
+    "dir",
+    false,
+    "Codex CLI 下载的插件与模板缓存，可重新下载"
+  ],
+  [
+    "Codex 归档会话",
+    "%USERPROFILE%\\.codex\\archived_sessions",
+    "glob",
+    false,
+    "Codex CLI 已归档的会话记录，清理后这些历史无法再恢复",
+    false,
+    "rollout-*.jsonl"
+  ],
+  [
+    "opencode 运行日志",
+    "%USERPROFILE%\\.local\\share\\opencode\\log",
+    "dir",
+    false,
+    "opencode 按时间戳生成的运行日志"
+  ],
+  [
+    "opencode 工作区快照",
+    "%USERPROFILE%\\.local\\share\\opencode\\snapshot",
+    "dir",
+    false,
+    "opencode 用于回滚改动的工作区快照，清理后历史会话无法回滚"
+  ],
+  [
+    "Antigravity 网页缓存",
+    "%USERPROFILE%\\.gemini\\antigravity-browser-profile\\Default\\Cache",
+    "dir",
+    false,
+    "Antigravity 内置浏览器的网页缓存"
+  ],
+  [
+    "Antigravity 代码缓存",
+    "%USERPROFILE%\\.gemini\\antigravity-browser-profile\\Default\\Code Cache",
+    "dir",
+    false,
+    "Antigravity 内置浏览器的前端脚本缓存"
+  ],
+  [
+    "Antigravity GPU 缓存",
+    "%USERPROFILE%\\.gemini\\antigravity-browser-profile\\Default\\GPUCache",
+    "dir",
+    false,
+    "Antigravity 内置浏览器的图形渲染缓存"
+  ],
+  [
+    "Antigravity Service Worker",
+    "%USERPROFILE%\\.gemini\\antigravity-browser-profile\\Default\\Service Worker\\ScriptCache",
+    "dir",
+    false,
+    "Antigravity 内置浏览器的 Service Worker 脚本缓存"
+  ],
+  [
+    "Antigravity 组件缓存",
+    "%USERPROFILE%\\.gemini\\antigravity-browser-profile\\component_crx_cache",
+    "dir",
+    false,
+    "Antigravity 下载的浏览器组件缓存，可重新下载"
+  ],
+  [
+    "Antigravity 模型缓存",
+    "%USERPROFILE%\\.gemini\\antigravity-browser-profile\\optimization_guide_model_store",
+    "dir",
+    false,
+    "Antigravity 优化建议模型文件，可重新下载"
+  ],
+  [
+    "Antigravity IDE 缓存",
+    "%APPDATA%\\Antigravity IDE\\Cache",
+    "dir",
+    false,
+    "Antigravity IDE 普通缓存"
+  ],
+  [
+    "Antigravity IDE 代码缓存",
+    "%APPDATA%\\Antigravity IDE\\Code Cache",
+    "dir",
+    false,
+    "Antigravity IDE 前端脚本缓存"
+  ],
+  [
+    "Antigravity IDE GPU 缓存",
+    "%APPDATA%\\Antigravity IDE\\GPUCache",
+    "dir",
+    false,
+    "Antigravity IDE 图形渲染缓存"
+  ],
+  [
+    "Antigravity IDE 崩溃报告",
+    "%APPDATA%\\Antigravity IDE\\Crashpad\\reports",
+    "dir",
+    false,
+    "Antigravity IDE 崩溃转储报告"
+  ],
+  [
+    "opencode 桌面版缓存",
+    "%APPDATA%\\ai.opencode.desktop\\Cache",
+    "dir",
+    false,
+    "opencode 桌面版普通缓存"
+  ],
+  [
+    "opencode 桌面版代码缓存",
+    "%APPDATA%\\ai.opencode.desktop\\Code Cache",
+    "dir",
+    false,
+    "opencode 桌面版前端脚本缓存"
+  ],
+  [
+    "opencode 桌面版 GPU 缓存",
+    "%APPDATA%\\ai.opencode.desktop\\GPUCache",
+    "dir",
+    false,
+    "opencode 桌面版图形渲染缓存"
+  ],
+  [
+    "opencode 桌面版崩溃报告",
+    "%APPDATA%\\ai.opencode.desktop\\Crashpad\\reports",
+    "dir",
+    false,
+    "opencode 桌面版崩溃转储报告"
+  ],
+  [
+    "Kiro 缓存",
+    "%APPDATA%\\Kiro\\Cache",
+    "dir",
+    false,
+    "Kiro 普通缓存"
+  ],
+  [
+    "Kiro 代码缓存",
+    "%APPDATA%\\Kiro\\Code Cache",
+    "dir",
+    false,
+    "Kiro 前端脚本缓存"
+  ],
+  [
+    "Kiro GPU 缓存",
+    "%APPDATA%\\Kiro\\GPUCache",
+    "dir",
+    false,
+    "Kiro 图形渲染缓存"
+  ],
+  [
+    "Kiro Service Worker",
+    "%APPDATA%\\Kiro\\Service Worker\\ScriptCache",
+    "dir",
+    false,
+    "Kiro Service Worker 脚本缓存"
+  ],
+  [
+    "Kiro 崩溃报告",
+    "%APPDATA%\\Kiro\\Crashpad\\reports",
+    "dir",
+    false,
+    "Kiro 崩溃转储报告"
+  ],
+  [
+    "Kiro 账号管理代码缓存",
+    "%APPDATA%\\kiro-account-manager\\Code Cache",
+    "dir",
+    false,
+    "Kiro 账号管理组件前端脚本缓存"
+  ],
+  [
+    "Kiro 账号管理 GPU 缓存",
+    "%APPDATA%\\kiro-account-manager\\GPUCache",
+    "dir",
+    false,
+    "Kiro 账号管理组件图形渲染缓存"
+  ],
+  [
+    "Devin 缓存",
+    "%APPDATA%\\Devin\\Cache",
+    "dir",
+    false,
+    "Devin 桌面端普通缓存"
+  ],
+  [
+    "Devin 代码缓存",
+    "%APPDATA%\\Devin\\Code Cache",
+    "dir",
+    false,
+    "Devin 桌面端前端脚本缓存"
+  ],
+  [
+    "Devin GPU 缓存",
+    "%APPDATA%\\Devin\\GPUCache",
+    "dir",
+    false,
+    "Devin 桌面端图形渲染缓存"
+  ],
+  [
+    "Devin 崩溃报告",
+    "%APPDATA%\\Devin\\Crashpad\\reports",
+    "dir",
+    false,
+    "Devin 桌面端崩溃转储报告"
+  ],
+  [
+    "Kimi 桌面版缓存",
+    "%APPDATA%\\kimi-desktop\\Cache",
+    "dir",
+    false,
+    "Kimi 桌面版普通缓存"
+  ],
+  [
+    "Kimi 桌面版代码缓存",
+    "%APPDATA%\\kimi-desktop\\Code Cache",
+    "dir",
+    false,
+    "Kimi 桌面版前端脚本缓存"
+  ],
+  [
+    "Kimi 桌面版 GPU 缓存",
+    "%APPDATA%\\kimi-desktop\\GPUCache",
+    "dir",
+    false,
+    "Kimi 桌面版图形渲染缓存"
+  ],
+  [
+    "Kimi 桌面版日志",
+    "%APPDATA%\\kimi-desktop\\logs",
+    "dir",
+    false,
+    "Kimi 桌面版运行日志"
+  ],
+  [
+    "Kimi 桌面版崩溃报告",
+    "%APPDATA%\\kimi-desktop\\Crashpad\\reports",
+    "dir",
+    false,
+    "Kimi 桌面版崩溃转储报告"
+  ],
+  [
+    "JoyCode 缓存",
+    "%APPDATA%\\JoyCode\\Cache",
+    "dir",
+    false,
+    "JoyCode 普通缓存"
+  ],
+  [
+    "JoyCode 代码缓存",
+    "%APPDATA%\\JoyCode\\Code Cache",
+    "dir",
+    false,
+    "JoyCode 前端脚本缓存"
+  ],
+  [
+    "JoyCode GPU 缓存",
+    "%APPDATA%\\JoyCode\\GPUCache",
+    "dir",
+    false,
+    "JoyCode 图形渲染缓存"
+  ],
+  [
+    "JoyCode Service Worker",
+    "%APPDATA%\\JoyCode\\Service Worker\\ScriptCache",
+    "dir",
+    false,
+    "JoyCode Service Worker 脚本缓存"
   ]
 ]

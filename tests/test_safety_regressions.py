@@ -58,7 +58,7 @@ class SafetyRegressionTests(unittest.TestCase):
         payload = b'{"rules": []}'
         with tempfile.TemporaryDirectory() as temp_dir:
             response = _FakeResponse(payload, {"Content-Length": str(len(payload))})
-            with mock.patch.object(main.urllib.request, "urlopen", return_value=response):
+            with mock.patch.object(main, "_urlopen", return_value=response):
                 path = main.download_rule_pack("safe_rules.json", base_dir=temp_dir)
 
             self.assertEqual(os.path.dirname(path), os.path.abspath(temp_dir))
@@ -69,7 +69,7 @@ class SafetyRegressionTests(unittest.TestCase):
     def test_rule_pack_invalid_json_is_not_persisted(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             response = _FakeResponse(b"not-json")
-            with mock.patch.object(main.urllib.request, "urlopen", return_value=response):
+            with mock.patch.object(main, "_urlopen", return_value=response):
                 with self.assertRaises(ValueError):
                     main.download_rule_pack("invalid.json", base_dir=temp_dir)
             self.assertFalse(os.path.exists(os.path.join(temp_dir, "invalid.json")))
@@ -78,7 +78,7 @@ class SafetyRegressionTests(unittest.TestCase):
         oversized = b" " * (main.RULE_PACK_MAX_BYTES + 1)
         with tempfile.TemporaryDirectory() as temp_dir:
             response = _FakeResponse(oversized)
-            with mock.patch.object(main.urllib.request, "urlopen", return_value=response):
+            with mock.patch.object(main, "_urlopen", return_value=response):
                 with self.assertRaises(ValueError):
                     main.download_rule_pack("oversized.json", base_dir=temp_dir)
             self.assertFalse(os.path.exists(os.path.join(temp_dir, "oversized.json")))
@@ -128,6 +128,30 @@ class SafetyRegressionTests(unittest.TestCase):
         self.assertTrue(any("仅报告" in line for line in logs))
         self.assertTrue(any("删除 0 项" in line for line in logs))
 
+    def test_never_run_task_hides_windows_placeholder_timestamp(self):
+        for result in (267011, "267011", "0x41303"):
+            item = {
+                "LastRunTime": "1999-11-30 00:00",
+                "LastTaskResult": result,
+            }
+            normalized = main.normalize_scheduled_task_item(item)
+
+            self.assertEqual(normalized["LastRunTime"], "")
+            self.assertEqual(main.format_scheduled_task_result(result), "尚未运行")
+
+        self.assertEqual(item["LastRunTime"], "1999-11-30 00:00")
+
+    def test_completed_task_keeps_its_real_last_run_time(self):
+        item = {
+            "LastRunTime": "2026-08-23 03:00",
+            "LastTaskResult": 0,
+        }
+
+        normalized = main.normalize_scheduled_task_item(item)
+
+        self.assertEqual(normalized["LastRunTime"], "2026-08-23 03:00")
+        self.assertEqual(main.format_scheduled_task_result(0), "0")
+
     def test_leftover_cleanup_no_longer_starts_a_second_worker(self):
         source = inspect.getsource(main.UninstallPage._trigger_leftover_scan)
         self.assertNotIn("threading.Thread", source)
@@ -157,6 +181,49 @@ class SafetyRegressionTests(unittest.TestCase):
         self.assertIn('"pg_toolbox": lambda: ToolboxPage', init_source)
         self.assertIn('_add_lazy_nav_page("pg_toolbox"', nav_source)
         self.assertNotIn("_add_nav_page(self.pg_toolbox", nav_source)
+
+    def test_secondary_startup_pages_are_constructed_lazily(self):
+        init_source = inspect.getsource(main.MainWindow.__init__)
+        nav_source = inspect.getsource(main.MainWindow._register_nav_items)
+        setting_factory_source = inspect.getsource(main.MainWindow._create_setting_page)
+
+        for attr_name, page_name in (
+            ("pg_schedule", "SchedulePage"),
+            ("pg_setting", "SettingPage"),
+        ):
+            self.assertIn(f"self.{attr_name} = None", init_source)
+            self.assertIn(f'"{attr_name}"', init_source)
+            factory_source = init_source if attr_name != "pg_setting" else setting_factory_source
+            self.assertIn(page_name, factory_source)
+            self.assertIn(f'_add_lazy_nav_page("{attr_name}"', nav_source)
+            self.assertNotIn(f"_add_nav_page(self.{attr_name}", nav_source)
+
+    def test_startup_defers_system_query_and_does_not_prewarm_pages(self):
+        init_source = inspect.getsource(main.MainWindow.__init__)
+        setting_factory_source = inspect.getsource(main.MainWindow._create_setting_page)
+
+        self.assertNotIn("is_app_auto_start_enabled()", init_source)
+        self.assertNotIn("_refresh_auto_start_state_async", init_source)
+        self.assertIn("_refresh_auto_start_state_async", setting_factory_source)
+        self.assertNotIn("_request_disk_detect", init_source)
+        self.assertNotIn("_schedule_lazy_prewarm", init_source)
+        self.assertNotIn("_warmup_schedule_page", init_source)
+
+    def test_stale_auto_start_query_cannot_overwrite_a_user_change(self):
+        switch = mock.Mock()
+        fake_window = types.SimpleNamespace(
+            _auto_start_query_generation=2,
+            global_settings={"auto_start": False},
+            pg_setting=types.SimpleNamespace(switch_auto_start=switch),
+        )
+
+        main.MainWindow._apply_auto_start_state(fake_window, True, 1)
+        self.assertFalse(fake_window.global_settings["auto_start"])
+        switch.setChecked.assert_not_called()
+
+        main.MainWindow._apply_auto_start_state(fake_window, True, 2)
+        self.assertTrue(fake_window.global_settings["auto_start"])
+        switch.setChecked.assert_called_once_with(True)
 
     def test_theme_mode_skips_reapplying_the_current_theme(self):
         target_theme = object()
@@ -931,11 +998,13 @@ class SafetyRegressionTests(unittest.TestCase):
             "一键迁移",
             "已暂停（可继续）",
             "失败（可重试）",
+            "从未运行",
+            "尚未运行",
         }
         self.assertTrue(required.issubset(pack))
         self.assertEqual(payload["version"], manifest["languages"]["en_us"]["version"])
 
-    def test_windows_release_packages_the_onedir_bundle_as_zip(self):
+    def test_windows_release_packages_installer_and_portable_bundle(self):
         root = os.path.dirname(os.path.abspath(main.__file__))
         with open(os.path.join(root, "c_cleaner_plus.spec"), "r", encoding="utf-8") as stream:
             spec = stream.read()
@@ -945,13 +1014,32 @@ class SafetyRegressionTests(unittest.TestCase):
             encoding="utf-8",
         ) as stream:
             workflow = stream.read()
+        with open(
+            os.path.join(root, "installer", "c_cleaner_plus.iss"),
+            "r",
+            encoding="utf-8",
+        ) as stream:
+            installer = stream.read()
 
         self.assertIn("exclude_binaries=True", spec)
         self.assertIn("bundle = COLLECT(", spec)
         self.assertIn('contents_directory="_internal"', spec)
+        self.assertIn("upx=False", spec)
+        self.assertNotIn("choco install upx", workflow)
         self.assertIn("Compress-Archive -LiteralPath $bundle", workflow)
+        self.assertIn("choco install innosetup", workflow)
+        self.assertIn('"installer/c_cleaner_plus.iss"', workflow)
+        self.assertIn("dist/c_cleaner_plus-*-windows-x64-setup.exe", workflow)
         self.assertIn("dist/c_cleaner_plus-*-windows-x64.zip", workflow)
         self.assertNotIn("files: dist/*.exe", workflow)
+        self.assertIn("AppVersion={#AppVersion}", installer)
+        self.assertIn("DefaultDirName={autopf}\\C Cleaner Plus", installer)
+        self.assertIn(
+            'Source: "..\\dist\\c_cleaner_plus\\*"',
+            installer,
+        )
+        self.assertIn('MessagesFile: "ChineseSimplified.isl"', installer)
+        self.assertIn('RunOnceId: "RemoveScheduledTasks"', installer)
 
 
 if __name__ == "__main__":

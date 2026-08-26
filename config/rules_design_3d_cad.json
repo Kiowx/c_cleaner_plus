@@ -1,0 +1,86 @@
+[
+  [
+    "Unity 缓存",
+    "%LOCALAPPDATA%\\Unity\\cache",
+    "dir",
+    false,
+    "Unity 通用缓存"
+  ],
+  [
+    "Unreal DerivedDataCache",
+    "%LOCALAPPDATA%\\UnrealEngine\\Common\\DerivedDataCache",
+    "dir",
+    false,
+    "Unreal Engine 派生数据缓存"
+  ],
+  [
+    "Godot 日志",
+    "%APPDATA%\\Godot\\logs",
+    "dir",
+    false,
+    "Godot 运行日志"
+  ],
+  [
+    "Unity Hub 缓存",
+    "%APPDATA%\\UnityHub\\Cache",
+    "dir",
+    false,
+    "Unity Hub 普通缓存"
+  ],
+  [
+    "Unity Hub 代码缓存",
+    "%APPDATA%\\UnityHub\\Code Cache",
+    "dir",
+    false,
+    "Unity Hub 前端脚本缓存"
+  ],
+  [
+    "Unity Hub GPU 缓存",
+    "%APPDATA%\\UnityHub\\GPUCache",
+    "dir",
+    false,
+    "Unity Hub 图形渲染缓存"
+  ],
+  [
+    "Unity Hub 日志",
+    "%APPDATA%\\UnityHub\\logs",
+    "dir",
+    false,
+    "Unity Hub 运行日志"
+  ],
+  [
+    "Blender 崩溃日志",
+    "%TEMP%\\blender.crash.txt",
+    "file",
+    false,
+    "Blender 崩溃日志"
+  ],
+  [
+    "Substance 3D Painter 日志",
+    "%APPDATA%\\Adobe\\Adobe Substance 3D Painter\\logs",
+    "dir",
+    false,
+    "Substance 3D Painter 运行日志"
+  ],
+  [
+    "Substance 3D Designer 日志",
+    "%APPDATA%\\Adobe\\Adobe Substance 3D Designer\\logs",
+    "dir",
+    false,
+    "Substance 3D Designer 运行日志"
+  ],
+  [
+    "Substance 3D Sampler 日志",
+    "%APPDATA%\\Adobe\\Adobe Substance 3D Sampler\\logs",
+    "dir",
+    false,
+    "Substance 3D Sampler 运行日志"
+  ],
+  [
+    "Substance 3D Stager 日志",
+    "%APPDATA%\\Adobe\\Adobe Substance 3D Stager\\logs",
+    "dir",
+    false,
+    "Substance 3D Stager 运行日志"
+  ]
+]

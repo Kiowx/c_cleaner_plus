@@ -100,8 +100,12 @@
 
 ### 1. 下载发行版
 
-前往 [Releases](https://github.com/Kiowx/c_cleaner_plus/releases) 下载最新版，解压后直接运行即可。  
-如果系统提示权限不足，建议右键以管理员身份运行。
+前往 [Releases](https://github.com/Kiowx/c_cleaner_plus/releases) 下载最新版：
+
+- 推荐下载 `*-setup.exe`，按安装向导完成安装。
+- 需要免安装运行时，可下载 `*.zip`，解压后运行主程序。
+
+程序涉及系统清理操作，启动时会申请管理员权限。
 
 ### 2. 从源码运行
 

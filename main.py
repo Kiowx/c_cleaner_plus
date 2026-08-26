@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.7.7
+C盘强力清理工具 v0.7.8
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
 
-import os, sys, time, ctypes, threading, subprocess, queue, json, hashlib, winreg, re, heapq, tempfile, gc, shutil
-import urllib.parse
-import urllib.request
-import webbrowser
+import os, sys, time, ctypes, threading, subprocess, queue, json, winreg, re, heapq, shutil
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -37,6 +34,11 @@ from qfluentwidgets.common.router import qrouter
 
 _FluentMessageBox = MessageBox
 _FluentInfoBar = InfoBar
+
+def _urlopen(url, timeout):
+    from urllib.request import urlopen
+
+    return urlopen(url, timeout=timeout)
 
 def _runtime_i18n_host(parent):
     if parent is None:
@@ -144,10 +146,11 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.7.7"
+CURRENT_VERSION = "0.7.8"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
+SCHED_S_TASK_HAS_NOT_RUN = 0x00041303
 SIDEBAR_STYLE_LABELS = {
     "horizontal": "横向",
     "vertical": "纵向"
@@ -212,6 +215,8 @@ def log_sampled_background_error(context, e, limit=6):
         log_background_error(key, e)
 
 def trim_process_memory(force=False):
+    import gc
+
     global _last_memory_trim_ts
     with _memory_trim_lock:
         now = time.time()
@@ -240,6 +245,8 @@ def emit_error_summary(log_fn, prefix, errors, total_count):
         log_fn(f"[{prefix}] 另有 {extra} 条异常未展开")
 
 def write_text_file_atomic(path, text, encoding="utf-8", durable=False):
+    import tempfile
+
     target = os.path.abspath(os.path.expandvars(path))
     parent = os.path.dirname(target)
     if parent:
@@ -484,11 +491,32 @@ def run_scheduled_app_task(task_name):
     err = (result.stderr or result.stdout or "").strip() or "未知错误"
     return False, err
 
+def scheduled_task_result_code(value):
+    try:
+        if isinstance(value, str):
+            value = int(value.strip(), 0)
+        return int(value) & 0xFFFFFFFF
+    except (TypeError, ValueError):
+        return None
+
+def scheduled_task_has_not_run(value):
+    return scheduled_task_result_code(value) == SCHED_S_TASK_HAS_NOT_RUN
+
+def normalize_scheduled_task_item(item):
+    normalized = dict(item or {})
+    if scheduled_task_has_not_run(normalized.get("LastTaskResult")):
+        normalized["LastRunTime"] = ""
+    return normalized
+
+def format_scheduled_task_result(value):
+    if scheduled_task_has_not_run(value):
+        return "尚未运行"
+    return str(value if value is not None else "").strip() or "未知"
+
 def list_scheduled_app_tasks():
     prefix = APP_SCHEDULED_TASK_PREFIX.lower()
     try:
         import win32com.client
-        import datetime
         service = win32com.client.Dispatch('Schedule.Service')
         service.Connect()
         folder = service.GetFolder('\\')
@@ -503,18 +531,18 @@ def list_scheduled_app_tasks():
                 
             state_map = {1: "Disabled", 2: "Queued", 3: "Ready", 4: "Running"}
             state = state_map.get(task.State, "Unknown")
-            
+
             def format_time(dt):
-                if not dt or dt.year < 1900:
-                    return ""
                 try:
+                    if not dt or dt.year < 1900:
+                        return ""
                     return dt.strftime("%Y-%m-%d %H:%M")
                 except Exception:
                     return ""
-                    
+
             next_run = format_time(task.NextRunTime)
-            last_run = format_time(task.LastRunTime)
             last_result = task.LastTaskResult
+            last_run = "" if scheduled_task_has_not_run(last_result) else format_time(task.LastRunTime)
             
             triggers_list = []
             df = task.Definition
@@ -591,14 +619,14 @@ def list_scheduled_app_tasks():
                     "Interval": interval
                 })
                 
-            results.append({
+            results.append(normalize_scheduled_task_item({
                 "Name": name,
                 "State": state,
                 "NextRunTime": next_run,
                 "LastRunTime": last_run,
                 "LastTaskResult": last_result,
                 "Triggers": triggers_list
-            })
+            }))
         return results
     except Exception as e:
         log_sampled_background_error("COM读取定时任务失败，退回到PowerShell", e)
@@ -674,8 +702,8 @@ $tasks | Sort-Object Name | ConvertTo-Json -Compress -Depth 5
         return []
     data = json.loads(payload)
     if isinstance(data, dict):
-        return [data]
-    return [item for item in data if isinstance(item, dict)]
+        data = [data]
+    return [normalize_scheduled_task_item(item) for item in data if isinstance(item, dict)]
 
 def format_scheduled_trigger_text(triggers):
     if not isinstance(triggers, list):
@@ -1314,6 +1342,8 @@ def _file_stat_signature(st):
     )
 
 def _stable_file_digest(path, expected_size=None, stop_event=None, chunk_size=1024 * 1024):
+    import hashlib
+
     if not os.path.isfile(path):
         return False, "", (), "文件已不存在"
     if os.path.islink(path):
@@ -3216,6 +3246,8 @@ def _toolbox_migration_journal_path():
     return os.path.join(get_runtime_config_dir(), TOOLBOX_MIGRATION_JOURNAL_FILE)
 
 def _migration_record_key(source, target, mode):
+    import hashlib
+
     source_norm = os.path.normcase(os.path.abspath(norm_path(source)))
     target_norm = os.path.normcase(os.path.abspath(norm_path(target)))
     raw = f"{source_norm}\0{target_norm}\0{str(mode or '').strip().lower()}"
@@ -6213,7 +6245,7 @@ def load_language_manifest(config_dir=None, prefer_cloud=True, timeout=6):
     cache_path = language_manifest_cache_path(config_dir)
     if prefer_cloud:
         try:
-            with urllib.request.urlopen(LANGUAGE_MANIFEST_URL, timeout=timeout) as resp:
+            with _urlopen(LANGUAGE_MANIFEST_URL, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8")
             payload = json.loads(raw)
             manifest = _normalize_language_manifest(payload)
@@ -6275,7 +6307,7 @@ def load_language_pack(lang, config_dir=None, prefer_cloud=True, timeout=6, mani
 
     if prefer_cloud and url:
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as resp:
+            with _urlopen(url, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8")
             payload = json.loads(raw)
             pack = _normalize_language_pack(payload)
@@ -6856,7 +6888,7 @@ def _normalize_rule_store_item(item):
 
 def load_rule_store_items():
     try:
-        with urllib.request.urlopen(RULE_STORE_INDEX_URL, timeout=8) as resp:
+        with _urlopen(RULE_STORE_INDEX_URL, timeout=8) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
 
         if isinstance(payload, dict):
@@ -6947,13 +6979,15 @@ def get_sample_rule_pack_path(filename, base_dir=None):
     return candidates[0]
 
 def download_rule_pack(filename, base_dir=None):
+    from urllib.parse import quote
+
     filename = normalize_rule_pack_filename(filename)
     if not filename:
         raise ValueError("规则包文件名不安全")
     local_path = safe_rule_pack_path(filename, base_dir)
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
-    url = f"{RULE_PACK_DOWNLOAD_BASE}/{urllib.parse.quote(filename)}"
-    with urllib.request.urlopen(url, timeout=10) as resp:
+    url = f"{RULE_PACK_DOWNLOAD_BASE}/{quote(filename)}"
+    with _urlopen(url, timeout=10) as resp:
         content_length = resp.headers.get("Content-Length") if getattr(resp, "headers", None) else None
         if content_length and int(content_length) > RULE_PACK_MAX_BYTES:
             raise ValueError("规则包超过大小限制")
@@ -9777,11 +9811,15 @@ class SchedulePage(DeferredPageMixin, ScrollArea):
             name_item.setData(Qt.ItemDataRole.UserRole, full_name)
             trigger_text = format_scheduled_trigger_text(item.get("Triggers", []))
             state_text = str(item.get("State", "")).strip() or "未知"
-            result_text = str(item.get("LastTaskResult", "0")).strip()
+            last_result = item.get("LastTaskResult", "0")
+            result_text = self.main_win.tr_text(format_scheduled_task_result(last_result))
+            last_run_text = str(item.get("LastRunTime", "")).strip()
+            if scheduled_task_has_not_run(last_result):
+                last_run_text = self.main_win.tr_text("从未运行")
             self.tbl.setItem(row, 0, name_item)
             self.tbl.setItem(row, 1, QTableWidgetItem(trigger_text))
             self.tbl.setItem(row, 2, QTableWidgetItem(str(item.get("NextRunTime", "")).strip()))
-            self.tbl.setItem(row, 3, QTableWidgetItem(str(item.get("LastRunTime", "")).strip()))
+            self.tbl.setItem(row, 3, QTableWidgetItem(last_run_text))
             self.tbl.setItem(row, 4, QTableWidgetItem(state_text))
             self.tbl.setItem(row, 5, QTableWidgetItem(result_text))
 
@@ -10238,6 +10276,7 @@ class SettingPage(ScrollArea):
         self.main_win.save_global_settings()
 
     def _on_auto_start_changed(self, is_checked):
+        self.main_win.invalidate_auto_start_state_query()
         ok, msg = set_app_auto_start_enabled(is_checked)
         if ok:
             self.main_win.global_settings["auto_start"] = is_checked
@@ -12717,6 +12756,8 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         self.sig.more_log.emit(f"[重复文件] 第二阶段：校验 {len(suspects)} 个可疑大小分组...")
 
         def _get_hash(path, head_bytes=None, tail_bytes=0, sample_offsets=None):
+            import hashlib
+
             m = hashlib.sha256()
             try:
                 with open(path, 'rb') as f:
@@ -13188,6 +13229,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
 # ══════════════════════════════════════════════════════════
 class MainWindow(MSFluentWindow):
     languagePackReady = Signal(object, str)
+    autoStartStateReady = Signal(bool, int)
     PAGE_SWITCH_DURATION_MS = 180
     LAZY_PAGE_SWITCH_DURATION_MS = 130
 
@@ -13222,15 +13264,20 @@ class MainWindow(MSFluentWindow):
                     self.global_settings.update(json.load(f))
             except Exception as e:
                 log_background_error("加载全局设置失败", e)
-        try:
-            self.global_settings["auto_start"] = is_app_auto_start_enabled()
-        except Exception as e:
-            log_background_error("读取开机自启状态失败", e)
         self.global_settings["theme_mode"] = normalize_theme_mode(self.global_settings.get("theme_mode", "auto"))
         self.global_settings["language_mode"] = normalize_language_mode(self.global_settings.get("language_mode", "auto"))
         self.language_code = resolve_language_mode(self.global_settings.get("language_mode", "auto"))
-        self.language_manifest = load_language_manifest(self.config_dir, prefer_cloud=False)
-        self.language_pack = load_language_pack(self.language_code, self.config_dir, prefer_cloud=False, manifest=self.language_manifest)
+        if self.language_code == "en_us":
+            self.language_manifest = load_language_manifest(self.config_dir, prefer_cloud=False)
+            self.language_pack = load_language_pack(
+                self.language_code,
+                self.config_dir,
+                prefer_cloud=False,
+                manifest=self.language_manifest,
+            )
+        else:
+            self.language_manifest = {}
+            self.language_pack = {}
 
         self.targets = [parse_rule_entry(t) for t in default_clean_targets()]
         self.targets = [t for t in self.targets if t]
@@ -13269,22 +13316,26 @@ class MainWindow(MSFluentWindow):
         self.pg_rule_store = None
         self.pg_big = None
         self.pg_uninstall = None
-        self.pg_schedule = SchedulePage(self, self)
+        self.pg_schedule = None
         self.pg_more = None
-        self.pg_setting = SettingPage(self, self)
+        self.pg_setting = None
         self._lazy_route_keys = {
             "pg_toolbox": "toolboxPage",
             "pg_rule_store": "ruleStorePage",
             "pg_big": "bigFilePage",
             "pg_uninstall": "uninstallPage",
+            "pg_schedule": "schedulePage",
             "pg_more": "moreCleanPage",
+            "pg_setting": "settingPage",
         }
         self._lazy_page_factories = {
             "pg_toolbox": lambda: ToolboxPage(self, self.toolbox_stop, self),
             "pg_rule_store": lambda: RuleStorePage(self, self),
             "pg_big": lambda: BigFilePage(self.sig, self.big_stop, self),
             "pg_uninstall": lambda: UninstallPage(self.sig, self.uninstall_stop, self),
+            "pg_schedule": lambda: SchedulePage(self, self),
             "pg_more": lambda: MoreCleanPage(self.sig, self.more_stop, self),
+            "pg_setting": self._create_setting_page,
         }
         self._lazy_placeholders = {}
         self._lazy_switch_pending = set()
@@ -13295,9 +13346,10 @@ class MainWindow(MSFluentWindow):
         self._disk_detect_lock = threading.Lock()
         self._disk_detecting = False
         self._last_forced_disk_detect_ts = 0.0
-        self._prewarm_attr_names = ("pg_rule_store", "pg_uninstall", "pg_big", "pg_more")
         self._update_lock = threading.Lock()
         self._update_checking = False
+        self._latest_version_text = "最新版本：获取中..."
+        self._auto_start_query_generation = 0
         self._nav_connected = False
         self._tray_icon = None
         self._tray_menu = None
@@ -13306,6 +13358,7 @@ class MainWindow(MSFluentWindow):
         self._tray_notice_shown = False
         self._tray_exit_requested = False
         self.languagePackReady.connect(self._apply_downloaded_language_pack)
+        self.autoStartStateReady.connect(self._apply_auto_start_state)
         self._pending_big_rows = []
         self._pending_uninstall_rows = []
         self._pending_more_rows = []
@@ -13328,16 +13381,54 @@ class MainWindow(MSFluentWindow):
 
         self._init_nav(); self._init_win(); self._init_tray(); self._conn()
         self.apply_language()
-        self._request_disk_detect(force=False)
         QTimer.singleShot(2000, lambda: None if self._is_shutting_down() else self.check_updates(manual=False))
-        QTimer.singleShot(900, lambda: None if self._is_shutting_down() else self._warmup_schedule_page())
-        QTimer.singleShot(1500, lambda: None if self._is_shutting_down() else self._schedule_lazy_prewarm())
-        QTimer.singleShot(250, lambda: None if self._is_shutting_down() else self._apply_initial_tray_state())
+        if self.global_settings.get("tray_enabled", False) and self.global_settings.get("tray_start_hidden", False):
+            QTimer.singleShot(250, lambda: None if self._is_shutting_down() else self._apply_initial_tray_state())
         if self.language_code == "en_us":
             QTimer.singleShot(600, lambda: None if self._is_shutting_down() else self._download_language_pack_async())
         self._pending_legacy_migration = self._should_offer_legacy_migration()
         if self._pending_legacy_migration:
             QTimer.singleShot(800, lambda: None if self._is_shutting_down() else self._prompt_legacy_config_migration())
+
+    def _create_setting_page(self):
+        page = SettingPage(self, self)
+        page.set_latest_version_text(self._latest_version_text)
+        QTimer.singleShot(0, self._refresh_auto_start_state_async)
+        return page
+
+    def _refresh_auto_start_state_async(self):
+        if self._is_shutting_down():
+            return
+        self._auto_start_query_generation += 1
+        generation = self._auto_start_query_generation
+
+        def _worker():
+            try:
+                enabled = is_app_auto_start_enabled()
+            except Exception as e:
+                log_background_error("读取开机自启状态失败", e)
+                return
+            if not self._is_shutting_down():
+                self.autoStartStateReady.emit(enabled, generation)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def invalidate_auto_start_state_query(self):
+        self._auto_start_query_generation += 1
+
+    def _apply_auto_start_state(self, enabled, generation):
+        if generation != self._auto_start_query_generation:
+            return
+        self.global_settings["auto_start"] = bool(enabled)
+        setting_page = getattr(self, "pg_setting", None)
+        if setting_page is None:
+            return
+        switch = getattr(setting_page, "switch_auto_start", None)
+        if switch is None:
+            return
+        switch.blockSignals(True)
+        switch.setChecked(bool(enabled))
+        switch.blockSignals(False)
 
     def apply_theme_mode(self):
         mode = normalize_theme_mode(self.global_settings.get("theme_mode", "auto"))
@@ -14091,40 +14182,13 @@ class MainWindow(MSFluentWindow):
     def _register_nav_items(self):
         self._add_nav_page(self.pg_clean, FIF.BROOM, "常规清理")
         self._add_lazy_nav_page("pg_rule_store", FIF.DOCUMENT, "规则商店")
-        self._add_nav_page(self.pg_schedule, FIF.SYNC, "定时任务")
+        self._add_lazy_nav_page("pg_schedule", FIF.SYNC, "定时任务")
         self._add_lazy_nav_page("pg_toolbox", FIF.DEVELOPER_TOOLS, "工具箱")
         self._add_lazy_nav_page("pg_big", FIF.ZOOM, "大文件扫描")
         self._add_lazy_nav_page("pg_uninstall", FIF.APPLICATION, "应用强力卸载")
         self._add_lazy_nav_page("pg_more", FIF.MORE, "更多清理")
-        self._add_nav_page(self.pg_setting, FIF.SETTING, "设置", position=NavigationItemPosition.BOTTOM)
+        self._add_lazy_nav_page("pg_setting", FIF.SETTING, "设置", position=NavigationItemPosition.BOTTOM)
         self._add_nav_action("about", FIF.INFO, "关于", self._about, position=NavigationItemPosition.BOTTOM)
-
-    def _schedule_lazy_prewarm(self):
-        if self._is_shutting_down():
-            return
-        self._prewarm_lazy_pages(0)
-
-    def _warmup_schedule_page(self):
-        if self._is_shutting_down():
-            return
-        try:
-            self.pg_schedule.prepare_lightweight()
-        except Exception as e:
-            log_sampled_background_error("预热定时任务页面失败", e)
-
-    def _prewarm_lazy_pages(self, index):
-        if self._is_shutting_down():
-            return
-        if index >= len(self._prewarm_attr_names):
-            return
-        attr_name = self._prewarm_attr_names[index]
-        try:
-            page = self._ensure_lazy_page(attr_name)
-            if hasattr(page, "prepare_lightweight"):
-                page.prepare_lightweight()
-        except Exception as e:
-            log_sampled_background_error(f"预热页面失败:{attr_name}", e)
-        QTimer.singleShot(420, lambda idx=index + 1: None if self._is_shutting_down() else self._prewarm_lazy_pages(idx))
 
     def _add_nav_page(self, interface, icon, text, position=NavigationItemPosition.TOP, isTransparent=False):
         if not interface.objectName():
@@ -14347,15 +14411,24 @@ class MainWindow(MSFluentWindow):
         if scr: g=scr.availableGeometry(); self.move((g.width()-self.width())//2,(g.height()-self.height())//2)
 
     def _init_tray(self):
-        if not QSystemTrayIcon.isSystemTrayAvailable():
-            if self.global_settings.get("tray_enabled", False):
-                self.global_settings["tray_enabled"] = False
-                self.global_settings["tray_start_hidden"] = False
-                try:
-                    threading.Thread(target=self.save_global_settings, daemon=True).start()
-                except Exception as e:
-                    log_sampled_background_error("异步保存托盘设置失败", e)
+        if not self.global_settings.get("tray_enabled", False):
             return
+        if self._ensure_tray():
+            self._update_tray_visibility()
+            return
+
+        self.global_settings["tray_enabled"] = False
+        self.global_settings["tray_start_hidden"] = False
+        try:
+            threading.Thread(target=self.save_global_settings, daemon=True).start()
+        except Exception as e:
+            log_sampled_background_error("异步保存托盘设置失败", e)
+
+    def _ensure_tray(self):
+        if self._tray_icon is not None:
+            return True
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return False
 
         self._tray_icon = QSystemTrayIcon(self)
         tray_icon = self.windowIcon()
@@ -14376,7 +14449,7 @@ class MainWindow(MSFluentWindow):
         self._tray_menu.addAction(self._tray_exit_action)
         self._tray_icon.setContextMenu(self._tray_menu)
         self._tray_icon.activated.connect(self._on_tray_activated)
-        self._update_tray_visibility()
+        return True
 
     def _update_tray_visibility(self):
         if self._tray_icon is None:
@@ -14388,7 +14461,7 @@ class MainWindow(MSFluentWindow):
 
     def set_tray_enabled(self, enabled):
         enabled = bool(enabled)
-        if enabled and not QSystemTrayIcon.isSystemTrayAvailable():
+        if enabled and not self._ensure_tray():
             return False, "当前系统不支持系统托盘，无法启用托盘运行"
         self.global_settings["tray_enabled"] = enabled
         if not enabled:
@@ -14479,7 +14552,13 @@ class MainWindow(MSFluentWindow):
 
         self.sig.update_found.connect(self._show_update_dialog)
         self.sig.update_status.connect(self._show_update_status)
-        self.sig.update_latest.connect(self.pg_setting.set_latest_version_text)
+        self.sig.update_latest.connect(self._set_latest_version_text)
+
+    def _set_latest_version_text(self, text):
+        self._latest_version_text = str(text)
+        setting_page = getattr(self, "pg_setting", None)
+        if setting_page is not None:
+            setting_page.set_latest_version_text(self._latest_version_text)
 
     def _reset_big_results(self):
         self._pending_big_rows.clear()
@@ -14546,7 +14625,7 @@ class MainWindow(MSFluentWindow):
         threading.Thread(target=self._check_update_worker, args=(manual,), daemon=True).start()
 
     def _get_latest_update(self):
-        with urllib.request.urlopen(UPDATE_JSON_URL, timeout=8) as r:
+        with _urlopen(UPDATE_JSON_URL, timeout=8) as r:
             raw_text = r.read().decode("utf-8")
 
         payload = _load_update_payload(raw_text)
@@ -14617,7 +14696,10 @@ class MainWindow(MSFluentWindow):
                 self._update_checking = False
 
     def _show_update_dialog(self, version, url, changelog):
-        if MessageBox(f"发现新版本 v{version}", f"更新内容：\n{changelog}\n\n是否立即前往下载？", self.window()).exec() and url: webbrowser.open(url)
+        if MessageBox(f"发现新版本 v{version}", f"更新内容：\n{changelog}\n\n是否立即前往下载？", self.window()).exec() and url:
+            import webbrowser
+
+            webbrowser.open(url)
 
     def _show_update_status(self, level, title, content):
         bar_fn = {

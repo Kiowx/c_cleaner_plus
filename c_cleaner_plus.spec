@@ -212,7 +212,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=upx_excludes,
     contents_directory="_internal",
     runtime_tmpdir=None,
@@ -230,7 +230,7 @@ bundle = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=upx_excludes,
     name="c_cleaner_plus",
 )

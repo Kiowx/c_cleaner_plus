@@ -100,8 +100,12 @@ Built with **Python + PySide6 + Fluent Widgets**, it provides a GUI, administrat
 
 ### 1. Download a release
 
-Download the latest build from [Releases](https://github.com/Kiowx/c_cleaner_plus/releases) and run it directly.  
-If Windows reports insufficient permissions, run it as administrator.
+Download the latest release from [Releases](https://github.com/Kiowx/c_cleaner_plus/releases):
+
+- We recommend the `*-setup.exe` installer for a guided installation.
+- For portable use, download the `*.zip` archive, extract it, and run the executable.
+
+The application requests administrator privileges because it performs system cleanup operations.
 
 ### 2. Run from source
 

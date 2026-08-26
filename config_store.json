@@ -1,0 +1,74 @@
+{
+  "items": [
+    {
+      "title": "通用规则",
+      "filename": "common_custom_rules.json",
+      "source": "官方",
+      "summary": "补充清理常见软件缓存",
+      "detail": "适合大多数用户，补充清理常见软件留下的缓存、日志和网页缓存，也整合了浏览器和办公协作软件的常见清理项。"
+    },
+    {
+      "title": "国产软件",
+      "filename": "rules_cn_apps.json",
+      "source": "官方",
+      "summary": "国产常用软件缓存清理",
+      "detail": "包含 QQ 浏览器、QQ 音乐、企业微信、腾讯会议、飞书、钉钉、WPS、夸克等常见国产软件。"
+    },
+    {
+      "title": "开发工具",
+      "filename": "rules_dev_tools.json",
+      "source": "官方",
+      "summary": "开发工具缓存和日志清理",
+      "detail": "适合开发者使用，包含 VS Code、VSCodium、Windsurf、GitHub Desktop、Postman、Docker Desktop 等工具的缓存和日志。"
+    },
+    {
+      "title": "影音与创作工具",
+      "filename": "rules_media_creation.json",
+      "source": "官方",
+      "summary": "剪辑、录制和创作软件缓存清理",
+      "detail": "包含 Adobe Creative Cloud、Camera Raw、Bridge、Lightroom、OBS、DaVinci Resolve、CapCut、剪映专业版等工具的缓存和日志。"
+    },
+    {
+      "title": "安卓与移动开发工具",
+      "filename": "rules_mobile_dev_tools.json",
+      "source": "官方",
+      "summary": "安卓、Flutter 和移动开发缓存清理",
+      "detail": "包含 Android 模拟器、Gradle、Flutter、Xamarin、MAUI 等移动开发常见日志与缓存。"
+    },
+    {
+      "title": "设计建模 / 3D / CAD",
+      "filename": "rules_design_3d_cad.json",
+      "source": "官方",
+      "summary": "3D、引擎和建模工具缓存清理",
+      "detail": "包含 Unity、Unity Hub、Unreal、Godot、Blender、Substance 3D 等工具的缓存和日志。"
+    },
+    {
+      "title": "AI 工具",
+      "filename": "rules_ai_tools.json",
+      "source": "官方",
+      "summary": "AI 软件缓存和日志清理",
+      "detail": "包含 Ollama、LM Studio、Cherry Studio、Jan、Claude Desktop、Kimi 等本地 AI 桌面端，以及 Claude Code、Codex、opencode、Antigravity、Kiro、Devin、JoyCode 等 AI 编程工具的缓存与日志。会话记录、记忆文件和登录凭据不在清理范围内。"
+    },
+    {
+      "title": "游戏平台",
+      "filename": "rules_game_platforms.json",
+      "source": "官方",
+      "summary": "游戏平台缓存和日志清理",
+      "detail": "包含 Steam、WeGame、GOG Galaxy、CurseForge、Overwolf、Roblox、HoYoPlay 等平台常见缓存，也补充了更多游戏平台和启动器规则。"
+    },
+    {
+      "title": "Winapp2 规则集",
+      "filename": "winapp2.json",
+      "source": "兼容",
+      "summary": "更多软件清理项扩展包",
+      "detail": "覆盖的软件更多，适合想进一步扩展清理范围的用户。建议按需勾选使用。"
+    },
+    {
+      "title": "BleachBit 规则集",
+      "filename": "bleachbit.json",
+      "source": "兼容",
+      "summary": "更多缓存和临时文件清理",
+      "detail": "补充更多缓存、日志和临时文件清理项，适合想清得更细一点的用户。"
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+[
+  [
+    "Android 模拟器缓存",
+    "%USERPROFILE%\\.android\\cache",
+    "dir",
+    false,
+    "Android 模拟器与工具缓存"
+  ],
+  [
+    "Android 模拟器日志",
+    "%USERPROFILE%\\.android\\logs",
+    "dir",
+    false,
+    "Android 模拟器日志"
+  ],
+  [
+    "ADB 日志",
+    "%USERPROFILE%\\.android\\adb.log",
+    "file",
+    false,
+    "ADB 运行日志"
+  ],
+  [
+    "Android SDK 临时缓存",
+    "%LOCALAPPDATA%\\Android\\Sdk\\.temp",
+    "dir",
+    false,
+    "Android SDK 临时缓存"
+  ],
+  [
+    "Android Emulator 日志",
+    "%LOCALAPPDATA%\\Android\\Sdk\\emulator\\logs",
+    "dir",
+    false,
+    "Android 模拟器日志目录"
+  ],
+  [
+    "Gradle Daemon 日志",
+    "%USERPROFILE%\\.gradle\\daemon",
+    "dir",
+    false,
+    "Gradle Daemon 日志与状态缓存"
+  ],
+  [
+    "Gradle 通知缓存",
+    "%USERPROFILE%\\.gradle\\notifications",
+    "dir",
+    false,
+    "Gradle 通知缓存"
+  ],
+  [
+    "Flutter 工具日志",
+    "%LOCALAPPDATA%\\Flutter\\logs",
+    "dir",
+    false,
+    "Flutter 工具日志"
+  ],
+  [
+    "Xamarin 日志",
+    "%LOCALAPPDATA%\\Xamarin\\Logs",
+    "dir",
+    false,
+    "Xamarin 运行日志"
+  ],
+  [
+    "MAUI 日志",
+    "%LOCALAPPDATA%\\Microsoft\\dotnet\\MAUI\\logs",
+    "dir",
+    false,
+    "MAUI 构建与运行日志"
+  ]
+]

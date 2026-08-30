@@ -195,9 +195,6 @@ jobs:
             echo "常规更新与优化" > main_release_notes.txt
           fi
 
-          echo "" >> main_release_notes.txt
-          echo "---" >> main_release_notes.txt
-
           echo "更新日志内容："
           cat main_release_notes.txt
 

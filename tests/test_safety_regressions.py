@@ -1032,6 +1032,7 @@ class SafetyRegressionTests(unittest.TestCase):
         self.assertIn("dist/c_cleaner_plus-*-windows-x64-setup.exe", workflow)
         self.assertIn("dist/c_cleaner_plus-*-windows-x64.zip", workflow)
         self.assertNotIn("files: dist/*.exe", workflow)
+        self.assertNotIn('echo "---" >> main_release_notes.txt', workflow)
         self.assertIn("AppVersion={#AppVersion}", installer)
         self.assertIn("DefaultDirName={autopf}\\C Cleaner Plus", installer)
         self.assertIn(
@@ -1039,6 +1040,10 @@ class SafetyRegressionTests(unittest.TestCase):
             installer,
         )
         self.assertIn('MessagesFile: "ChineseSimplified.isl"', installer)
+        self.assertIn("PrivilegesRequired=admin", installer)
+        self.assertIn("uac_admin=True", spec)
+        self.assertIn("Flags: nowait postinstall skipifsilent", installer)
+        self.assertNotIn("runasoriginaluser", installer)
         self.assertIn('RunOnceId: "RemoveScheduledTasks"', installer)
 
 

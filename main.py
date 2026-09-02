@@ -10631,6 +10631,7 @@ class CleanPage(ScrollArea):
         self.tbl.setColumnWidth(0, 44)
         self.tbl.setColumnWidth(1, 230 if is_english else 150)
         self.tbl.setColumnWidth(2, 360 if is_english else 380)
+        self.tbl.setColumnWidth(3, 360 if is_english else 330)
         self.tbl.setColumnWidth(4, 95)
 
     def _prune_estimated_sizes(self):

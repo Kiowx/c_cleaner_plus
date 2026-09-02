@@ -173,6 +173,15 @@ class SafetyRegressionTests(unittest.TestCase):
         method_source = inspect.getsource(main.CleanPage._show_context_menu)
         self.assertIn("QTimer.singleShot", method_source)
 
+    def test_clean_table_columns_are_resizable_by_drag(self):
+        init_source = inspect.getsource(main.CleanPage.__init__)
+        self.assertIn("setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)", init_source)
+        self.assertIn("setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)", init_source)
+        self.assertIn("setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)", init_source)
+        self.assertIn("setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)", init_source)
+        self.assertIn("setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)", init_source)
+        self.assertIn("setStretchLastSection(False)", init_source)
+
     def test_toolbox_page_is_constructed_lazily(self):
         init_source = inspect.getsource(main.MainWindow.__init__)
         nav_source = inspect.getsource(main.MainWindow._register_nav_items)

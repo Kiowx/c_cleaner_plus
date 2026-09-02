@@ -5,3 +5,4 @@ build/
 dist/
 
 tools/fast_large_files/target/
+configs/

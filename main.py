@@ -1123,6 +1123,9 @@ class CleanRulesTableView(TableView):
         self._drag_started = False
         self._drag_shadow = None
         self._drag_shadow_offset = QPoint(40, 18)
+        self._range_anchor_row = None
+        self._pending_shift_range = None
+        self._range_target_state = None
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.viewport().setAcceptDrops(True)
@@ -1210,9 +1213,31 @@ class CleanRulesTableView(TableView):
             return True
         return False
 
+    def _apply_shift_range_checkbox(self, start_row, end_row, checked):
+        if self.model() is None or not hasattr(self.model(), "set_range_checked"):
+            return
+        if start_row is None or end_row is None:
+            return
+        self.model().set_range_checked(start_row, end_row, checked)
+        self._range_anchor_row = end_row
+        self._pending_shift_range = None
+        self._range_target_state = None
+        if 0 <= end_row < self.model().rowCount():
+            self.setCurrentIndex(self.model().index(end_row, 0))
+            self.selectRow(end_row)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             idx = self.indexAt(self._event_pos(event))
+            if idx.isValid() and idx.column() == 0 and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                if self._range_anchor_row is None:
+                    self._range_anchor_row = idx.row()
+                    self._range_target_state = bool(self.model().row_at(idx.row()).checked) if self.model() is not None and hasattr(self.model(), "row_at") else None
+                else:
+                    self._pending_shift_range = (self._range_anchor_row, idx.row())
+                    self._range_target_state = bool(self.model().row_at(self._range_anchor_row).checked) if self.model() is not None and hasattr(self.model(), "row_at") else None
+                super().mousePressEvent(event)
+                return
             if idx.isValid() and idx.column() != 0 and self._drag_enabled:
                 self._press_pos = self._event_pos(event)
                 self._press_row = idx.row()
@@ -1221,6 +1246,10 @@ class CleanRulesTableView(TableView):
                 self._press_pos = None
                 self._press_row = -1
                 self._drag_started = False
+            if idx.isValid() and idx.column() == 0:
+                self._range_anchor_row = idx.row()
+                self._range_target_state = None
+                self._pending_shift_range = None
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -1247,6 +1276,12 @@ class CleanRulesTableView(TableView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._pending_shift_range is not None:
+            start_row, end_row = self._pending_shift_range
+            checked = self._range_target_state
+            self._apply_shift_range_checkbox(start_row, end_row, checked)
+            event.accept()
+            return
         handled = False
         if self._drag_enabled and self._drag_started and self._press_row >= 0:
             handled = self._move_row_by_pos(self._press_row, self._event_pos(event))
@@ -5220,6 +5255,23 @@ class CleanRulesTableModel(QAbstractTableModel):
             self._rows[r].checked = state
         top_left = self.index(min(targets), 0)
         bottom_right = self.index(max(targets), 0)
+        self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.CheckStateRole])
+
+    def set_range_checked(self, start_row, end_row, checked):
+        if not self._rows:
+            return
+        a = int(start_row)
+        b = int(end_row)
+        if a > b:
+            a, b = b, a
+        rows = [r for r in range(a, b + 1) if 0 <= r < len(self._rows)]
+        if not rows:
+            return
+        state = bool(checked)
+        for r in rows:
+            self._rows[r].checked = state
+        top_left = self.index(rows[0], 0)
+        bottom_right = self.index(rows[-1], 0)
         self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.CheckStateRole])
 
     def set_drag_enabled(self, enabled):
@@ -10531,14 +10583,15 @@ class CleanPage(ScrollArea):
         self.tbl.setMouseTracking(False)
         self.tbl.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tbl.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.tbl.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.tbl.verticalScrollBar().setSingleStep(36)
         header = self.tbl.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(False)
         header.sectionClicked.connect(self._on_header_section_clicked)

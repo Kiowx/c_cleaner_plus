@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import re
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 # PyInstaller 执行 spec 时不保证存在 __file__。
@@ -164,6 +165,12 @@ exclude_keywords = [
 
 
 def should_keep(name, src):
+    # Qt's unversioned ICU imports are provided by Windows. PATH may contain
+    # Poppler/Conda ICU builds exporting ucnv_open_78 instead of ucnv_open;
+    # bundling those DLLs shadows System32 and makes QtCore fail with error 127.
+    filename = os.path.basename(str(name).replace("\\", "/")).lower()
+    if filename in {"icu.dll", "icuuc.dll", "icuin.dll"} or re.fullmatch(r"icudt\d+\.dll", filename):
+        return False
     combined = (str(name) + "|" + str(src)).lower()
     return not any(keyword.lower() in combined for keyword in exclude_keywords)
 
@@ -209,6 +216,7 @@ exe = EXE(
     exclude_binaries=True,
     name="c_cleaner_plus",
     icon=os.path.join(base_dir, "app.ico"),
+    version=os.path.join(base_dir, "windows-version-info.txt"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

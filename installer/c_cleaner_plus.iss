@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.0.0"
+  #define AppVersion "0.8.2"
 #endif
 
 #define AppName "C Cleaner Plus"

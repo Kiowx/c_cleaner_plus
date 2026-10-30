@@ -37,6 +37,27 @@ Built with **Python + PySide6 + Fluent Widgets**, it provides a GUI, administrat
 
 ## Features
 
+### v0.8.2 Maintenance Center
+
+- File-level cleanup previews with per-file selection, JSON export, and pre-deletion revalidation
+- Shared path and wildcard exclusions, including right-click protection in scan results
+- Persistent cleanup history and JSON / CSV reports, separating logical bytes from free-space changes
+- Per-rule minimum age, minimum size, and keep-newest conditions, included in rule exports
+- Directory drill-down, treemaps, file-type totals, and historical space-growth comparisons
+- Scheduled maintenance gates for free space, idle time, running processes, cooldowns, and notifications
+- Rule-pack change reviews, duplicate / broad-path checks, version history, and rollback
+- Duplicate retention by path, newest, oldest, or preferred directory, with hard-link accounting
+- Project dependency, virtual environment, and build-output discovery with reviewed cleanup
+- Docker disk usage and cache / dangling-image cleanup; WSL virtual disk discovery and native compaction
+
+Open **Maintenance Center** in the sidebar. Conditions gate existing Windows scheduled tasks; configure their checking frequency on the scheduled tasks page.
+Data is stored in `maintenance.sqlite3` inside the active configuration directory and migrates with it.
+Up to 20 complete snapshots are retained per root. Incomplete or cancelled scans are excluded from growth comparisons.
+Previews are limited to 200000 entries, space scans to 200000 directories, and the visible directory tree to 10000 nodes. Narrow the scope when a limit is reached.
+Moving files to the recycle bin does not immediately reclaim space. Concurrent applications can also affect measured free-space changes.
+WSL compaction stops all distributions; save your work and exit Docker Desktop first. Reclamation depends on reclaimable blocks in the image.
+Docker maintenance uses the [Docker CLI](https://docs.docker.com/reference/cli/docker/image/prune/); virtual-disk compaction uses Windows [CompactVirtualDisk](https://learn.microsoft.com/en-us/windows/win32/api/virtdisk/nf-virtdisk-compactvirtualdisk).
+
 ### Regular Cleanup
 
 - Cleans common targets such as temp files, system logs, thumbnail cache, browser cache, and package manager cache

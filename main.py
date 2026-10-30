@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.8.0
+C盘强力清理工具 v0.8.2
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
 
 import os, sys, time, ctypes, threading, subprocess, queue, json, winreg, re, heapq, shutil
+import cleaner_core
+from maintenance_ui import MaintenancePage, PreviewDialog, ReviewPackDialog
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -146,7 +148,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.8.0"
+CURRENT_VERSION = "0.8.2"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -1546,6 +1548,13 @@ def estimate_rule_size(entry, stop_flag=None):
     if stop_flag is not None and stop_flag.is_set():
         return 0
 
+    store = cleaner_core.current_store()
+    condition = store.get("conditions", {}).get(cleaner_core.rule_id(parsed), {}) if store else {}
+    if any(condition.values()) or cleaner_core.active_policy().entries:
+        enabled_rule = tuple(parsed[:3]) + (True,) + tuple(parsed[4:])
+        plan = cleaner_core.build_plan([enabled_rule], stop_flag, is_protected_system_path)
+        return sum(item["size"] for item in plan["items"])
+
     try:
         if tp == "dir":
             target = expand_env(pa)
@@ -1702,6 +1711,10 @@ def is_protected_system_path(path):
         return True
 
 def delete_path(path, perm, log_fn):
+    return cleaner_core.audit_deletion(path, perm, lambda: _delete_path_impl(path, perm, log_fn), log_fn)
+
+
+def _delete_path_impl(path, perm, log_fn):
     import shutil
     import stat
     import sys
@@ -1868,6 +1881,7 @@ _VALID_REGISTRY_PATH_RE = re.compile(
     re.IGNORECASE
 )
 
+@cleaner_core.tracked_resource("注册表清理")
 def force_delete_registry(full_path, log_fn):
     """使用 Windows 原生 reg delete 命令进行强制递归删除，穿透力更强"""
     try:
@@ -2217,6 +2231,7 @@ def build_uninstall_command(command_text, prefer_silent=False, quiet_command="")
 
     return raw, "标准"
 
+@cleaner_core.tracked_uninstall
 def run_uninstall_command(app_name, command_text, quiet_command="", prefer_silent=False, timeout_sec=1200, log_fn=None, prefix="[标准卸载]"):
     name = str(app_name or "").strip() or "未知软件"
     cmd, mode_text = build_uninstall_command(command_text, prefer_silent=prefer_silent, quiet_command=quiet_command)
@@ -2384,6 +2399,7 @@ $tasks | ConvertTo-Json -Compress
         return results
     return results
 
+@cleaner_core.tracked_resource("服务清理")
 def delete_service_entry(service_name, reg_path, log_fn):
     ok = True
     try:
@@ -2413,6 +2429,7 @@ def delete_service_entry(service_name, reg_path, log_fn):
     reg_ok = reg_state in {"deleted", "missing"}
     return ok and reg_ok
 
+@cleaner_core.tracked_resource("计划任务清理")
 def delete_scheduled_task(full_name, log_fn):
     try:
         r = subprocess.run(
@@ -2742,6 +2759,8 @@ UI_BATCH_CHUNK = 120
 LEFTOVER_PROMPT_TIMEOUT_SEC = 600
 
 def should_exclude(p, prefixes):
+    if cleaner_core.active_policy().excluded(p):
+        return True
     n = os.path.normcase(os.path.abspath(p))
     for e in prefixes:
         if not e:
@@ -2816,7 +2835,11 @@ def _scan_big_files_fast_mft(roots, min_b, excl, stop, result_limit=None, progre
     if os.name != "nt" or os.environ.get("C_CLEANER_PLUS_DISABLE_FAST_MFT"):
         return None
 
-    roots = list(roots or [])
+    policy = cleaner_core.active_policy()
+    if policy.patterns:
+        return None
+    excl = list(excl or []) + policy.paths
+    roots = [root for root in (roots or []) if not policy.excluded(root)]
     if not roots or not all(_is_drive_root_path(root) for root in roots):
         return None
 
@@ -2936,7 +2959,7 @@ def _dir_worker(dir_queue, min_b, excl, stop_flag, results, counter, lock, resul
             for entry in entries:
                 if stop_flag.is_set(): break
                 try:
-                    if entry.is_symlink(): continue
+                    if entry.is_symlink() or cleaner_core.active_policy().excluded(entry.path): continue
                     if entry.is_dir(follow_symlinks=False):
                         if not should_exclude(entry.path, excl): dir_queue.put(entry.path)
                     elif entry.is_file(follow_symlinks=False):
@@ -2975,7 +2998,9 @@ def scan_big_files(roots, min_b, excl, stop, workers=4, result_limit=None, progr
         return fast_results
 
     dir_queue = queue.Queue(); results = []; counter = [0]; lock = threading.Lock()
-    for root in roots: dir_queue.put(root)
+    for root in roots:
+        if not should_exclude(root, excl):
+            dir_queue.put(root)
     threads = []
     for _ in range(workers):
         t = threading.Thread(
@@ -3061,7 +3086,7 @@ def walk_files_threaded(roots, excl, workers, stop_event=None, ext_filter=None, 
                     if stop_event is not None and stop_event.is_set():
                         break
                     try:
-                        if entry.is_symlink():
+                        if entry.is_symlink() or cleaner_core.active_policy().excluded(entry.path):
                             continue
                         if entry.is_dir(follow_symlinks=False):
                             if not should_exclude(entry.path, excl):
@@ -4837,6 +4862,8 @@ def scan_download_candidates(root_paths, min_size_bytes=0, min_age_days=0, inclu
     for root in roots:
         if stop_event is not None and stop_event.is_set():
             break
+        if cleaner_core.active_policy().excluded(root):
+            continue
         _log(f"[下载整理] 正在扫描: {display_path(root)}")
         try:
             entries = sorted(os.scandir(root), key=lambda item: item.name.lower())
@@ -4852,7 +4879,7 @@ def scan_download_candidates(root_paths, min_size_bytes=0, min_age_days=0, inclu
                     is_dir = entry.is_dir(follow_symlinks=False)
                     if is_dir and not include_dirs:
                         continue
-                    if entry.is_symlink():
+                    if entry.is_symlink() or cleaner_core.active_policy().excluded(entry.path):
                         continue
                     stat = entry.stat(follow_symlinks=False)
                     mtime = getattr(stat, "st_mtime", 0)
@@ -4975,6 +5002,7 @@ def scan_space_usage_roots(root_paths, min_size_bytes=0, limit=200, log_fn=None,
     total = sum(int(item.get("size", 0)) for item in rows)
     return rows, f"已列出 {len(rows)} 个占用项，当前列表合计约 {human_size(total)}"
 
+@cleaner_core.tracked_operation("工具箱清理")
 def delete_toolbox_paths(paths, permanent, log_fn=None, stop_event=None):
     ok = 0
     fail = 0
@@ -4989,6 +5017,68 @@ def delete_toolbox_paths(paths, permanent, log_fn=None, stop_event=None):
         return False, f"已取消：成功 {ok}，失败 {fail}"
     return fail == 0, f"处理完成：成功 {ok}，失败 {fail}"
 
+def add_exclusion_action(menu, path, parent):
+    if not path or not os.path.isabs(path):
+        return
+    action = Action(FIF.CANCEL, "加入统一排除列表")
+    def add():
+        try:
+            store = cleaner_core.current_store()
+            if store is None:
+                return
+            entries = store.get("exclusions", [])
+            normalized = os.path.normpath(path)
+            if normalized not in entries:
+                store.set("exclusions", entries + [normalized])
+            InfoBar.success("已加入排除", normalized, parent=parent.window())
+        except Exception as e:
+            InfoBar.error("保存失败", str(e), parent=parent.window())
+    action.triggered.connect(add)
+    menu.addAction(action)
+
+
+def apply_reviewed_rule_pack(window, rules, name):
+    store = cleaner_core.current_store()
+    dialog = ReviewPackDialog(rules, name, store, window)
+    if not dialog.exec():
+        return False
+    previous = next((row["rules"] for row in store.packs(name) if row["active"]), [])
+    previous_parsed = [parse_rule_entry(rule, force_custom=True) for rule in previous]
+    incoming = [parse_rule_entry(rule, force_custom=True) for rule in dialog.review["rules"]]
+    shared = {tuple(parse_rule_entry(rule, force_custom=True)) for pack in store.packs()
+              if pack["active"] and pack["name"] != name for rule in pack["rules"]
+              if parse_rule_entry(rule, force_custom=True)}
+    removable = {tuple(rule) for rule in previous_parsed if rule and tuple(rule) not in shared}
+    with window._targets_lock:
+        original = list(window.targets)
+        retained = [rule for rule in original if tuple(rule) not in removable]
+        existing = {make_rule_key(rule[0], rule[1], rule[2], rule[6]) for rule in retained}
+        for rule in incoming:
+            if rule is None:
+                continue
+            key = make_rule_key(rule[0], rule[1], rule[2], rule[6])
+            if key not in existing:
+                retained.append(rule)
+                existing.add(key)
+        window.targets[:] = retained
+    old_custom = [serialize_rule_entry(rule) for rule in original if rule[5]]
+    old_state = build_saved_rule_state(original)
+    try:
+        write_json_file_atomic(window.custom_rules_path, [serialize_rule_entry(rule) for rule in retained if rule[5]], durable=True)
+        write_json_file_atomic(window.config_path, build_saved_rule_state(retained), durable=True)
+        store.activate_pack(name, dialog.review["rules"])
+    except Exception:
+        with window._targets_lock:
+            window.targets[:] = original
+        write_json_file_atomic(window.custom_rules_path, old_custom, durable=True)
+        write_json_file_atomic(window.config_path, old_state, durable=True)
+        window.pg_clean.reload_table()
+        raise
+    window.pg_clean.reload_table()
+    InfoBar.success("规则包已应用", f"{name}：新增 {len(dialog.review['added'])}，删除 {len(dialog.review['removed'])}，变化 {len(dialog.review['changed'])}", parent=window)
+    return True
+
+
 def make_ctx(parent, table, pos, col):
     idx=table.indexAt(pos)
     if not idx.isValid(): return
@@ -5002,6 +5092,7 @@ def make_ctx(parent, table, pos, col):
     a1=Action(FIF.COPY,"复制");a1.triggered.connect(_copy_path);a1.setEnabled(bool(raw));m.addAction(a1); m.addSeparator()
     a2=Action(FIF.DOCUMENT,"打开"); a2.triggered.connect(lambda:subprocess.Popen(["explorer",n]) if n else None); a2.setEnabled(ex and os.path.isfile(n)); m.addAction(a2)
     a3=Action(FIF.FOLDER,"定位"); a3.triggered.connect(lambda:open_explorer(n)); a3.setEnabled(ex); m.addAction(a3)
+    add_exclusion_action(m, n, parent)
     vp = table.viewport() if hasattr(table, "viewport") else table
     gp = vp.mapToGlobal(pos)
     QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
@@ -6343,6 +6434,16 @@ def load_language_pack(lang, config_dir=None, prefer_cloud=True, timeout=6, mani
             payload = json.loads(raw)
             pack = _normalize_language_pack(payload)
             if pack:
+                # Older cloud packs may omit labels introduced by this build.
+                # Keep bundled translations as defaults while allowing cloud
+                # corrections to override keys that it does provide.
+                bundled_path = bundled_language_file(f"{lang}.json")
+                if os.path.isfile(bundled_path):
+                    with open(bundled_path, "r", encoding="utf-8") as stream:
+                        merged = _normalize_language_pack(json.load(stream))
+                    merged.update(pack)
+                    pack = merged
+                    payload = dict(payload, translations=pack)
                 os.makedirs(os.path.dirname(cache_path), exist_ok=True)
                 write_text_file_atomic(cache_path, json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
                 append_session_log_line(f"[语言] 已下载语言包: {lang}")
@@ -6408,49 +6509,12 @@ def load_runtime_targets_and_settings():
     return paths["config_dir"], global_settings, targets
 
 def _run_scheduled_clean(targets, permanent_delete, log):
-    """Execute regular cleaning rules (常规清理)."""
-    import fnmatch
-    selected = [parse_rule_entry(t) for t in targets if t[3]]
-    selected = [t for t in selected if t]
-    if not selected:
-        log("[常规清理] 当前没有已勾选的常规清理规则，跳过")
-        return
-    ok = fl = 0
-    for nm, pa, tp, _, nt, _, pattern in selected:
-        path_text = expand_env(pa)
-        log(f"[常规清理] 开始处理: {nm}")
-        try:
-            if tp == "dir":
-                try:
-                    entries = os.listdir(path_text)
-                except OSError:
-                    entries = []
-                for name in entries:
-                    if delete_path(os.path.join(path_text, name), permanent_delete, log):
-                        ok += 1
-                    else:
-                        fl += 1
-            elif tp == "glob":
-                rule_pattern = normalize_rule_pattern(tp, pattern, nt)
-                try:
-                    entries = os.listdir(path_text)
-                except OSError:
-                    entries = []
-                for name in entries:
-                    if fnmatch.fnmatch(name.lower(), rule_pattern.lower()):
-                        if delete_path(os.path.join(path_text, name), permanent_delete, log):
-                            ok += 1
-                        else:
-                            fl += 1
-            elif tp == "file" and os.path.exists(path_text):
-                if delete_path(path_text, permanent_delete, log):
-                    ok += 1
-                else:
-                    fl += 1
-        except Exception as e:
-            fl += 1
-            log(f"[常规清理] 规则执行失败: {nm} -> {format_exception_text(e)}")
-    log(f"[常规清理] 完成：成功 {ok}，失败 {fl}")
+    plan = cleaner_core.build_plan(targets, protected=is_protected_system_path)
+    result = cleaner_core.execute_plan(plan, delete_path, permanent_delete, log=log,
+                                       protected=is_protected_system_path, kind="定时常规清理")
+    log(f"[常规清理] 完成：成功 {result['success']}，失败 {result['failed']}，跳过 {result['skipped']}")
+    if result["failed"]:
+        raise RuntimeError(f"定时清理有 {result['failed']} 个项目失败，请查看清理历史")
 
 
 def _run_scheduled_empty_dirs(permanent_delete, log):
@@ -6657,6 +6721,33 @@ SCHEDULED_FEATURE_LABELS = {
 
 
 def run_scheduled_job(permanent_delete=True, features=None, task_name=""):
+    config_dir, _, _ = load_runtime_targets_and_settings()
+    store = cleaner_core.configure(config_dir)
+    try:
+        with cleaner_core.JobLock(config_dir):
+            policy = dict(cleaner_core.DEFAULT_AUTO_POLICY, **store.get("auto_policy", {}))
+            allowed, reason = cleaner_core.check_auto_policy(policy, store.get("auto_last_run", 0))
+            if not allowed:
+                store.record("定时任务跳过", {"task": task_name, "reason": reason, "state": "skipped"})
+                return 0
+            # Reserve the cooldown before side effects, including failed runs.
+            if policy.get("enabled"):
+                store.set("auto_last_run", time.time())
+            code = _run_scheduled_job_impl(permanent_delete, features, task_name)
+            if policy.get("enabled") and policy.get("notify"):
+                try:
+                    cleaner_core.notify_maintenance("自动维护已完成" if code == 0 else "自动维护失败，请查看清理历史")
+                except Exception as e:
+                    store.record("维护通知失败", {"error": str(e)})
+            return code
+    except Exception as e:
+        store.record("定时任务失败", {"task": task_name, "state": "failed", "error": str(e)})
+        write_text_file_atomic(os.path.join(scheduled_log_dir(config_dir),
+                               f"scheduled_failure_{time.strftime('%Y%m%d_%H%M%S')}.log"), str(e))
+        return 1
+
+
+def _run_scheduled_job_impl(permanent_delete=True, features=None, task_name=""):
     if features is None:
         features = {"clean"}
     started_at = time.time()
@@ -6682,6 +6773,9 @@ def run_scheduled_job(permanent_delete=True, features=None, task_name=""):
         _run_scheduled_standard_uninstall(config_dir, task_name, log)
 
     log(f"[定时任务] 全部结束，耗时 {time.time()-started_at:.1f} 秒")
+    if cleaner_core.current_store():
+        cleaner_core.current_store().record("定时任务", {"task": task_name, "features": sorted(features),
+            "started": started_at, "finished": time.time(), "state": "finished", "logs": log_lines})
 
     log_path = os.path.join(
         scheduled_log_dir(config_dir),
@@ -7069,6 +7163,10 @@ class AddRuleDialog(MessageBoxBase):
         self.patternLayout.addWidget(self.patternInput, 1)
         self.patternLayout.addWidget(self.btnPatternHelp)
         self.descInput = LineEdit(); self.descInput.setPlaceholderText("说明备注 (例如: 仅限个人使用)")
+        self.ageInput = SpinBox(); self.ageInput.setRange(0, 36500)
+        self.sizeInput = SpinBox(); self.sizeInput.setRange(0, 100000000)
+        self.keepInput = SpinBox(); self.keepInput.setRange(0, 1000000)
+
         
         self.viewLayout.addWidget(StrongBodyLabel("规则名称:")); self.viewLayout.addWidget(self.nameInput)
         self.viewLayout.addSpacing(6)
@@ -7079,6 +7177,12 @@ class AddRuleDialog(MessageBoxBase):
         self.viewLayout.addWidget(StrongBodyLabel("匹配模式:")); self.viewLayout.addLayout(self.patternLayout)
         self.viewLayout.addSpacing(6)
         self.viewLayout.addWidget(StrongBodyLabel("备注说明:")); self.viewLayout.addWidget(self.descInput)
+        for label, control in (("最小修改年龄（天，0 不限）", self.ageInput),
+                               ("最小文件大小（MB，0 不限）", self.sizeInput),
+                               ("保留最新文件数量（0 不保留）", self.keepInput)):
+            line = QHBoxLayout(); line.addWidget(StrongBodyLabel(label)); line.addWidget(control)
+            self.viewLayout.addLayout(line)
+
         
         self.widget.setMinimumWidth(450); self.yesButton.setText("添加"); self.cancelButton.setText("取消")
         self._on_type_changed(self.typeCombo.currentIndex())
@@ -7117,6 +7221,10 @@ class AddRuleDialog(MessageBoxBase):
             self
         ).exec()
             
+    def get_conditions(self):
+        return {"min_age_days": self.ageInput.value(), "min_size_bytes": self.sizeInput.value() * 1024**2,
+                "keep_latest": self.keepInput.value()}
+
     def get_data(self):
         t_map = {0: "dir", 1: "file", 2: "glob"}
         tp = t_map[self.typeCombo.currentIndex()]
@@ -7594,7 +7702,13 @@ class RuleStorePage(DeferredPageMixin, ScrollArea):
         except Exception as e:
             InfoBar.error("导入失败", str(e), parent=self.main_win)
             return
-        self.main_win.import_rules_from_path(path, title_text)
+        try:
+            with open(path, "r", encoding="utf-8-sig") as stream:
+                payload = json.load(stream)
+            rules = payload.get("rules", []) if isinstance(payload, dict) else payload
+            apply_reviewed_rule_pack(self.main_win, rules, filename)
+        except Exception as e:
+            InfoBar.error("导入失败", str(e), parent=self.main_win)
 
 class ScheduledUninstallDialog(MessageBoxBase):
     def __init__(self, selected_regs=None, parent=None):
@@ -8560,9 +8674,9 @@ class ToolboxPage(ScrollArea):
             QTimer.singleShot(0, self._start_download_scan)
 
     def _show_space_usage_tool(self):
-        self.btn_back.show()
-        self.stack.setCurrentWidget(self.space_page)
-        QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
+        page = self.main_win._ensure_lazy_page("pg_maintenance")
+        page.tabs.setCurrentIndex(3)
+        self.main_win.switchTo(page)
 
     def _choose_download_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择下载目录", self.edit_download_dir.text().strip() or os.path.expandvars(r"%USERPROFILE%"))
@@ -9495,7 +9609,7 @@ class SchedulePage(DeferredPageMixin, ScrollArea):
         self.root.setSpacing(10)
         self.root.addLayout(make_title_row(FIF.SYNC, "定时任务"))
 
-        desc = CaptionLabel("创建 Windows 定时任务，按自定义天/周/小时/分钟间隔或登录时自动执行选定功能")
+        desc = CaptionLabel("创建 Windows 定时任务，按自定义天/周/小时/分钟间隔或登录时自动执行选定功能；空间阈值、空闲和进程条件可在维护中心配置")
         desc.setWordWrap(True)
         desc.setTextColor(QColor(128, 128, 128))
         self.root.addWidget(desc)
@@ -10500,7 +10614,22 @@ def start_page_worker(page, target, args=(), before_start=None,
     page.stop.clear()
     if before_start is not None:
         before_start()
-    worker = threading.Thread(target=target, args=tuple(args), daemon=True)
+    route = page.objectName() if hasattr(page, "objectName") else ""
+    def run():
+        try:
+            target(*tuple(args))
+        except Exception as e:
+            message = f"任务失败: {format_exception_text(e)}"
+            log_background_error("页面任务", e)
+            if route == "bigFilePage":
+                page.sig.big_done.emit("warning", message)
+            elif route == "uninstallPage":
+                page.sig.uninst_done.emit(message)
+            elif route == "moreCleanPage":
+                page.sig.more_done.emit(message)
+            elif route == "cleanPage":
+                page.sig.clean_done.emit(message)
+    worker = threading.Thread(target=run, daemon=True)
     page._active_worker = worker
     worker.start()
     return worker
@@ -10585,6 +10714,7 @@ class CleanPage(ScrollArea):
         self.btn_sel_all = PushButton(FIF.ACCEPT, "全选"); self.btn_sel_all.setFixedHeight(30)
         self.btn_sel_all.clicked.connect(self.toggle_sel_all); br.addWidget(self.btn_sel_all)
         br.addStretch()
+        preview_button = PushButton(FIF.SEARCH, "文件预览"); preview_button.clicked.connect(self.do_clean); br.addWidget(preview_button)
         bc=PrimaryPushButton(FIF.DELETE,"开始清理"); bc.setFixedHeight(30); bc.clicked.connect(self.do_clean); br.addWidget(bc)
         bs=PushButton(FIF.CANCEL,"停止"); bs.setFixedHeight(30); bs.clicked.connect(lambda:self.stop.set()); br.addWidget(bs); v.addLayout(br)
 
@@ -10793,7 +10923,16 @@ class CleanPage(ScrollArea):
                 InfoBar.error("错误", "名称和路径不能为空", parent=self.window()); return
             if tp == "glob" and not pattern:
                 InfoBar.error("错误", "glob 规则必须填写匹配模式", parent=self.window()); return
+            if not os.path.isabs(expand_env(pa)):
+                InfoBar.error("错误", "规则路径必须为绝对路径或有效的环境变量路径", parent=self.window()); return
             new_rule = (nm, pa, tp, en, nt, is_c, pattern)
+            try:
+                if cleaner_core.current_store():
+                    conditions = cleaner_core.current_store().get("conditions", {})
+                    conditions[cleaner_core.rule_id(new_rule)] = w.get_conditions()
+                    cleaner_core.current_store().set("conditions", conditions)
+            except Exception as e:
+                InfoBar.error("保存失败", str(e), parent=self.window()); return
             with self._targets_lock:
                 self.targets.append(new_rule)
             self.reload_table()
@@ -10903,6 +11042,7 @@ class CleanPage(ScrollArea):
                 "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "rules": payload,
                 "state": build_saved_rule_state(targets_snapshot),
+                "conditions": cleaner_core.current_store().get("conditions", {}) if cleaner_core.current_store() else {},
             }
             write_json_file_atomic(path, export_payload, ensure_ascii=False, indent=2)
             InfoBar.success("导出成功", f"规则与状态已保存至: {path}", parent=self.window())
@@ -10915,7 +11055,9 @@ class CleanPage(ScrollArea):
             with open(path, 'r', encoding='utf-8') as f:
                 payload = json.load(f)
             saved_state = None
+            imported_conditions = {}
             if isinstance(payload, dict):
+                imported_conditions = payload.get("conditions", {})
                 rules = payload.get("rules") or payload.get("custom_rules") or payload.get("items") or []
                 saved_state = payload.get("state") or payload.get("rule_state")
             else:
@@ -10939,6 +11081,13 @@ class CleanPage(ScrollArea):
                 existing_keys.add(rule_key)
                 to_add.append(parsed)
                 added += 1
+            if isinstance(imported_conditions, dict) and cleaner_core.current_store():
+                conditions = cleaner_core.current_store().get("conditions", {})
+                valid_ids = {cleaner_core.rule_id(rule) for rule in list(self.targets) + to_add}
+                for key, value in imported_conditions.items():
+                    if key in valid_ids and isinstance(value, dict):
+                        conditions[key] = cleaner_core.validate_conditions(value)
+                cleaner_core.current_store().set("conditions", conditions)
             if to_add:
                 with self._targets_lock:
                     self.targets.extend(to_add)
@@ -10947,7 +11096,7 @@ class CleanPage(ScrollArea):
                 with self._targets_lock:
                     self.targets[:] = apply_saved_rule_state(self.targets, saved_state)
                 state_applied = True
-            if added > 0 or state_applied:
+            if added > 0 or state_applied or bool(imported_conditions):
                 self.reload_table()
                 self.save_custom_rules()
                 if hasattr(self.window(), "save_order_state"):
@@ -11060,6 +11209,10 @@ class CleanPage(ScrollArea):
         self.sig.clean_done.emit(f"{done_label}，耗时 {time.time()-t0:.1f} 秒")
 
     def do_clean(self):
+        active = getattr(self, "_active_worker", None)
+        if active is not None and active.is_alive():
+            InfoBar.warning("任务进行中", "请等待当前清理或估算任务完成", parent=self.window())
+            return
         self.tbl.setDragEnabled(False)
         self.tbl_model.set_drag_enabled(False)
         self._sync()
@@ -11087,85 +11240,38 @@ class CleanPage(ScrollArea):
             if not MessageBox("风险提示", content, self.window()).exec():
                 self._apply_sort_state()
                 return
+        dialog = PreviewDialog(selected_rules, sys.modules[__name__], self.window())
+        if not dialog.exec():
+            self._apply_sort_state()
+            return
         if self.chk_perm.isChecked():
             if not MessageBox("确认", "当前为强力模式，删除后无法恢复继续？", self.window()).exec():
                 self._apply_sort_state()
                 return
         permanent_delete = self.chk_perm.isChecked()
         create_restore_point = self.chk_rst.isChecked()
-        start_page_worker(
-            self,
-            self._cln_w,
-            args=(selected_rules, permanent_delete, create_restore_point),
-        )
+        start_page_worker(self, self._execute_reviewed_plan,
+                          args=(dialog.plan, permanent_delete, create_restore_point))
     
     def _cln_w(self, selected_rules, permanent_delete, create_restore_point):
-        t0 = time.time()
-        import fnmatch
-        pm = bool(permanent_delete)
-        sel, skipped_duplicates = self._dedupe_rule_targets(list(selected_rules or []))
-        if skipped_duplicates:
-            self.sig.clean_log.emit(f"[重复目标] 已跳过 {skipped_duplicates} 条重复清理规则，避免重复删除同一目标")
-        if not sel: return
-        
-        # 清理前创建还原点
-        self._try_rst(create_restore_point)
-        
-        ok=fl=st=0; tot=len(sel); freed_bytes=0; lf=lambda s:self.sig.clean_log.emit(s)
-        def _candidate_size(path):
-            try:
-                if os.path.isdir(path) and not os.path.islink(path):
-                    return dir_size(path, stop_flag=self.stop)
-                return safe_getsize(path)
-            except Exception:
-                return 0
-        for nm, pa, tp, _, nt, _, pattern in sel:
-            if self.stop.is_set():
-                self.sig.clean_done.emit(f"清理已取消：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
-                return
-            st+=1; p=expand_env(pa)
-            try:
-                if tp=="dir":
-                    try:
-                        entries = os.listdir(p)
-                    except OSError:
-                        entries = []
-                    for e in entries:
-                        if self.stop.is_set(): break
-                        target = os.path.join(p,e)
-                        size_before = _candidate_size(target)
-                        if self.stop.is_set(): break
-                        if delete_path(target,pm,lf):
-                            ok+=1; freed_bytes+=size_before
-                        else: fl+=1
-                elif tp=="glob":
-                    rule_pattern = normalize_rule_pattern(tp, pattern, nt)
-                    try:
-                        entries = os.listdir(p)
-                    except OSError:
-                        entries = []
-                    for f in entries:
-                        if self.stop.is_set(): break
-                        if fnmatch.fnmatch(f.lower(), rule_pattern.lower()):
-                            target = os.path.join(p,f)
-                            size_before = _candidate_size(target)
-                            if self.stop.is_set(): break
-                            if delete_path(target,pm,lf):
-                                ok+=1; freed_bytes+=size_before
-                            else: fl+=1
-                elif tp=="file":
-                    size_before = _candidate_size(p)
-                    if self.stop.is_set():
-                        self.sig.clean_done.emit(f"清理已取消：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒")
-                        return
-                    if delete_path(p,pm,lf):
-                        ok+=1; freed_bytes+=size_before
-                    else: fl+=1
-            except Exception as e:
-                fl += 1
-                lf(f"[规则失败] {nm} -> {p} -> {format_exception_text(e)}")
-            self.sig.clean_prog.emit(st,tot)
-        self.sig.clean_done.emit(f"清理完成：成功 {ok}，失败 {fl}，耗时 {time.time()-t0:.1f} 秒，共释放 {human_size(freed_bytes)} 空间")
+        plan = cleaner_core.build_plan(selected_rules, self.stop, is_protected_system_path)
+        self._execute_reviewed_plan(plan, permanent_delete, create_restore_point)
+
+    def _execute_reviewed_plan(self, plan, permanent_delete, create_restore_point):
+        try:
+            store = cleaner_core.current_store()
+            with cleaner_core.JobLock(store.directory if store else app_root_dir()):
+                self._try_rst(create_restore_point)
+                result = cleaner_core.execute_plan(
+                    plan, delete_path, permanent_delete, self.stop,
+                    self.sig.clean_log.emit, is_protected_system_path, self.sig.clean_prog.emit)
+            message = (f"清理{'已取消' if result['cancelled'] else '完成'}：成功 {result['success']}，"
+                       f"失败 {result['failed']}，跳过 {result['skipped']}，"
+                       f"已处理逻辑体积 {human_size(result['estimated_bytes'])}，"
+                       f"磁盘可用空间变化 {human_size(result['free_delta'])}")
+            self.sig.clean_done.emit(message)
+        except Exception as e:
+            self.sig.clean_done.emit(f"清理失败: {format_exception_text(e)}")
 
     def _dedupe_rule_targets(self, rules):
         deduped = []
@@ -11211,6 +11317,7 @@ class CleanPage(ScrollArea):
         a3.triggered.connect(lambda: open_explorer(n))
         a3.setEnabled(ex)
         m.addAction(a3)
+        add_exclusion_action(m, n, self)
         gp = self.tbl.viewport().mapToGlobal(pos)
         QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
 
@@ -11686,6 +11793,7 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
         a3.triggered.connect(lambda: open_explorer(n))
         a3.setEnabled(ex)
         m.addAction(a3)
+        add_exclusion_action(m, n, self)
         gp = self.tbl.viewport().mapToGlobal(pos)
         QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
 
@@ -11825,6 +11933,7 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
             args=(data, self.chk_silent.isChecked(), self.sp_timeout.value() * 60),
         )
 
+    @cleaner_core.tracked_operation("应用标准卸载")
     def _std_uninstall_w(self, data, prefer_silent=False, timeout_sec=1200):
         t0 = time.time()
         ok = fl = sk = 0
@@ -11946,6 +12055,7 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
             args=(data, self.chk_silent.isChecked(), self.sp_timeout.value() * 60),
         )
 
+    @cleaner_core.tracked_operation("应用强力卸载")
     def _force_uninstall_flow_w(self, data, prefer_silent=False, timeout_sec=1200):
         t0 = time.time()
         all_files, all_regs = [], []
@@ -12073,6 +12183,7 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
         self.sig.uninst_log.emit(f"[强力清除] 开始清理 {nm} 的残留...")
         return picked
 
+    @cleaner_core.tracked_operation("应用残留清理")
     def _force_uninst_w(self, files, regs, services=None, tasks=None, emit_done=True):
         t0 = time.time()
         lf = lambda s: self.sig.uninst_log.emit(s)
@@ -12385,6 +12496,7 @@ class BigFilePage(DeferredPageMixin, ScrollArea):
         a3.triggered.connect(lambda: open_explorer(n))
         a3.setEnabled(ex)
         m.addAction(a3)
+        add_exclusion_action(m, n, self)
         gp = self.tbl.viewport().mapToGlobal(pos)
         QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
 
@@ -12451,6 +12563,7 @@ class BigFilePage(DeferredPageMixin, ScrollArea):
         if pm and not MessageBox("确认",f"将永久删除 {len(paths)} 个文件继续？",self.window()).exec(): return
         start_page_worker(self, self._del_w, args=(paths, pm))
 
+    @cleaner_core.tracked_operation("大文件清理")
     def _del_w(self, paths, pm):
         t0 = time.time()
         ok=fl=0; tot=len(paths); lf=lambda s:self.sig.big_log.emit(s)
@@ -12679,6 +12792,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         a3.triggered.connect(lambda: open_explorer(n))
         a3.setEnabled(ex)
         m.addAction(a3)
+        add_exclusion_action(m, n, self)
         gp = self.tbl.viewport().mapToGlobal(pos)
         QTimer.singleShot(0, lambda: m.exec(gp, ani=False, aniType=MenuAnimationType.NONE))
 
@@ -12710,8 +12824,9 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         big_page = getattr(self.window(), "pg_big", None)
         workers = big_page._disk_threads if big_page is not None else 4
 
+        duplicate_policy = cleaner_core.current_store().get("duplicate_policy", {}) if cleaner_core.current_store() else {}
         scan_targets = {
-            0: (self._scan_duplicates, (roots, workers)),
+            0: (self._scan_duplicates, (roots, workers, duplicate_policy)),
             1: (self._scan_empty_dirs, (roots, workers)),
             2: (self._scan_shortcuts, (roots, workers)),
             3: (self._scan_registry, ()),
@@ -12742,7 +12857,8 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
             log_context="更多清理",
         )
 
-    def _scan_duplicates(self, roots, workers):
+    def _scan_duplicates(self, roots, workers, duplicate_policy=None):
+        duplicate_policy = duplicate_policy or {}
         t0 = time.time()
         first_path_by_size = {}
         size_groups = defaultdict(list)
@@ -12886,10 +13002,25 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
             self.sig.more_done.emit(f"扫描已取消，耗时 {time.time()-t0:.1f} 秒")
             return
 
-        for idx, (file_size, full_digest, duplicates) in enumerate(results):
-            duplicates.sort(key=lambda p: os.path.normcase(p))
-            results[idx] = (file_size, full_digest, duplicates)
+        physical_results = []
+        hardlink_aliases = 0
+        reclaimable_bytes = 0
+        unknown_allocation = 0
+        for file_size, full_digest, duplicates in results:
+            ordered, aliases = cleaner_core.choose_duplicate_reference(
+                duplicates, duplicate_policy.get("strategy", "path"), duplicate_policy.get("preferred", ""))
+            hardlink_aliases += aliases
+            if len(ordered) > 1:
+                physical_results.append((file_size, full_digest, ordered))
+                for path in ordered[1:]:
+                    allocated = cleaner_core.reclaimable_disk_bytes(path)
+                    if allocated is None:
+                        unknown_allocation += 1
+                    else:
+                        reclaimable_bytes += allocated
+        results = physical_results
         results.sort(key=lambda item: (-item[0], os.path.normcase(item[2][0])))
+        self.sig.more_log.emit(f"[重复文件] 已合并 {hardlink_aliases} 个硬链接别名，预计可回收磁盘体积 {human_size(reclaimable_bytes)}，另有 {unknown_allocation} 项无法统计占用")
         suspects.clear()
 
         cnt = 0
@@ -13197,6 +13328,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
                 args=(paths, self.chk_perm.isChecked(), mode_idx == 1, duplicate_expectations),
             )
 
+    @cleaner_core.tracked_operation("更多文件清理")
     def _del_files_w(self, paths, pm, require_empty=False, duplicate_expectations=None):
         t0 = time.time()
         ok=fl=sk=0; tot=len(paths); lf=lambda s:self.sig.more_log.emit(s)
@@ -13232,6 +13364,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
             self.sig.more_prog.emit(i,tot)
         self.sig.more_done.emit(f"清理完成：成功 {ok}，失败 {fl}，跳过 {sk}，耗时 {time.time()-t0:.1f} 秒")
 
+    @cleaner_core.tracked_operation("更多注册表清理")
     def _del_reg_w(self, paths):
         t0 = time.time()
         ok=fl=0; tot=len(paths)
@@ -13340,6 +13473,7 @@ class MainWindow(MSFluentWindow):
         self.clean_stop = threading.Event(); self.uninstall_stop = threading.Event(); self.big_stop = threading.Event(); self.more_stop = threading.Event(); self.toolbox_stop = threading.Event(); self.sig = Sig()
         self._targets_lock = threading.Lock()
         self.pg_clean = CleanPage(self.sig, self.targets, self.clean_stop, self._targets_lock, self)
+        self.pg_maintenance = None
         self.pg_toolbox = None
         self.pg_rule_store = None
         self.pg_big = None
@@ -13348,6 +13482,7 @@ class MainWindow(MSFluentWindow):
         self.pg_more = None
         self.pg_setting = None
         self._lazy_route_keys = {
+            "pg_maintenance": "maintenancePage",
             "pg_toolbox": "toolboxPage",
             "pg_rule_store": "ruleStorePage",
             "pg_big": "bigFilePage",
@@ -13357,6 +13492,7 @@ class MainWindow(MSFluentWindow):
             "pg_setting": "settingPage",
         }
         self._lazy_page_factories = {
+            "pg_maintenance": lambda: MaintenancePage(self, sys.modules[__name__], self),
             "pg_toolbox": lambda: ToolboxPage(self, self.toolbox_stop, self),
             "pg_rule_store": lambda: RuleStorePage(self, self),
             "pg_big": lambda: BigFilePage(self.sig, self.big_stop, self),
@@ -13852,6 +13988,7 @@ class MainWindow(MSFluentWindow):
         self.global_settings_path = os.path.join(self.config_dir, "cdisk_cleaner_global_settings.json")
         self.custom_rules_path = os.path.join(self.config_dir, "cdisk_cleaner_custom_rules.json")
         self.config_path = os.path.join(self.config_dir, "cdisk_cleaner_config.json")
+        cleaner_core.configure(self.config_dir)
 
     def save_order_state(self):
         try:
@@ -13874,6 +14011,13 @@ class MainWindow(MSFluentWindow):
         except Exception as e:
             return False, f"无法创建配置目录: {e}"
 
+        if any(getattr(getattr(self, name, None), "_active_worker", None) is not None
+               and getattr(self, name)._active_worker.is_alive()
+               for name in ("pg_clean", "pg_big", "pg_more", "pg_uninstall")):
+            return False, "请等待清理任务完成后再更改配置目录"
+        if getattr(getattr(self, "pg_maintenance", None), "busy", False):
+            return False, "请等待维护中心任务完成后再更改配置目录"
+        old_store = cleaner_core.current_store()
         old_global = self.global_settings_path
         old_custom = self.custom_rules_path
         old_config = self.config_path
@@ -13898,6 +14042,12 @@ class MainWindow(MSFluentWindow):
             except Exception as e:
                 return False, f"迁移配置文件失败: {e}"
 
+        try:
+            if old_store:
+                with cleaner_core.JobLock(old_store.directory):
+                    old_store.backup_to(target_dir)
+        except Exception as e:
+            return False, f"迁移维护配置失败: {e}"
         self.config_dir = target_dir
         self._refresh_config_paths()
         self._save_config_locator()
@@ -13980,6 +14130,12 @@ class MainWindow(MSFluentWindow):
             event.ignore()
             self._hide_to_tray()
             return
+        maintenance = getattr(self, "pg_maintenance", None)
+        if maintenance is not None and maintenance.busy:
+            maintenance.stop.set()
+            InfoBar.warning("任务进行中", "正在停止扫描或等待系统维护完成，请稍后退出", parent=self)
+            event.ignore()
+            return
         self._prepare_shutdown()
         self._save_before_exit()
         super().closeEvent(event)
@@ -14018,6 +14174,9 @@ class MainWindow(MSFluentWindow):
         self.big_stop.set()
         self.more_stop.set()
         self.toolbox_stop.set()
+        maintenance = getattr(self, "pg_maintenance", None)
+        if maintenance is not None:
+            maintenance.stop.set()
         toolbox = getattr(self, "pg_toolbox", None)
         if toolbox is not None and hasattr(toolbox, "wait_for_active_task"):
             try:
@@ -14120,6 +14279,7 @@ class MainWindow(MSFluentWindow):
             "Rule Store": "Store",
             "Scheduled Tasks": "Tasks",
             "Toolbox": "Tools",
+            "Maintenance Center": "Maintain",
             "Large File Scan": "Files",
             "Force Uninstall": "Uninstall",
             "More Cleanup": "More",
@@ -14212,6 +14372,7 @@ class MainWindow(MSFluentWindow):
         self._add_lazy_nav_page("pg_rule_store", FIF.DOCUMENT, "规则商店")
         self._add_lazy_nav_page("pg_schedule", FIF.SYNC, "定时任务")
         self._add_lazy_nav_page("pg_toolbox", FIF.DEVELOPER_TOOLS, "工具箱")
+        self._add_lazy_nav_page("pg_maintenance", FIF.SAVE, "维护中心")
         self._add_lazy_nav_page("pg_big", FIF.ZOOM, "大文件扫描")
         self._add_lazy_nav_page("pg_uninstall", FIF.APPLICATION, "应用强力卸载")
         self._add_lazy_nav_page("pg_more", FIF.MORE, "更多清理")
@@ -14540,6 +14701,12 @@ class MainWindow(MSFluentWindow):
         self.activateWindow()
 
     def _exit_from_tray(self):
+        maintenance = getattr(self, "pg_maintenance", None)
+        if maintenance is not None and maintenance.busy:
+            maintenance.stop.set()
+            self._restore_from_tray()
+            InfoBar.warning("任务进行中", "正在停止扫描或等待系统维护完成，请稍后退出", parent=self)
+            return
         self._tray_exit_requested = True
         self._prepare_shutdown()
         self._save_before_exit()
@@ -14950,6 +15117,13 @@ def relaunch_as_admin():
 def main():
     if sys.platform != "win32":
         sys.exit(1)
+
+    if "--startup-check" in sys.argv:
+        from startup_check import run_startup_check
+        index = sys.argv.index("--startup-check")
+        if index + 1 >= len(sys.argv):
+            sys.exit(2)
+        sys.exit(run_startup_check(sys.modules[__name__], sys.argv[index + 1]))
 
     if "--scheduled-clean" in sys.argv:
         permanent_delete = "--scheduled-recycle" not in sys.argv

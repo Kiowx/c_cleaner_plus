@@ -7,6 +7,11 @@ on:
       - master
     paths:
       - main.py
+      - cleaner_core.py
+      - maintenance_ui.py
+      - startup_check.py
+      - tools/smoke_frozen.py
+      - windows-version-info.txt
       - c_cleaner_plus.spec
       - requirements.txt
       - tools/fast_large_files/**
@@ -121,6 +126,8 @@ jobs:
         if: env.SKIP_BUILD != 'true'
         shell: pwsh
         run: |
+          python tools/smoke_frozen.py --bundle dist/c_cleaner_plus --report build/frozen-startup.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $bundle = "dist/c_cleaner_plus"
           $exe = Join-Path $bundle "c_cleaner_plus.exe"
           $helper = Join-Path $bundle "_internal/fast_large_files.exe"

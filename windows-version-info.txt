@@ -1,0 +1,27 @@
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(0, 8, 2, 0),
+    prodvers=(0, 8, 2, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable('040904B0', [
+        StringStruct('CompanyName', 'Kiowx'),
+        StringStruct('FileDescription', 'C Cleaner Plus'),
+        StringStruct('FileVersion', '0.8.2.0'),
+        StringStruct('InternalName', 'c_cleaner_plus'),
+        StringStruct('OriginalFilename', 'c_cleaner_plus.exe'),
+        StringStruct('ProductName', 'C Cleaner Plus'),
+        StringStruct('ProductVersion', '0.8.2'),
+        StringStruct('LegalCopyright', 'Kiowx')
+      ])
+    ]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)

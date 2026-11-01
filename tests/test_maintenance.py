@@ -418,7 +418,18 @@ class MaintenanceTests(unittest.TestCase):
 
 
 class MaintenanceWidgetTests(unittest.TestCase):
-    setUp = MaintenanceTests.setUp
+    def setUp(self):
+        MaintenanceTests.setUp(self)
+        # Windows on English systems schedules a language-pack download. Keep
+        # widget tests offline until every window and its timers are disposed.
+        self.language_downloads = []
+        downloader = mock.patch.object(
+            main.MainWindow, "_download_language_pack_async",
+            new=lambda window: self.language_downloads.append(window.language_code),
+        )
+        downloader.start()
+        self.addCleanup(downloader.stop)
+
     restore_store = MaintenanceTests.restore_store
     file = MaintenanceTests.file
     rule = MaintenanceTests.rule
@@ -608,14 +619,33 @@ class MaintenanceWidgetTests(unittest.TestCase):
         window, toolbox = self._toolbox_window()
         cards = toolbox.home_page.findChildren(main.ToolboxEntryCard)
         self.assertEqual(len(cards), 6)
-        self.assertEqual(toolbox.lbl_title.text(), "工具箱")
+        self.assertEqual(toolbox.lbl_title.text(), window.tr_text("工具箱"))
         self.assertFalse(toolbox.lbl_home_desc.isHidden())
         cards[3].clicked.emit()
         self.assertIs(toolbox.stack.currentWidget(), toolbox.download_page)
-        self.assertEqual(toolbox.lbl_title.text(), "工具箱 › 下载目录整理")
+        self.assertEqual(toolbox.lbl_title.text(), f"{window.tr_text('工具箱')} › {window.tr_text('下载目录整理')}")
         self.assertTrue(toolbox.lbl_home_desc.isHidden())
         toolbox.btn_back.click()
-        self.assertEqual(toolbox.lbl_title.text(), "工具箱")
+        self.assertEqual(toolbox.lbl_title.text(), window.tr_text("工具箱"))
+
+    def test_toolbox_titles_follow_system_language_without_network(self):
+        from PySide6.QtTest import QTest
+        with mock.patch.object(main, "_urlopen", side_effect=AssertionError("Widget tests must stay offline")) as network:
+            for locale, language, title, tool_title in (
+                ("zh_CN", "zh_cn", "工具箱", "工具箱 › 下载目录整理"),
+                ("en_US", "en_us", "Toolbox", "Toolbox › Downloads Organizer"),
+            ):
+                with self.subTest(locale=locale), mock.patch.object(main.QLocale, "system", return_value=main.QLocale(locale)):
+                    window, toolbox = self._toolbox_window()
+                    self.assertEqual(window.language_code, language)
+                    self.assertEqual(toolbox.lbl_title.text(), title)
+                    toolbox._show_download_tool()
+                    self.assertEqual(toolbox.lbl_title.text(), tool_title)
+                    # Exercise the 600 ms English startup timer with the real
+                    # event loop, without starting a network-writing worker.
+                    QTest.qWait(650)
+            self.assertIn("en_us", self.language_downloads)
+            network.assert_not_called()
 
     def test_toolbox_scan_tools_wait_for_explicit_scan(self):
         window, toolbox = self._toolbox_window()
@@ -692,7 +722,7 @@ class MaintenanceWidgetTests(unittest.TestCase):
             development = toolbox._show_development_tool()
         open_tool.assert_not_called()
         self.assertIs(toolbox.stack.currentWidget(), development)
-        self.assertEqual(toolbox.lbl_title.text(), "工具箱 › 开发环境与 Docker / WSL")
+        self.assertEqual(toolbox.lbl_title.text(), f"{window.tr_text('工具箱')} › {window.tr_text('开发环境与 Docker / WSL')}")
         self.assertIs(toolbox._show_space_usage_tool(), page)
         self.assertFalse(page.cancel_button.isHidden())
         self.assertFalse(window._has_active_storage_task())

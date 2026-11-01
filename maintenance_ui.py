@@ -1,4 +1,4 @@
-"""Qt views for the 0.8.2 maintenance services (kept separate from main.py)."""
+"""Qt views for the 0.8.3 maintenance services (kept separate from main.py)."""
 from __future__ import annotations
 
 import json
@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QDialog, QDial
                               QTreeWidgetItem, QFileDialog, QStackedWidget,
                               QHeaderView, QAbstractItemView, QMenu, QToolTip)
 from qfluentwidgets import (ScrollArea, TitleLabel, BodyLabel, CaptionLabel, PushButton, PrimaryPushButton,
-                           ComboBox, SpinBox, LineEdit, TextEdit, CheckBox, InfoBar, isDarkTheme)
+                           ComboBox, SpinBox, LineEdit, TextEdit, CheckBox, InfoBar, SegmentedWidget, isDarkTheme)
 from qfluentwidgets import TableView as QTableView, TreeWidget as QTreeWidget
 
 import cleaner_core as core
@@ -175,34 +175,46 @@ def attach_exclusion_menu(view, model, host):
 class PreviewDialog(QDialog):
     loaded = Signal(object, str)
 
-    def __init__(self, rules, host, parent=None, title="清理预览"):
+    def __init__(self, rules, host, parent=None, title="清理预览", plan=None, read_only=False):
         super().__init__(parent)
-        self.host, self.plan = host, None
+        self.host, self.plan, self.read_only = host, None, read_only
         self.stop = threading.Event()
         self.setWindowTitle(title)
         self.resize(1050, 650)
         layout = QVBoxLayout(self)
+        if read_only:
+            hint(layout, "仅预览，不会删除任何文件。")
         self.status = hint(layout, "正在生成文件清单，可随时取消。目录只在清理后确认为空时移除。")
         tools = QHBoxLayout()
-        button(tools, "全选", lambda: self.model.select_all(True))
-        button(tools, "全不选", lambda: self.model.select_all(False))
+        if read_only:
+            tools.addStretch()
+        else:
+            button(tools, "全选", lambda: self.model.select_all(True))
+            button(tools, "全不选", lambda: self.model.select_all(False))
         button(tools, "导出预览 JSON", self.export)
         layout.addLayout(tools)
         self.view, self.model = table(layout, [("rule", "命中规则", None), ("kind", "类型", None), ("size", "大小", size),
-                                              ("mtime", "修改时间", stamp), ("path", "路径", None)], checkable=True)
+                                              ("mtime", "修改时间", stamp), ("path", "路径", None)], checkable=not read_only)
         attach_exclusion_menu(self.view, self.model, host)
-        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("清理已勾选项")
-        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
-        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        if read_only:
+            self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+            self.buttons.button(QDialogButtonBox.StandardButton.Close).setText("关闭")
+        else:
+            self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("清理已勾选项")
+            self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
+            self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
         self.loaded.connect(self._loaded)
         # Snapshot inputs before starting the worker; it never reads widgets.
         snapshot = [tuple(rule) for rule in rules]
-        self.worker = threading.Thread(target=self._scan, args=(snapshot,), daemon=True)
-        self.worker.start()
+        if plan is None:
+            self.worker = threading.Thread(target=self._scan, args=(snapshot,), daemon=True)
+            self.worker.start()
+        else:
+            self._loaded(plan, "")
         if parent is not None and hasattr(parent, "apply_language_to_widget"):
             parent.apply_language_to_widget(self)
 
@@ -226,8 +238,9 @@ class PreviewDialog(QDialog):
         self.model.reset(plan["items"])
         total = sum(item["size"] for item in plan["items"])
         self.status.setText(f"共 {len(plan['items'])} 项，文件逻辑体积 {size(total)}，按条件跳过 {plan['omitted']} 项。"
-                            + ("" if plan["complete"] else "扫描不完整，禁止执行。\n" + "\n".join(plan["errors"][:8])))
-        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(plan["complete"] and bool(plan["items"]))
+                            + ("" if plan["complete"] else ("扫描不完整。\n" if self.read_only else "扫描不完整，禁止执行。\n") + "\n".join(plan["errors"][:8])))
+        if not self.read_only:
+            self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(plan["complete"] and bool(plan["items"]))
 
     def export(self):
         if self.plan is None:
@@ -349,7 +362,7 @@ class Treemap(QWidget):
 class MaintenancePage(ScrollArea):
     completed = Signal(str, object, str)
 
-    def __init__(self, main_window, host, parent=None):
+    def __init__(self, main_window, host, parent=None, sections=None, embedded=False):
         super().__init__(parent)
         self.main_window, self.host = main_window, host
         self.stop = threading.Event()
@@ -361,27 +374,32 @@ class MaintenancePage(ScrollArea):
         self.view = QWidget()
         self.setWidget(self.view)
         layout = QVBoxLayout(self.view)
-        layout.setContentsMargins(28, 12, 28, 20)
-        layout.addWidget(TitleLabel("维护中心"))
-        self.tabs = ComboBox()
-        self.tabs.addItems(["清理历史", "统一排除", "高级规则条件", "空间分析与增长", "自动维护条件", "规则包版本", "重复文件策略", "开发环境空间"])
-        layout.addWidget(self.tabs)
+        layout.setContentsMargins(*((0, 0, 12, 0) if embedded else (28, 12, 28, 20)))
+        titles = ["清理历史", "统一排除", "高级规则条件", "空间分析与增长", "运行条件", "规则包版本", "重复文件策略", "开发环境空间"]
+        sections = list(range(8)) if sections is None else list(sections)
+        if not embedded:
+            layout.addWidget(TitleLabel(titles[sections[0]] if len(sections)==1 else "清理设置"))
+        self.tabs = SegmentedWidget()
+        for position, section in enumerate(sections):
+            self.tabs.addItem(str(position), titles[section])
+        self.tabs.setVisible(len(sections)>1)
+        layout.addWidget(self.tabs, 0, Qt.AlignmentFlag.AlignLeft)
         self.stack = QStackedWidget()
         layout.addWidget(self.stack, 1)
-        self.tabs.currentIndexChanged.connect(self.stack.setCurrentIndex)
-        self.status = hint(layout, "配置和历史保存在当前配置目录。扫描可取消。")
+        self.tabs.currentItemChanged.connect(lambda key: self.stack.setCurrentIndex(int(key)))
+        self.tabs.setCurrentItem("0")
+        scannable = bool({3, 7} & set(sections))
+        self.status = hint(layout, "配置和历史保存在当前配置目录。扫描可取消。" if scannable else "")
         bottom = QHBoxLayout()
+        bottom.addStretch()
         self.cancel_button = button(bottom, "停止当前扫描", self.stop.set)
         self.cancel_button.setEnabled(False)
+        self.cancel_button.setVisible(scannable)
         layout.addLayout(bottom)
-        self._history_page()
-        self._exclusion_page()
-        self._conditions_page()
-        self._space_page()
-        self._auto_page()
-        self._packs_page()
-        self._duplicates_page()
-        self._development_page()
+        builders = [self._history_page, self._exclusion_page, self._conditions_page, self._space_page,
+                    self._auto_page, self._packs_page, self._duplicates_page, self._development_page]
+        for i in sections:
+            builders[i]()
         self.completed.connect(self._completed)
         self.refresh_history()
 
@@ -442,6 +460,7 @@ class MaintenancePage(ScrollArea):
     def _history_page(self):
         layout = self.page("记录操作结果与文件明细。逻辑体积与磁盘可用空间变化分别记录；移入回收站不代表立即释放空间。")
         row = QHBoxLayout()
+        row.addStretch()
         button(row, "刷新", self.refresh_history)
         button(row, "导出 JSON / CSV", self.export_history)
         layout.addLayout(row)
@@ -455,6 +474,8 @@ class MaintenancePage(ScrollArea):
         self.history_view.selectionModel().currentRowChanged.connect(self.show_history_detail)
 
     def refresh_history(self):
+        if not hasattr(self, "history_model"):
+            return
         try:
             self.history_model.reset(self.store.history())
         except Exception as exc:
@@ -480,6 +501,7 @@ class MaintenancePage(ScrollArea):
         layout.addWidget(self.exclusions, 1)
         row = QHBoxLayout()
         button(row, "添加目录", self.pick_exclusion)
+        row.addStretch()
         button(row, "重新读取", lambda: self.exclusions.setPlainText("\n".join(self.store.get("exclusions", []))))
         button(row, "保存排除列表", self.save_exclusions, True)
         layout.addLayout(row)
@@ -509,6 +531,7 @@ class MaintenancePage(ScrollArea):
         self.minimum = self.spin(layout, "最小文件大小（MB，0 不限）", 100000000)
         self.keep = self.spin(layout, "保留最新文件数量（0 不保留）", 1000000)
         row = QHBoxLayout()
+        row.addStretch()
         button(row, "保存当前规则条件", self.save_conditions, True)
         layout.addLayout(row)
         layout.addStretch()
@@ -689,8 +712,9 @@ class MaintenancePage(ScrollArea):
         self.notify.setChecked(saved["notify"])
         layout.addWidget(self.notify)
         row = QHBoxLayout()
-        button(row, "保存条件", self.save_auto, True)
+        row.addStretch()
         button(row, "检查当前是否满足条件", self.check_auto)
+        button(row, "保存条件", self.save_auto, True)
         layout.addLayout(row)
         layout.addStretch()
 
@@ -704,7 +728,7 @@ class MaintenancePage(ScrollArea):
     def save_auto(self):
         try:
             self.store.set("auto_policy", self.auto_value())
-            self.status.setText("自动维护条件已保存；在定时任务页设置检查频率")
+            self.status.setText("运行条件已保存；在定时任务页设置检查频率")
         except Exception as exc:
             self.status.setText(str(exc))
 
@@ -745,12 +769,19 @@ class MaintenancePage(ScrollArea):
         self.duplicate_strategy.addItems(["按路径顺序保留", "保留最新修改的一份", "保留最旧修改的一份", "优先保留指定目录中的一份"])
         self.duplicate_strategy.setCurrentIndex(["path", "newest", "oldest", "preferred"].index(saved.get("strategy", "path")) if saved.get("strategy", "path") in ["path", "newest", "oldest", "preferred"] else 0)
         layout.addWidget(self.duplicate_strategy)
+        self.duplicate_preferred_row = QWidget()
+        row = QHBoxLayout(self.duplicate_preferred_row)
+        row.setContentsMargins(0, 0, 0, 0)
         self.duplicate_preferred = LineEdit()
         self.duplicate_preferred.setText(saved.get("preferred", ""))
         self.duplicate_preferred.setPlaceholderText("优先保留目录")
-        layout.addWidget(self.duplicate_preferred)
-        row = QHBoxLayout()
+        row.addWidget(self.duplicate_preferred, 1)
         button(row, "选择保留目录", lambda: self.browse(self.duplicate_preferred))
+        layout.addWidget(self.duplicate_preferred_row)
+        self.duplicate_preferred_row.setVisible(self.duplicate_strategy.currentIndex() == 3)
+        self.duplicate_strategy.currentIndexChanged.connect(lambda index: self.duplicate_preferred_row.setVisible(index == 3))
+        row = QHBoxLayout()
+        row.addStretch()
         button(row, "保存重复文件策略", self.save_duplicate_policy, True)
         layout.addLayout(row)
         layout.addStretch()

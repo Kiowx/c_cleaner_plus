@@ -37,20 +37,27 @@ Built with **Python + PySide6 + Fluent Widgets**, it provides a GUI, administrat
 
 ## Features
 
-### v0.8.2 Maintenance Center
+### v0.8.3 One-click Checkup
 
-- File-level cleanup previews with per-file selection, JSON export, and pre-deletion revalidation
-- Shared path and wildcard exclusions, including right-click protection in scan results
-- Persistent cleanup history and JSON / CSV reports, separating logical bytes from free-space changes
-- Per-rule minimum age, minimum size, and keep-newest conditions, included in rule exports
-- Directory drill-down, treemaps, file-type totals, and historical space-growth comparisons
-- Scheduled maintenance gates for free space, idle time, running processes, cooldowns, and notifications
-- Rule-pack change reviews, duplicate / broad-path checks, version history, and rollback
-- Duplicate retention by path, newest, oldest, or preferred directory, with hard-link accounting
-- Project dependency, virtual environment, and build-output discovery with reviewed cleanup
-- Docker disk usage and cache / dangling-image cleanup; WSL virtual disk discovery and native compaction
+- Start on Regular Cleanup; open One-click Checkup as the first Toolbox entry to scan common caches, old downloads, installed applications, and app data in one pass
+- Recommendation cards explain size, source, and impact, with actions to preview files, inspect folders, migrate data, or uninstall
+- Common caches are recommended; temporary files retain the latest 7 days, and downloaded installers older than 30 days require explicit selection
+- Rank software by cache, data, and installation size without adding overlapping paths twice
+- Review individual files before cleanup; file state is rechecked before deletion and files go to the recycle bin by default
+- See cleanup outcomes and before/after free space, inspect failure details, retry failed files, and export reports
 
-Open **Maintenance Center** in the sidebar. Conditions gate existing Windows scheduled tasks; configure their checking frequency on the scheduled tasks page.
+The checkup covers known locations inside the selected drive or folder, with limits of 200000 files and 500000 filesystem entries.
+Incomplete or limited scans show partial findings; incomplete sources are never preselected. Cancelling clears all default selections. Software rankings cover discovered locations and logical size, rather than every installed application's exact disk usage.
+
+Former Maintenance Center tools now live beside their related features:
+
+- Regular Cleanup → Exclusions and Conditions, Cleanup History
+- Scheduled Tasks → Automatic Maintenance Conditions
+- Rule Store → Rule Pack Versions and Rollback
+- More Cleanup → Duplicate Retention
+- Toolbox → Space Usage and Growth, Development / Docker / WSL
+
+Automatic maintenance conditions gate existing Windows scheduled tasks. Set their checking frequency on the scheduled tasks page.
 Data is stored in `maintenance.sqlite3` inside the active configuration directory and migrates with it.
 Up to 20 complete snapshots are retained per root. Incomplete or cancelled scans are excluded from growth comparisons.
 Previews are limited to 200000 entries, space scans to 200000 directories, and the visible directory tree to 10000 nodes. Narrow the scope when a limit is reached.

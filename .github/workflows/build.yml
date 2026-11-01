@@ -9,6 +9,8 @@ on:
       - main.py
       - cleaner_core.py
       - maintenance_ui.py
+      - health_check.py
+      - checkup_ui.py
       - startup_check.py
       - tools/smoke_frozen.py
       - windows-version-info.txt

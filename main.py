@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.8.2
+C盘强力清理工具 v0.8.3
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
 
 import os, sys, time, ctypes, threading, subprocess, queue, json, winreg, re, heapq, shutil
 import cleaner_core
-from maintenance_ui import MaintenancePage, PreviewDialog, ReviewPackDialog
+from maintenance_ui import PreviewDialog, ReviewPackDialog, MaintenancePage
+from checkup_ui import CheckupPage, open_tool
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QAbstractItemView, QTableWidgetItem, QStyledItemDelegate,
     QTreeWidget, QTreeWidgetItem, QHeaderView,
-    QFileIconProvider, QFileDialog, QLabel, QSystemTrayIcon, QMenu, QStackedWidget
+    QFileIconProvider, QFileDialog, QLabel, QSystemTrayIcon, QMenu
 )
 
 from qfluentwidgets import (
@@ -30,7 +31,7 @@ from qfluentwidgets import (
     TitleLabel, CaptionLabel, StrongBodyLabel, BodyLabel,
     IconWidget, TableWidget, TableView, TextEdit, CardWidget,
     RoundMenu, MenuAnimationType, Action, MessageBox, InfoBar, InfoBarPosition, ScrollArea,
-    SearchLineEdit, MessageBoxBase, LineEdit, ToolButton
+    SearchLineEdit, MessageBoxBase, LineEdit, ToolButton, TransparentPushButton, TransparentToolButton, SegmentedWidget
 )
 from qfluentwidgets.common.router import qrouter
 
@@ -148,7 +149,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.8.2"
+CURRENT_VERSION = "0.8.3"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -4922,86 +4923,6 @@ def scan_download_candidates(root_paths, min_size_bytes=0, min_age_days=0, inclu
     total = sum(int(item.get("size", 0)) for item in results)
     return results, f"已列出 {len(results)} 个下载候选项，合计约 {human_size(total)}"
 
-def scan_space_usage_roots(root_paths, min_size_bytes=0, limit=200, log_fn=None, stop_event=None):
-    roots = []
-    seen = set()
-    for root in root_paths or []:
-        path = norm_path(root)
-        key = os.path.normcase(path)
-        if path and os.path.isdir(path) and key not in seen:
-            roots.append(path)
-            seen.add(key)
-    if not roots:
-        return [], "请先选择磁盘或目录"
-
-    def _log(message):
-        if callable(log_fn):
-            try:
-                log_fn(message)
-            except Exception:
-                pass
-
-    rows = []
-    errors = []
-    min_size = max(0, int(min_size_bytes or 0))
-    for root in roots:
-        if stop_event is not None and stop_event.is_set():
-            break
-        _log(f"[空间分析] 正在扫描: {display_path(root)}")
-        try:
-            root_entries = sorted(os.scandir(root), key=lambda item: item.name.lower())
-        except Exception as e:
-            append_error_sample(errors, f"{display_path(root)} -> {format_exception_text(e)}")
-            continue
-
-        root_total = 0
-        pending = []
-        try:
-            for entry in root_entries:
-                if stop_event is not None and stop_event.is_set():
-                    break
-                try:
-                    if entry.is_symlink():
-                        continue
-                    is_dir = entry.is_dir(follow_symlinks=False)
-                    size = dir_size(entry.path, stop_flag=stop_event) if is_dir else safe_getsize(entry.path)
-                    if stop_event is not None and stop_event.is_set():
-                        break
-                    root_total += int(size)
-                    if size < min_size:
-                        continue
-                    pending.append({
-                        "root": root,
-                        "name": entry.name,
-                        "path": entry.path,
-                        "size": int(size),
-                        "kind": "目录" if is_dir else "文件",
-                    })
-                except Exception as e:
-                    append_error_sample(errors, f"{display_path(entry.path)} -> {format_exception_text(e)}")
-        finally:
-            try:
-                root_entries.close()
-            except Exception:
-                pass
-
-        for item in pending:
-            item["root_total"] = int(root_total)
-            item["percent"] = (item["size"] / root_total * 100) if root_total > 0 else 0
-            rows.append(item)
-
-    rows.sort(key=lambda item: item["size"], reverse=True)
-    if limit and len(rows) > int(limit):
-        rows = rows[:int(limit)]
-    if errors:
-        _log("[空间分析] 部分项目扫描失败")
-        for item in errors:
-            _log(f"[空间分析] {item}")
-    if stop_event is not None and stop_event.is_set():
-        return rows, f"已取消，已列出 {len(rows)} 个占用项"
-    total = sum(int(item.get("size", 0)) for item in rows)
-    return rows, f"已列出 {len(rows)} 个占用项，当前列表合计约 {human_size(total)}"
-
 @cleaner_core.tracked_operation("工具箱清理")
 def delete_toolbox_paths(paths, permanent, log_fn=None, stop_event=None):
     ok = 0
@@ -6041,6 +5962,22 @@ def make_title_row(icon: FIF, text: str):
     iw = IconWidget(icon); iw.setFixedSize(24, 24); row.addWidget(iw)
     lbl = TitleLabel(text); setFont(lbl, 22, QFont.Weight.Bold); row.addWidget(lbl)
     row.addStretch(); return row
+
+def make_settings_button(icon: FIF, text: str, on_click):
+    action = TransparentPushButton(icon, text); action.setFixedHeight(30)
+    action.clicked.connect(lambda checked=False: on_click())
+    return action
+
+def auto_policy_button_text():
+    store = cleaner_core.current_store()
+    policy = dict(cleaner_core.DEFAULT_AUTO_POLICY, **(store.get("auto_policy", {}) if store else {}))
+    return "运行条件 · 已启用" if policy["enabled"] else "运行条件 · 未启用"
+
+def duplicate_policy_button_text():
+    store = cleaner_core.current_store()
+    strategy = (store.get("duplicate_policy", {}) if store else {}).get("strategy", "path")
+    return {"newest": "保留策略 · 最新修改", "oldest": "保留策略 · 最旧修改",
+            "preferred": "保留策略 · 指定目录"}.get(strategy, "保留策略 · 按路径顺序")
 
 RULE_GLOB_DEFAULT_PATTERN = "thumbcache*.db"
 HIGH_RISK_GLOB_EXTENSIONS = {
@@ -7452,6 +7389,9 @@ class RuleStorePage(DeferredPageMixin, ScrollArea):
         self.btn_refresh = PushButton(FIF.SYNC, "刷新列表")
         self.btn_refresh.clicked.connect(self._refresh_items)
         title_row.addWidget(self.btn_refresh)
+        versions = PushButton("规则包版本与回退")
+        versions.clicked.connect(lambda: open_tool(self.main_win, sys.modules[__name__], [5]))
+        title_row.addWidget(versions)
         self.btn_manage = None
         self.root.addLayout(title_row)
 
@@ -7840,20 +7780,73 @@ class ScheduledUninstallDialog(MessageBoxBase):
                     })
         return rows
 
+class TableEmptyHint(CaptionLabel):
+    def __init__(self, table, text):
+        super().__init__(table.viewport())
+        self.setText(text)
+        self.table = table
+        self.busy = False
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setWordWrap(True)
+        self.setTextColor(QColor(128, 128, 128))
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        table.viewport().installEventFilter(self)
+        model = table.model()
+        model.rowsInserted.connect(self.sync)
+        model.rowsRemoved.connect(self.sync)
+        model.modelReset.connect(self.sync)
+        self.setGeometry(table.viewport().rect())
+        self.sync()
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Resize:
+            self.setGeometry(watched.rect())
+        return False
+
+    def set_busy(self, busy):
+        self.busy = bool(busy)
+        self.sync()
+
+    def sync(self, *args):
+        self.setVisible(not self.busy and self.table.rowCount() == 0)
+
+
+class ToolboxStack(QWidget):
+    """Shows one page at a time. QStackedLayout always sizes to its tallest page, which pads short tools."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._current = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+    def addWidget(self, page):
+        page.hide()
+        self.layout().addWidget(page)
+
+    def currentWidget(self):
+        return self._current
+
+    def setCurrentWidget(self, page):
+        if self._current is not None and self._current is not page:
+            self._current.hide()
+        self._current = page
+        page.show()
+
+
 class ToolboxEntryCard(CardWidget):
-    def __init__(self, icon, title, desc, button_text, on_click, parent=None):
+    def __init__(self, icon, title, desc, on_click, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        
-        layout = QVBoxLayout(self)
+        self.clicked.connect(lambda: on_click())
+
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
 
-        top = QHBoxLayout()
-        top.setSpacing(10)
         icon_widget = IconWidget(icon)
         icon_widget.setFixedSize(24, 24)
-        top.addWidget(icon_widget, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(icon_widget, 0, Qt.AlignmentFlag.AlignTop)
 
         text_col = QVBoxLayout()
         text_col.setSpacing(3)
@@ -7865,14 +7858,14 @@ class ToolboxEntryCard(CardWidget):
         desc_label.setWordWrap(True)
         desc_label.setTextColor(QColor(128, 128, 128))
         text_col.addWidget(desc_label)
-        top.addLayout(text_col, 1)
-        layout.addLayout(top)
-        layout.addStretch(1)
+        text_col.addStretch(1)
+        layout.addLayout(text_col, 1)
 
-        btn = PushButton(FIF.RIGHT_ARROW, button_text)
-        btn.setFixedHeight(32)
-        btn.clicked.connect(on_click)
-        layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignRight)
+        btn = TransparentToolButton(FIF.CHEVRON_RIGHT_MED)
+        btn.setFixedSize(32, 32)
+        btn.setToolTip(title)
+        btn.clicked.connect(lambda checked=False: on_click())
+        layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         from PySide6.QtWidgets import QGraphicsDropShadowEffect
         self.shadow = QGraphicsDropShadowEffect(self)
@@ -7922,7 +7915,6 @@ class ToolboxPage(ScrollArea):
     cacheBatchDone = Signal(object, str)
     cacheBatchProgress = Signal(int, str)
     downloadScanDone = Signal(object, str)
-    spaceScanDone = Signal(object, str)
     toolboxDeleteDone = Signal(str, bool, str)
     toolboxScopedLog = Signal(str, str)
     toolboxTaskStateChanged = Signal(bool, str, int)
@@ -7949,6 +7941,9 @@ class ToolboxPage(ScrollArea):
         root.setContentsMargins(28, 12, 28, 20)
         root.setSpacing(12)
         title_row = make_title_row(FIF.DEVELOPER_TOOLS, "工具箱")
+        self.lbl_title = title_row.itemAt(1).widget()
+        self._current_tool_title = None
+        self.embedded_tools = {}
         self.btn_back = ToolButton(FIF.LEFT_ARROW)
         self.btn_back.setFixedSize(36, 36)
         self.btn_back.clicked.connect(self._show_tool_home)
@@ -7956,12 +7951,12 @@ class ToolboxPage(ScrollArea):
         title_row.insertWidget(0, self.btn_back)
         root.addLayout(title_row)
 
-        desc = CaptionLabel("集中放置高频工具入口，并提供常用的磁盘空间优化工具。")
-        desc.setWordWrap(True)
-        desc.setTextColor(QColor(128, 128, 128))
-        root.addWidget(desc)
+        self.lbl_home_desc = CaptionLabel("集中放置高频工具入口，并提供常用的磁盘空间优化工具。")
+        self.lbl_home_desc.setWordWrap(True)
+        self.lbl_home_desc.setTextColor(QColor(128, 128, 128))
+        root.addWidget(self.lbl_home_desc)
 
-        self.stack = QStackedWidget(self.view)
+        self.stack = ToolboxStack(self.view)
         self.stack.setObjectName("toolboxStack")
         root.addWidget(self.stack, 1)
 
@@ -7971,28 +7966,22 @@ class ToolboxPage(ScrollArea):
         home_layout.setContentsMargins(0, 0, 0, 0)
         home_layout.setSpacing(12)
 
-        launch_card = CardWidget(self.home_page)
-        launch_layout = QVBoxLayout(launch_card)
-        launch_layout.setContentsMargins(14, 14, 14, 14)
-        launch_layout.setSpacing(12)
-        launch_layout.addWidget(StrongBodyLabel("工具入口"))
-
-        entry_flow = QVBoxLayout()
-        entry_flow.setSpacing(12)
-        launch_layout.addLayout(entry_flow)
-
         entries = [
-            (FIF.LINK, "软链接节省空间", "迁移文件或目录，并在原位置创建链接，减少系统盘占用。", "使用", self._show_softlink_tool),
-            (FIF.FOLDER, "常用缓存迁移", "扫描常用缓存，选择目标根目录后可勾选多项批量迁移。", "扫描", self._show_cache_preset_tool),
-            (FIF.FOLDER, "下载目录整理", "按安装包、压缩包、旧文件和大目录列出下载残留，支持定位与清理。", "整理", self._show_download_tool),
-            (FIF.ZOOM, "空间占用分析", "按磁盘或目录统计一级目录占用，快速找出空间增长来源。", "分析", self._show_space_usage_tool),
+            (FIF.SPEED_HIGH, "一键体检", "检查空间占用，发现可清理项目。", self._show_checkup_tool),
+            (FIF.LINK, "软链接节省空间", "迁移文件或目录，并在原位置创建链接，减少系统盘占用。", self._show_softlink_tool),
+            (FIF.MOVE, "常用缓存迁移", "扫描常用缓存，选择目标根目录后可勾选多项批量迁移。", self._show_cache_preset_tool),
+            (FIF.DOWNLOAD, "下载目录整理", "按安装包、压缩包、旧文件和大目录列出下载残留，支持定位与清理。", self._show_download_tool),
+            (FIF.PIE_SINGLE, "空间占用与增长", "目录树、占用图和历史快照对比，找出持续增长的目录。", self._show_space_usage_tool),
+            (FIF.CODE, "开发环境与 Docker / WSL", "查看项目依赖和构建缓存，管理 Docker 缓存和虚拟磁盘。", self._show_development_tool),
         ]
 
-        for entry in entries:
-            card = ToolboxEntryCard(*entry, parent=self.view)
-            entry_flow.addWidget(card)
-
-        home_layout.addWidget(launch_card)
+        entry_grid = QGridLayout()
+        entry_grid.setSpacing(12)
+        entry_grid.setColumnStretch(0, 1)
+        entry_grid.setColumnStretch(1, 1)
+        for index, entry in enumerate(entries):
+            entry_grid.addWidget(ToolboxEntryCard(*entry, parent=self.view), index // 2, index % 2)
+        home_layout.addLayout(entry_grid)
         home_layout.addStretch(1)
         self.stack.addWidget(self.home_page)
 
@@ -8007,12 +7996,40 @@ class ToolboxPage(ScrollArea):
         intro_label.setTextColor(QColor(128, 128, 128))
         soft_page_layout.addWidget(intro_label)
 
-        # ── 推荐卡片 ──
-        rec_card = CardWidget(self.softlink_page)
-        rec_layout = QVBoxLayout(rec_card)
-        rec_layout.setContentsMargins(14, 14, 14, 14)
+        # ── 第 1 步：选择源路径 ──
+        source_card = CardWidget(self.softlink_page)
+        source_layout = QVBoxLayout(source_card)
+        source_layout.setContentsMargins(14, 14, 14, 14)
+        source_layout.setSpacing(10)
+        source_layout.addWidget(StrongBodyLabel("1. 选择源路径"))
+
+        self.seg_link_source = SegmentedWidget(source_card)
+        self.seg_link_source.addItem("manual", "手动选择")
+        self.seg_link_source.addItem("recommend", "系统推荐")
+        source_layout.addWidget(self.seg_link_source, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self.link_manual_panel = QWidget(source_card)
+        src_row = QHBoxLayout(self.link_manual_panel)
+        src_row.setContentsMargins(0, 0, 0, 0)
+        src_row.setSpacing(8)
+        self.edit_link_source = LineEdit()
+        self.edit_link_source.setPlaceholderText("源路径：需要迁移的文件或文件夹")
+        self.edit_link_source.textChanged.connect(self._update_link_preview)
+        src_row.addWidget(self.edit_link_source, 1)
+        btn_pick_dir = PushButton(FIF.FOLDER, "选择目录")
+        btn_pick_dir.setFixedHeight(32)
+        btn_pick_dir.clicked.connect(self._choose_link_source_dir)
+        src_row.addWidget(btn_pick_dir)
+        btn_pick_file = PushButton(FIF.DOCUMENT, "选择文件")
+        btn_pick_file.setFixedHeight(32)
+        btn_pick_file.clicked.connect(self._choose_link_source_file)
+        src_row.addWidget(btn_pick_file)
+        source_layout.addWidget(self.link_manual_panel)
+
+        self.link_recommend_panel = QWidget(source_card)
+        rec_layout = QVBoxLayout(self.link_recommend_panel)
+        rec_layout.setContentsMargins(0, 0, 0, 0)
         rec_layout.setSpacing(10)
-        rec_layout.addWidget(StrongBodyLabel("系统推荐添加"))
 
         rec_desc = CaptionLabel('直接按所选磁盘进行分析，系统会按体积和目录类型推荐适合迁移的候选项。双击推荐项或点击"使用所选项"会自动填入源路径。')
         rec_desc.setWordWrap(True)
@@ -8024,7 +8041,7 @@ class ToolboxPage(ScrollArea):
         rec_top.addWidget(CaptionLabel("扫描范围"))
         self.recommend_drive_sel = DriveSelector(default_checked={"C:\\"}, parent=self)
         rec_top.addWidget(self.recommend_drive_sel, 1)
-        self.btn_recommend = PushButton(FIF.SEARCH, "系统推荐添加")
+        self.btn_recommend = PushButton(FIF.SEARCH, "扫描推荐项")
         self.btn_recommend.setFixedHeight(32)
         self.btn_recommend.clicked.connect(self._start_recommend_scan)
         rec_top.addWidget(self.btn_recommend)
@@ -8053,6 +8070,7 @@ class ToolboxPage(ScrollArea):
         self.tbl_recommend.itemDoubleClicked.connect(lambda _: self._use_selected_recommendation())
         self.tbl_recommend.setMinimumHeight(180)
         rec_layout.addWidget(self.tbl_recommend)
+        self.recommend_empty_hint = TableEmptyHint(self.tbl_recommend, "暂无推荐项，点击上方「扫描推荐项」开始分析")
 
         rec_bottom = QHBoxLayout()
         rec_bottom.setSpacing(8)
@@ -8062,30 +8080,17 @@ class ToolboxPage(ScrollArea):
         rec_bottom.addWidget(self.btn_use_recommend)
         rec_bottom.addStretch(1)
         rec_layout.addLayout(rec_bottom)
-        soft_page_layout.addWidget(rec_card)
+        source_layout.addWidget(self.link_recommend_panel)
+        soft_page_layout.addWidget(source_card)
+        self.seg_link_source.currentItemChanged.connect(self._on_link_source_mode_changed)
+        self.seg_link_source.setCurrentItem("manual")
 
-        # ── 手动迁移配置卡片 ──
+        # ── 第 2 步：选择目标目录 ──
         config_card = CardWidget(self.softlink_page)
         config_layout = QVBoxLayout(config_card)
         config_layout.setContentsMargins(14, 14, 14, 14)
         config_layout.setSpacing(10)
-        config_layout.addWidget(StrongBodyLabel("手动配置迁移"))
-
-        src_row = QHBoxLayout()
-        src_row.setSpacing(8)
-        self.edit_link_source = LineEdit()
-        self.edit_link_source.setPlaceholderText("源路径：需要迁移的文件或文件夹")
-        self.edit_link_source.textChanged.connect(self._update_link_preview)
-        src_row.addWidget(self.edit_link_source, 1)
-        btn_pick_dir = PushButton(FIF.FOLDER, "选择目录")
-        btn_pick_dir.setFixedHeight(32)
-        btn_pick_dir.clicked.connect(self._choose_link_source_dir)
-        src_row.addWidget(btn_pick_dir)
-        btn_pick_file = PushButton(FIF.DOCUMENT, "选择文件")
-        btn_pick_file.setFixedHeight(32)
-        btn_pick_file.clicked.connect(self._choose_link_source_file)
-        src_row.addWidget(btn_pick_file)
-        config_layout.addLayout(src_row)
+        config_layout.addWidget(StrongBodyLabel("2. 选择目标目录"))
 
         dst_row = QHBoxLayout()
         dst_row.setSpacing(8)
@@ -8104,23 +8109,10 @@ class ToolboxPage(ScrollArea):
         option_row.addWidget(CaptionLabel("链接模式"))
         self.cb_link_mode = ComboBox()
         self.cb_link_mode.addItems(["目录联接（推荐）", "符号链接"])
-        self.cb_link_mode.setFixedWidth(180)
+        self.cb_link_mode.setFixedWidth(240)
         self.cb_link_mode.currentIndexChanged.connect(self._update_link_preview)
         option_row.addWidget(self.cb_link_mode)
         option_row.addStretch(1)
-        self.btn_analyze_link = PushButton(FIF.SEARCH, "执行前分析")
-        self.btn_analyze_link.setFixedHeight(34)
-        self.btn_analyze_link.clicked.connect(self._start_link_analysis)
-        option_row.addWidget(self.btn_analyze_link)
-        self.btn_run_link = PrimaryPushButton(FIF.SAVE, "开始/继续迁移并创建链接")
-        self.btn_run_link.setFixedHeight(34)
-        self.btn_run_link.clicked.connect(self._start_link_task)
-        option_row.addWidget(self.btn_run_link)
-        self.btn_cancel_link = PushButton(FIF.CANCEL, "停止")
-        self.btn_cancel_link.setFixedHeight(34)
-        self.btn_cancel_link.hide()
-        self.btn_cancel_link.clicked.connect(self._cancel_link_task)
-        option_row.addWidget(self.btn_cancel_link)
         config_layout.addLayout(option_row)
 
         self.lbl_link_preview = CaptionLabel("目标预览：-")
@@ -8129,12 +8121,12 @@ class ToolboxPage(ScrollArea):
         config_layout.addWidget(self.lbl_link_preview)
         soft_page_layout.addWidget(config_card)
 
-        # ── 执行前分析卡片 ──
+        # ── 第 3 步：分析并执行 ──
         analysis_card = CardWidget(self.softlink_page)
         analysis_layout = QVBoxLayout(analysis_card)
         analysis_layout.setContentsMargins(14, 14, 14, 14)
         analysis_layout.setSpacing(8)
-        analysis_layout.addWidget(StrongBodyLabel("执行前分析"))
+        analysis_layout.addWidget(StrongBodyLabel("3. 分析并执行"))
 
         analysis_desc = CaptionLabel("先分析预计迁移大小、目标路径、剩余空间和权限需求，再决定是否执行。")
         analysis_desc.setWordWrap(True)
@@ -8144,6 +8136,7 @@ class ToolboxPage(ScrollArea):
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(8)
+        grid.setColumnStretch(1, 1)
         grid.addWidget(CaptionLabel("源类型"), 0, 0)
         self.lbl_analysis_kind = BodyLabel("-")
         self.lbl_analysis_kind.setWordWrap(True)
@@ -8179,6 +8172,24 @@ class ToolboxPage(ScrollArea):
         self.lbl_analysis_warnings.setWordWrap(True)
         self.lbl_analysis_warnings.setTextColor(QColor(196, 92, 32))
         analysis_layout.addWidget(self.lbl_analysis_warnings)
+
+        run_row = QHBoxLayout()
+        run_row.setSpacing(10)
+        run_row.addStretch(1)
+        self.btn_analyze_link = PushButton(FIF.SEARCH, "执行前分析")
+        self.btn_analyze_link.setFixedHeight(34)
+        self.btn_analyze_link.clicked.connect(self._start_link_analysis)
+        run_row.addWidget(self.btn_analyze_link)
+        self.btn_cancel_link = PushButton(FIF.CANCEL, "停止")
+        self.btn_cancel_link.setFixedHeight(34)
+        self.btn_cancel_link.hide()
+        self.btn_cancel_link.clicked.connect(self._cancel_link_task)
+        run_row.addWidget(self.btn_cancel_link)
+        self.btn_run_link = PrimaryPushButton(FIF.SAVE, "开始/继续迁移并创建链接")
+        self.btn_run_link.setFixedHeight(34)
+        self.btn_run_link.clicked.connect(self._start_link_task)
+        run_row.addWidget(self.btn_run_link)
+        analysis_layout.addLayout(run_row)
         soft_page_layout.addWidget(analysis_card)
 
         # ── 迁移历史卡片 ──
@@ -8254,9 +8265,9 @@ class ToolboxPage(ScrollArea):
         self.sp_cache_min_mb = SpinBox()
         self.sp_cache_min_mb.setRange(0, 10240)
         self.sp_cache_min_mb.setValue(50)
-        self.sp_cache_min_mb.setFixedWidth(100)
+        self.sp_cache_min_mb.setFixedWidth(150)
         cache_top.addWidget(self.sp_cache_min_mb)
-        self.btn_scan_cache_presets = PrimaryPushButton(FIF.SEARCH, "扫描预设")
+        self.btn_scan_cache_presets = PushButton(FIF.SEARCH, "扫描预设")
         self.btn_scan_cache_presets.setFixedHeight(32)
         self.btn_scan_cache_presets.clicked.connect(self._start_cache_preset_scan)
         cache_top.addWidget(self.btn_scan_cache_presets)
@@ -8306,7 +8317,8 @@ class ToolboxPage(ScrollArea):
         self.tbl_cache_presets.setMinimumHeight(240)
         style_table(self.tbl_cache_presets)
         self.tbl_cache_presets.itemDoubleClicked.connect(lambda _: self._use_selected_cache_preset())
-        cache_card_layout.addWidget(self.tbl_cache_presets)
+        cache_card_layout.addWidget(self.tbl_cache_presets, 1)
+        self.cache_empty_hint = TableEmptyHint(self.tbl_cache_presets, "暂无扫描结果，点击上方「扫描预设」开始")
 
         cache_actions = QHBoxLayout()
         cache_actions.setSpacing(8)
@@ -8333,11 +8345,10 @@ class ToolboxPage(ScrollArea):
         self.btn_migrate_cache_batch.clicked.connect(self._start_cache_batch_migration)
         cache_actions.addWidget(self.btn_migrate_cache_batch)
         cache_card_layout.addLayout(cache_actions)
-        cache_layout.addWidget(cache_card)
+        cache_layout.addWidget(cache_card, 1)
 
         self.cache_preset_footer = PageFooterWidget(auto_hide_log=True)
         cache_layout.addWidget(self.cache_preset_footer)
-        cache_layout.addStretch(1)
         self.stack.addWidget(self.cache_preset_page)
 
         self.download_page = QWidget(self.view)
@@ -8372,19 +8383,19 @@ class ToolboxPage(ScrollArea):
         self.sp_download_min_mb = SpinBox()
         self.sp_download_min_mb.setRange(0, 102400)
         self.sp_download_min_mb.setValue(20)
-        self.sp_download_min_mb.setFixedWidth(100)
+        self.sp_download_min_mb.setFixedWidth(150)
         download_filter.addWidget(self.sp_download_min_mb)
         download_filter.addWidget(CaptionLabel("最少天数"))
         self.sp_download_min_days = SpinBox()
         self.sp_download_min_days.setRange(0, 3650)
         self.sp_download_min_days.setValue(0)
-        self.sp_download_min_days.setFixedWidth(100)
+        self.sp_download_min_days.setFixedWidth(150)
         download_filter.addWidget(self.sp_download_min_days)
         self.chk_download_dirs = CheckBox("包含文件夹")
         self.chk_download_dirs.setChecked(True)
         download_filter.addWidget(self.chk_download_dirs)
         download_filter.addStretch(1)
-        self.btn_scan_downloads = PrimaryPushButton(FIF.SEARCH, "扫描下载目录")
+        self.btn_scan_downloads = PushButton(FIF.SEARCH, "扫描下载目录")
         self.btn_scan_downloads.setFixedHeight(32)
         self.btn_scan_downloads.clicked.connect(self._start_download_scan)
         download_filter.addWidget(self.btn_scan_downloads)
@@ -8399,95 +8410,30 @@ class ToolboxPage(ScrollArea):
         self.lbl_download_hint.setTextColor(QColor(128, 128, 128))
         download_card_layout.addWidget(self.lbl_download_hint)
         self.tbl_downloads = self._make_tool_result_table([" ", "分类", "名称", "大小", "修改时间", "路径", "建议"], path_col=5)
-        download_card_layout.addWidget(self.tbl_downloads)
+        download_card_layout.addWidget(self.tbl_downloads, 1)
+        self.download_empty_hint = TableEmptyHint(self.tbl_downloads, "暂无扫描结果，点击上方「扫描下载目录」开始")
         download_actions = QHBoxLayout()
         download_actions.setSpacing(8)
         self.btn_select_downloads = PushButton(FIF.ACCEPT, "全选")
+        self.btn_select_downloads.setFixedHeight(30)
         self.btn_select_downloads.clicked.connect(lambda: self._toggle_tool_table_checks(self.tbl_downloads, self.btn_select_downloads))
         download_actions.addWidget(self.btn_select_downloads)
-        self.chk_download_permanent = CheckBox("永久删除")
-        download_actions.addWidget(self.chk_download_permanent)
         self.btn_open_download = PushButton(FIF.FOLDER, "定位")
+        self.btn_open_download.setFixedHeight(30)
         self.btn_open_download.clicked.connect(lambda: self._open_selected_tool_item(self.tbl_downloads))
         download_actions.addWidget(self.btn_open_download)
+        download_actions.addStretch(1)
+        self.chk_download_permanent = CheckBox("永久删除")
+        download_actions.addWidget(self.chk_download_permanent)
         self.btn_delete_downloads = PrimaryPushButton(FIF.DELETE, "清理已勾选")
+        self.btn_delete_downloads.setFixedHeight(30)
         self.btn_delete_downloads.clicked.connect(self._start_download_delete)
         download_actions.addWidget(self.btn_delete_downloads)
-        download_actions.addStretch(1)
         download_card_layout.addLayout(download_actions)
-        download_layout.addWidget(download_card)
+        download_layout.addWidget(download_card, 1)
         self.download_footer = PageFooterWidget(auto_hide_log=True)
         download_layout.addWidget(self.download_footer)
-        download_layout.addStretch(1)
         self.stack.addWidget(self.download_page)
-
-        self.space_page = QWidget(self.view)
-        self.space_page.setObjectName("toolboxSpacePage")
-        space_layout = QVBoxLayout(self.space_page)
-        space_layout.setContentsMargins(0, 0, 0, 0)
-        space_layout.setSpacing(12)
-        space_layout.addWidget(self._make_hint_label("按磁盘或指定目录统计一级目录与文件占用，用于定位 C 盘空间主要来源。"))
-
-        space_card = CardWidget(self.space_page)
-        space_card_layout = QVBoxLayout(space_card)
-        space_card_layout.setContentsMargins(14, 14, 14, 14)
-        space_card_layout.setSpacing(10)
-        space_top = QHBoxLayout()
-        space_top.setSpacing(8)
-        space_top.addWidget(StrongBodyLabel("分析范围"))
-        self.space_drive_sel = DriveSelector(default_checked={"C:\\"}, parent=self)
-        space_top.addWidget(self.space_drive_sel, 1)
-        self.edit_space_dir = LineEdit()
-        self.edit_space_dir.setPlaceholderText("可选：指定目录后优先分析该目录")
-        space_top.addWidget(self.edit_space_dir, 1)
-        self.btn_pick_space_dir = PushButton(FIF.FOLDER, "选择")
-        self.btn_pick_space_dir.clicked.connect(self._choose_space_dir)
-        space_top.addWidget(self.btn_pick_space_dir)
-        space_card_layout.addLayout(space_top)
-
-        space_filter = QHBoxLayout()
-        space_filter.setSpacing(8)
-        space_filter.addWidget(CaptionLabel("最小 MB"))
-        self.sp_space_min_mb = SpinBox()
-        self.sp_space_min_mb.setRange(0, 102400)
-        self.sp_space_min_mb.setValue(100)
-        self.sp_space_min_mb.setFixedWidth(100)
-        space_filter.addWidget(self.sp_space_min_mb)
-        space_filter.addStretch(1)
-        self.btn_scan_space = PrimaryPushButton(FIF.SEARCH, "开始分析")
-        self.btn_scan_space.clicked.connect(self._start_space_scan)
-        space_filter.addWidget(self.btn_scan_space)
-        self.btn_cancel_space_scan = PushButton(FIF.CANCEL, "停止")
-        self.btn_cancel_space_scan.clicked.connect(lambda: self.stop_event.set())
-        space_filter.addWidget(self.btn_cancel_space_scan)
-        space_card_layout.addLayout(space_filter)
-
-        self.lbl_space_hint = CaptionLabel("分析结果：未开始")
-        self.lbl_space_hint.setWordWrap(True)
-        self.lbl_space_hint.setTextColor(QColor(128, 128, 128))
-        space_card_layout.addWidget(self.lbl_space_hint)
-        self.tbl_space = self._make_tool_result_table([" ", "类型", "名称", "大小", "占比", "路径"], path_col=5)
-        space_card_layout.addWidget(self.tbl_space)
-        space_actions = QHBoxLayout()
-        space_actions.setSpacing(8)
-        self.btn_select_space = PushButton(FIF.ACCEPT, "全选")
-        self.btn_select_space.clicked.connect(lambda: self._toggle_tool_table_checks(self.tbl_space, self.btn_select_space))
-        space_actions.addWidget(self.btn_select_space)
-        self.chk_space_permanent = CheckBox("永久删除")
-        space_actions.addWidget(self.chk_space_permanent)
-        self.btn_open_space = PushButton(FIF.FOLDER, "定位")
-        self.btn_open_space.clicked.connect(lambda: self._open_selected_tool_item(self.tbl_space))
-        space_actions.addWidget(self.btn_open_space)
-        self.btn_delete_space = PrimaryPushButton(FIF.DELETE, "清理已勾选")
-        self.btn_delete_space.clicked.connect(self._start_space_delete)
-        space_actions.addWidget(self.btn_delete_space)
-        space_actions.addStretch(1)
-        space_card_layout.addLayout(space_actions)
-        space_layout.addWidget(space_card)
-        self.space_footer = PageFooterWidget(auto_hide_log=True)
-        space_layout.addWidget(self.space_footer)
-        space_layout.addStretch(1)
-        self.stack.addWidget(self.space_page)
 
         self.toolLog.connect(self._append_tool_log)
         self.toolDone.connect(self._finish_link_task)
@@ -8499,7 +8445,6 @@ class ToolboxPage(ScrollArea):
         self.cacheBatchDone.connect(self._finish_cache_batch_migration)
         self.cacheBatchProgress.connect(self._on_cache_batch_progress)
         self.downloadScanDone.connect(self._finish_download_scan)
-        self.spaceScanDone.connect(self._finish_space_scan)
         self.toolboxDeleteDone.connect(self._finish_toolbox_delete)
         self.toolboxScopedLog.connect(self._append_scoped_tool_log)
         self.toolboxTaskStateChanged.connect(self._set_toolbox_task_state)
@@ -8516,6 +8461,8 @@ class ToolboxPage(ScrollArea):
             return
         self.btn_back.setEnabled(not bool(running))
         self._active_toolbox_task_name = str(task_name or "") if running else ""
+        for hint in (self.recommend_empty_hint, self.cache_empty_hint, self.download_empty_hint):
+            hint.set_busy(running)
 
     def _start_toolbox_worker(self, task_name, target, before_start=None, notify=True):
         with self._task_lock:
@@ -8600,12 +8547,11 @@ class ToolboxPage(ScrollArea):
                 border: none;
             }
             QWidget#toolboxView,
-            QStackedWidget#toolboxStack,
+            QWidget#toolboxStack,
             QWidget#toolboxHomePage,
             QWidget#toolboxSoftlinkPage,
             QWidget#toolboxCachePresetPage,
-            QWidget#toolboxDownloadPage,
-            QWidget#toolboxSpacePage {
+            QWidget#toolboxDownloadPage {
                 background: transparent;
                 border: none;
             }
@@ -8617,24 +8563,46 @@ class ToolboxPage(ScrollArea):
             self.softlink_page,
             self.cache_preset_page,
             self.download_page,
-            self.space_page,
         ):
             widget.setAutoFillBackground(False)
             widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             widget.update()
 
+    def _set_tool_title(self, title):
+        self._current_tool_title = title
+        home_title = _runtime_tr(self, "工具箱")
+        self.lbl_title.setText(f"{home_title} › {_runtime_tr(self, title)}" if title else home_title)
+        self.lbl_home_desc.setVisible(not title)
+
+    def apply_language_layout(self):
+        self._set_tool_title(self._current_tool_title)
+
+    def _enter_tool(self, page, title):
+        self._set_tool_title(title)
+        self.btn_back.show()
+        self.stack.setCurrentWidget(page)
+        QTimer.singleShot(0, self, lambda: self.verticalScrollBar().setValue(0))
+
+    def _show_checkup_tool(self):
+        page = self.main_win.pg_checkup
+        if page is None:
+            page = CheckupPage(self.main_win, sys.modules[__name__], self.stack)
+            self.main_win.pg_checkup = page
+            self.stack.addWidget(page)
+            self.main_win.apply_language_to_widget(page)
+        self._enter_tool(page, "一键体检")
+        return page
+
     def _show_softlink_tool(self):
         self._update_link_preview()
-        self.btn_back.show()
-        self.stack.setCurrentWidget(self.softlink_page)
-        QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
+        self._enter_tool(self.softlink_page, "软链接节省空间")
+
+    def _on_link_source_mode_changed(self, mode):
+        self.link_manual_panel.setVisible(mode == "manual")
+        self.link_recommend_panel.setVisible(mode == "recommend")
 
     def _show_cache_preset_tool(self):
-        self.btn_back.show()
-        self.stack.setCurrentWidget(self.cache_preset_page)
-        QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
-        if self.tbl_cache_presets.rowCount() == 0:
-            QTimer.singleShot(0, self._start_cache_preset_scan)
+        self._enter_tool(self.cache_preset_page, "常用缓存迁移")
 
     def _make_hint_label(self, text):
         label = CaptionLabel(text)
@@ -8667,26 +8635,28 @@ class ToolboxPage(ScrollArea):
         return table
 
     def _show_download_tool(self):
-        self.btn_back.show()
-        self.stack.setCurrentWidget(self.download_page)
-        QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
-        if self.tbl_downloads.rowCount() == 0:
-            QTimer.singleShot(0, self._start_download_scan)
+        self._enter_tool(self.download_page, "下载目录整理")
+
+    def _show_embedded_tool(self, section, title):
+        page = self.embedded_tools.get(section)
+        if page is None:
+            page = MaintenancePage(self.main_win, sys.modules[__name__], self.stack, sections=[section], embedded=True)
+            self.embedded_tools[section] = page
+            self.stack.addWidget(page)
+            self.main_win.apply_language_to_widget(page)
+        self._enter_tool(page, title)
+        return page
 
     def _show_space_usage_tool(self):
-        page = self.main_win._ensure_lazy_page("pg_maintenance")
-        page.tabs.setCurrentIndex(3)
-        self.main_win.switchTo(page)
+        return self._show_embedded_tool(3, "空间占用与增长")
+
+    def _show_development_tool(self):
+        return self._show_embedded_tool(7, "开发环境与 Docker / WSL")
 
     def _choose_download_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "选择下载目录", self.edit_download_dir.text().strip() or os.path.expandvars(r"%USERPROFILE%"))
         if folder:
             self.edit_download_dir.setText(folder)
-
-    def _choose_space_dir(self):
-        folder = QFileDialog.getExistingDirectory(self, "选择分析目录", self.edit_space_dir.text().strip() or "C:\\")
-        if folder:
-            self.edit_space_dir.setText(folder)
 
     def _set_tool_row(self, table, row, data, values):
         check_item = make_check_item(False)
@@ -8737,10 +8707,6 @@ class ToolboxPage(ScrollArea):
         self.download_footer.show_log_if_hidden()
         append_capped_log(self.download_footer.log, text, LOG_MAX_LINES)
 
-    def _append_space_log(self, text):
-        self.space_footer.show_log_if_hidden()
-        append_capped_log(self.space_footer.log, text, LOG_MAX_LINES)
-
     def _append_cache_log(self, text):
         self.cache_preset_footer.show_log_if_hidden()
         append_capped_log(self.cache_preset_footer.log, text, LOG_MAX_LINES)
@@ -8748,8 +8714,6 @@ class ToolboxPage(ScrollArea):
     def _append_scoped_tool_log(self, kind, text):
         if kind == "download":
             self._append_download_log(text)
-        elif kind == "space":
-            self._append_space_log(text)
         elif kind == "cache":
             self._append_cache_log(text)
 
@@ -8815,61 +8779,6 @@ class ToolboxPage(ScrollArea):
         self.download_footer.pb.setValue(100 if items else 0)
         self.download_footer.set_status(message, 100 if items else None)
 
-    def _start_space_scan(self):
-        manual_root = self.edit_space_dir.text().strip()
-        roots = [manual_root] if manual_root else self.space_drive_sel.selected_drives()
-        min_size_bytes = int(self.sp_space_min_mb.value()) * 1024 * 1024
-        if not roots:
-            InfoBar.warning("提示", "请先选择磁盘或指定目录", parent=self.main_win)
-            return
-        stop = self.stop_event
-
-        def _worker():
-            try:
-                items, message = scan_space_usage_roots(
-                    roots,
-                    min_size_bytes=min_size_bytes,
-                    log_fn=lambda text: self.toolboxScopedLog.emit("space", text),
-                    stop_event=stop,
-                )
-                self.spaceScanDone.emit(items, message)
-            except Exception as e:
-                self.spaceScanDone.emit([], f"分析失败：{format_exception_text(e)}")
-
-        def _prepare():
-            self.tbl_space.setRowCount(0)
-            self.btn_select_space.setText("全选")
-            self.btn_select_space.setIcon(FIF.ACCEPT)
-            self.btn_scan_space.setEnabled(False)
-            self.lbl_space_hint.setText("分析结果：正在分析空间占用...")
-            self.space_footer.pb.setValue(15)
-            self.space_footer.set_status("正在分析空间占用...")
-
-        self._start_toolbox_worker("空间占用扫描", _worker, before_start=_prepare)
-
-    def _finish_space_scan(self, items, message):
-        items = list(items or [])
-        self.btn_scan_space.setEnabled(True)
-        self.tbl_space.setRowCount(len(items))
-        for row, data in enumerate(items):
-            self._set_tool_row(
-                self.tbl_space,
-                row,
-                data,
-                [
-                    data.get("kind", ""),
-                    data.get("name", ""),
-                    (human_size(data.get("size", 0)), data.get("size", 0)),
-                    f"{float(data.get('percent', 0)):.1f}%",
-                    display_path(data.get("path", "")),
-                ],
-            )
-        if items:
-            self.tbl_space.selectRow(0)
-        self.lbl_space_hint.setText(f"分析结果：{message}")
-        self.space_footer.pb.setValue(100 if items else 0)
-        self.space_footer.set_status(message, 100 if items else None)
-
     def _start_download_delete(self):
         paths = self._tool_table_checked_paths(self.tbl_downloads)
         if not paths:
@@ -8880,17 +8789,6 @@ class ToolboxPage(ScrollArea):
         if not MessageBox("确认清理", f"确定要{action} {len(paths)} 个下载项吗？", self.main_win).exec():
             return
         self._start_toolbox_delete("download", paths, permanent)
-
-    def _start_space_delete(self):
-        paths = self._tool_table_checked_paths(self.tbl_space)
-        if not paths:
-            InfoBar.warning("提示", "请先勾选需要清理的占用项", parent=self.main_win)
-            return
-        permanent = self.chk_space_permanent.isChecked()
-        action = "永久删除" if permanent else "移入回收站"
-        if not MessageBox("确认清理", f"确定要{action} {len(paths)} 个占用项吗？", self.main_win).exec():
-            return
-        self._start_toolbox_delete("space", paths, permanent)
 
     def _start_toolbox_delete(self, kind, paths, permanent):
         stop = self.stop_event
@@ -8905,16 +8803,11 @@ class ToolboxPage(ScrollArea):
             self.toolboxDeleteDone.emit(kind, ok, message)
 
         def _prepare():
-            if kind == "download":
-                self.btn_delete_downloads.setEnabled(False)
-                self.download_footer.show_log_if_hidden()
-                self.download_footer.set_status("正在清理已勾选项目...")
-            else:
-                self.btn_delete_space.setEnabled(False)
-                self.space_footer.show_log_if_hidden()
-                self.space_footer.set_status("正在清理已勾选项目...")
+            self.btn_delete_downloads.setEnabled(False)
+            self.download_footer.show_log_if_hidden()
+            self.download_footer.set_status("正在清理已勾选项目...")
 
-        self._start_toolbox_worker("下载清理" if kind == "download" else "空间清理", _worker, before_start=_prepare)
+        self._start_toolbox_worker("下载清理", _worker, before_start=_prepare)
 
     def _finish_toolbox_delete(self, kind, ok, message):
         if kind == "download":
@@ -8922,16 +8815,12 @@ class ToolboxPage(ScrollArea):
             self.download_footer.pb.setValue(100 if ok else 0)
             self.download_footer.set_status(message, 100 if ok else None)
             self._invoke_when_toolbox_idle(self._start_download_scan)
-        elif kind == "space":
-            self.btn_delete_space.setEnabled(True)
-            self.space_footer.pb.setValue(100 if ok else 0)
-            self.space_footer.set_status(message, 100 if ok else None)
-            self._invoke_when_toolbox_idle(self._start_space_scan)
 
     def _show_tool_home(self):
+        self._set_tool_title(None)
         self.btn_back.hide()
         self.stack.setCurrentWidget(self.home_page)
-        QTimer.singleShot(0, lambda: self.verticalScrollBar().setValue(0))
+        QTimer.singleShot(0, self, lambda: self.verticalScrollBar().setValue(0))
 
     def _start_cache_preset_scan(self):
         category = self.cb_cache_category.currentText() or "全部"
@@ -9226,6 +9115,7 @@ class ToolboxPage(ScrollArea):
         )
         if mirrored_target:
             self.edit_link_dest.setText(os.path.dirname(mirrored_target))
+        self.seg_link_source.setCurrentItem("manual")
         self._show_softlink_tool()
         self.footer.set_status(f"已填入缓存目录：{display_path(path)}")
         InfoBar.success("已填入", f"已载入缓存目录：{display_path(path)}", parent=self.main_win)
@@ -9402,7 +9292,7 @@ class ToolboxPage(ScrollArea):
         self.footer.set_status("正在取消推荐扫描...")
 
     def _reset_recommend_button(self):
-        self.btn_recommend.setText("系统推荐添加")
+        self.btn_recommend.setText("扫描推荐项")
         self.btn_recommend.setIcon(FIF.SEARCH)
         self.btn_recommend.clicked.disconnect()
         self.btn_recommend.clicked.connect(self._start_recommend_scan)
@@ -9444,6 +9334,7 @@ class ToolboxPage(ScrollArea):
         if not isinstance(data, dict):
             return
         self.edit_link_source.setText(data.get("path", ""))
+        self.seg_link_source.setCurrentItem("manual")
         self._update_link_preview()
         self.footer.set_status(f"已载入推荐项：{data.get('name', '')}")
         InfoBar.success("已填入", f"已载入推荐目录：{display_path(data.get('path', ''))}", parent=self.main_win)
@@ -9609,10 +9500,14 @@ class SchedulePage(DeferredPageMixin, ScrollArea):
         self.root.setSpacing(10)
         self.root.addLayout(make_title_row(FIF.SYNC, "定时任务"))
 
-        desc = CaptionLabel("创建 Windows 定时任务，按自定义天/周/小时/分钟间隔或登录时自动执行选定功能；空间阈值、空闲和进程条件可在维护中心配置")
+        desc = CaptionLabel("创建 Windows 定时任务，按自定义天/周/小时/分钟间隔或登录时自动执行选定功能")
         desc.setWordWrap(True)
         desc.setTextColor(QColor(128, 128, 128))
-        self.root.addWidget(desc)
+        desc_row = QHBoxLayout()
+        desc_row.addWidget(desc, 1)
+        self.btn_auto_policy = make_settings_button(FIF.SETTING, auto_policy_button_text(), self._open_auto_policy)
+        desc_row.addWidget(self.btn_auto_policy)
+        self.root.addLayout(desc_row)
         self.content_holder = QWidget(self.view)
         self.content_layout = QVBoxLayout(self.content_holder)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
@@ -9688,7 +9583,7 @@ class SchedulePage(DeferredPageMixin, ScrollArea):
         self.sp_schedule_interval = SpinBox()
         self.sp_schedule_interval.setRange(1, 999)
         self.sp_schedule_interval.setValue(1)
-        self.sp_schedule_interval.setFixedWidth(110)
+        self.sp_schedule_interval.setFixedWidth(150)
         row2.addWidget(self.sp_schedule_interval)
         self.lbl_interval_unit = CaptionLabel("天")
         self.lbl_interval_unit.setTextColor(QColor(128, 128, 128))
@@ -9805,7 +9700,15 @@ class SchedulePage(DeferredPageMixin, ScrollArea):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._refresh_auto_policy_button()
         self._ensure_content(immediate=False)
+
+    def _refresh_auto_policy_button(self):
+        self.btn_auto_policy.setText(_runtime_tr(self, auto_policy_button_text()))
+
+    def _open_auto_policy(self):
+        open_tool(self.main_win, sys.modules[__name__], [4])
+        self._refresh_auto_policy_button()
 
     def _append_log(self, text):
         if self.log is None:
@@ -9882,7 +9785,7 @@ class SchedulePage(DeferredPageMixin, ScrollArea):
         self.sp_uninstall_timeout = SpinBox()
         self.sp_uninstall_timeout.setRange(1, 120)
         self.sp_uninstall_timeout.setValue(20)
-        self.sp_uninstall_timeout.setFixedWidth(110)
+        self.sp_uninstall_timeout.setFixedWidth(150)
         row_uninstall.addWidget(self.sp_uninstall_timeout)
         row_uninstall.addWidget(CaptionLabel("分钟"))
         row_uninstall.addStretch(1)
@@ -10647,7 +10550,7 @@ class CleanPage(ScrollArea):
         lbl_perm = CaptionLabel(f"{tr('当前权限：')}{tr(badge)}  |  {tr('长按或框选项目可拖动排序')}")
         setFont(lbl_perm, 11, QFont.Weight.Normal)
         lbl_perm.setTextColor(QColor(128, 128, 128))
-        title_row.insertSpacing(2, 2) 
+        title_row.insertSpacing(2, 2)
         title_row.insertWidget(3, lbl_perm, 0, Qt.AlignmentFlag.AlignBottom)
         v.addLayout(title_row)
 
@@ -10666,6 +10569,9 @@ class CleanPage(ScrollArea):
         self.cb_sort.currentIndexChanged.connect(self._on_sort_mode_changed)
         search_row.addWidget(self.cb_sort)
         search_row.addStretch()
+        for icon, label, sections in ((FIF.FILTER, "排除与条件", [1, 2]), (FIF.HISTORY, "历史", [0])):
+            search_row.addWidget(make_settings_button(
+                icon, label, lambda ids=sections: open_tool(self.window(), sys.modules[__name__], ids)))
         v.addLayout(search_row)
 
         opt=QHBoxLayout(); opt.setSpacing(8)
@@ -10714,7 +10620,7 @@ class CleanPage(ScrollArea):
         self.btn_sel_all = PushButton(FIF.ACCEPT, "全选"); self.btn_sel_all.setFixedHeight(30)
         self.btn_sel_all.clicked.connect(self.toggle_sel_all); br.addWidget(self.btn_sel_all)
         br.addStretch()
-        preview_button = PushButton(FIF.SEARCH, "文件预览"); preview_button.clicked.connect(self.do_clean); br.addWidget(preview_button)
+        preview_button = PushButton(FIF.SEARCH, "文件预览"); preview_button.setFixedHeight(30); preview_button.clicked.connect(self.do_preview); br.addWidget(preview_button)
         bc=PrimaryPushButton(FIF.DELETE,"开始清理"); bc.setFixedHeight(30); bc.clicked.connect(self.do_clean); br.addWidget(bc)
         bs=PushButton(FIF.CANCEL,"停止"); bs.setFixedHeight(30); bs.clicked.connect(lambda:self.stop.set()); br.addWidget(bs); v.addLayout(br)
 
@@ -11208,6 +11114,26 @@ class CleanPage(ScrollArea):
         done_label = "估算完成" if checked_only else "全部估算完成"
         self.sig.clean_done.emit(f"{done_label}，耗时 {time.time()-t0:.1f} 秒")
 
+    def _selected_rules(self):
+        self._sync()
+        with self._targets_lock:
+            rule_snapshot = list(self.targets)
+        selected_rules = [parse_rule_entry(t) for t in rule_snapshot if t[3]]
+        selected_rules = [t for t in selected_rules if t]
+        selected_rules, _ = self._dedupe_rule_targets(selected_rules)
+        return selected_rules
+
+    def do_preview(self):
+        active = getattr(self, "_active_worker", None)
+        if active is not None and active.is_alive():
+            InfoBar.warning("任务进行中", "请等待当前清理或估算任务完成", parent=self.window())
+            return
+        selected_rules = self._selected_rules()
+        if not selected_rules:
+            InfoBar.warning("提示", "请先勾选需要预览的清理规则", parent=self.window())
+            return
+        PreviewDialog(selected_rules, sys.modules[__name__], self.window(), "文件预览", read_only=True).exec()
+
     def do_clean(self):
         active = getattr(self, "_active_worker", None)
         if active is not None and active.is_alive():
@@ -11215,12 +11141,7 @@ class CleanPage(ScrollArea):
             return
         self.tbl.setDragEnabled(False)
         self.tbl_model.set_drag_enabled(False)
-        self._sync()
-        with self._targets_lock:
-            rule_snapshot = list(self.targets)
-        selected_rules = [parse_rule_entry(t) for t in rule_snapshot if t[3]]
-        selected_rules = [t for t in selected_rules if t]
-        selected_rules, _ = self._dedupe_rule_targets(selected_rules)
+        selected_rules = self._selected_rules()
 
         risky_lines = []
         for entry in selected_rules:
@@ -11608,7 +11529,7 @@ class UninstallPage(DeferredPageMixin, ScrollArea):
         self.sp_timeout = SpinBox()
         self.sp_timeout.setRange(1, 120)
         self.sp_timeout.setValue(20)
-        self.sp_timeout.setFixedWidth(120)
+        self.sp_timeout.setFixedWidth(150)
         search_layout.addWidget(self.sp_timeout)
         search_layout.addStretch()
         v.addLayout(search_layout)
@@ -12299,8 +12220,8 @@ class BigFilePage(DeferredPageMixin, ScrollArea):
         self.sig.disk_ready.connect(self._on_disk_ready)
 
         pr=QHBoxLayout(); pr.setSpacing(10); pr.addWidget(CaptionLabel("最小文件MB:"))
-        self.sp_mb=SpinBox(); self.sp_mb.setRange(50,10240); self.sp_mb.setValue(500); self.sp_mb.setFixedWidth(130); pr.addWidget(self.sp_mb)
-        pr.addWidget(CaptionLabel("扫描上限:")); self.sp_mx=SpinBox(); self.sp_mx.setRange(50,2000); self.sp_mx.setValue(200); self.sp_mx.setFixedWidth(130); pr.addWidget(self.sp_mx)
+        self.sp_mb=SpinBox(); self.sp_mb.setRange(50,10240); self.sp_mb.setValue(500); self.sp_mb.setFixedWidth(150); pr.addWidget(self.sp_mb)
+        pr.addWidget(CaptionLabel("扫描上限:")); self.sp_mx=SpinBox(); self.sp_mx.setRange(50,2000); self.sp_mx.setValue(200); self.sp_mx.setFixedWidth(150); pr.addWidget(self.sp_mx)
         self.cb_sort = ComboBox()
         self.cb_sort.addItems(["默认顺序", "按文件名", "按大小", "按路径"])
         self.cb_sort.setFixedWidth(120)
@@ -12598,6 +12519,8 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         pr = QHBoxLayout(); pr.setSpacing(10)
         self.chk_perm=CheckBox("永久删除(文件不进回收站)"); self.chk_perm.setChecked(True); pr.addWidget(self.chk_perm)
         pr.addStretch()
+        self.btn_retention = make_settings_button(FIF.COPY, duplicate_policy_button_text(), self._open_duplicate_policy)
+        pr.addWidget(self.btn_retention)
         self.btn_restore_assoc = PushButton(FIF.SYNC, "恢复默认关联")
         self.btn_restore_assoc.setFixedHeight(30)
         self.btn_restore_assoc.setToolTip("恢复文件夹、磁盘和 .exe/.bat/.cmd/.lnk 等常见默认打开关联")
@@ -12707,7 +12630,15 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._refresh_retention_button()
         self._ensure_content(immediate=False)
+
+    def _refresh_retention_button(self):
+        self.btn_retention.setText(_runtime_tr(self, duplicate_policy_button_text()))
+
+    def _open_duplicate_policy(self):
+        open_tool(self.window(), sys.modules[__name__], [6])
+        self._refresh_retention_button()
 
     @property
     def pb(self):
@@ -12801,6 +12732,7 @@ class MoreCleanPage(DeferredPageMixin, ScrollArea):
         is_reg = mode_idx in (3, 4)
         self.drive_sel.setVisible(not is_reg); self.lbl_disk_req.setVisible(not is_reg)
         self.btn_restore_assoc.setVisible(mode_idx == 4)
+        self.btn_retention.setVisible(mode_idx == 0)
         hide_c_drive = mode_idx == 0
         for d in self.drive_sel.drives:
             is_c = d.upper().startswith("C")
@@ -13473,7 +13405,8 @@ class MainWindow(MSFluentWindow):
         self.clean_stop = threading.Event(); self.uninstall_stop = threading.Event(); self.big_stop = threading.Event(); self.more_stop = threading.Event(); self.toolbox_stop = threading.Event(); self.sig = Sig()
         self._targets_lock = threading.Lock()
         self.pg_clean = CleanPage(self.sig, self.targets, self.clean_stop, self._targets_lock, self)
-        self.pg_maintenance = None
+        self._active_tool_dialog = None
+        self.pg_checkup = None
         self.pg_toolbox = None
         self.pg_rule_store = None
         self.pg_big = None
@@ -13482,7 +13415,6 @@ class MainWindow(MSFluentWindow):
         self.pg_more = None
         self.pg_setting = None
         self._lazy_route_keys = {
-            "pg_maintenance": "maintenancePage",
             "pg_toolbox": "toolboxPage",
             "pg_rule_store": "ruleStorePage",
             "pg_big": "bigFilePage",
@@ -13492,7 +13424,6 @@ class MainWindow(MSFluentWindow):
             "pg_setting": "settingPage",
         }
         self._lazy_page_factories = {
-            "pg_maintenance": lambda: MaintenancePage(self, sys.modules[__name__], self),
             "pg_toolbox": lambda: ToolboxPage(self, self.toolbox_stop, self),
             "pg_rule_store": lambda: RuleStorePage(self, self),
             "pg_big": lambda: BigFilePage(self.sig, self.big_stop, self),
@@ -14015,8 +13946,8 @@ class MainWindow(MSFluentWindow):
                and getattr(self, name)._active_worker.is_alive()
                for name in ("pg_clean", "pg_big", "pg_more", "pg_uninstall")):
             return False, "请等待清理任务完成后再更改配置目录"
-        if getattr(getattr(self, "pg_maintenance", None), "busy", False):
-            return False, "请等待维护中心任务完成后再更改配置目录"
+        if self._has_active_storage_task():
+            return False, "请等待体检任务完成后再更改配置目录"
         old_store = cleaner_core.current_store()
         old_global = self.global_settings_path
         old_custom = self.custom_rules_path
@@ -14130,9 +14061,12 @@ class MainWindow(MSFluentWindow):
             event.ignore()
             self._hide_to_tray()
             return
-        maintenance = getattr(self, "pg_maintenance", None)
-        if maintenance is not None and maintenance.busy:
-            maintenance.stop.set()
+        maintenance = getattr(self, "pg_checkup", None)
+        if self._has_active_storage_task():
+            if maintenance is not None:
+                maintenance.stop.set()
+            for page in self._active_tool_pages():
+                page.stop.set()
             InfoBar.warning("任务进行中", "正在停止扫描或等待系统维护完成，请稍后退出", parent=self)
             event.ignore()
             return
@@ -14162,6 +14096,16 @@ class MainWindow(MSFluentWindow):
         except Exception as e:
             log_background_error("关闭窗口时自动保存失败", e)
 
+    def _active_tool_pages(self):
+        dialog = getattr(self, "_active_tool_dialog", None)
+        pages = [dialog.page] if dialog is not None else []
+        pages.extend(getattr(getattr(self, "pg_toolbox", None), "embedded_tools", {}).values())
+        return pages
+
+    def _has_active_storage_task(self):
+        return bool(getattr(getattr(self, "pg_checkup", None), "busy", False)
+                    or any(page.busy for page in self._active_tool_pages()))
+
     def _is_shutting_down(self):
         return bool(getattr(self, "_shutting_down", False))
 
@@ -14174,7 +14118,7 @@ class MainWindow(MSFluentWindow):
         self.big_stop.set()
         self.more_stop.set()
         self.toolbox_stop.set()
-        maintenance = getattr(self, "pg_maintenance", None)
+        maintenance = getattr(self, "pg_checkup", None)
         if maintenance is not None:
             maintenance.stop.set()
         toolbox = getattr(self, "pg_toolbox", None)
@@ -14279,7 +14223,7 @@ class MainWindow(MSFluentWindow):
             "Rule Store": "Store",
             "Scheduled Tasks": "Tasks",
             "Toolbox": "Tools",
-            "Maintenance Center": "Maintain",
+            "One-click Checkup": "Checkup",
             "Large File Scan": "Files",
             "Force Uninstall": "Uninstall",
             "More Cleanup": "More",
@@ -14372,7 +14316,6 @@ class MainWindow(MSFluentWindow):
         self._add_lazy_nav_page("pg_rule_store", FIF.DOCUMENT, "规则商店")
         self._add_lazy_nav_page("pg_schedule", FIF.SYNC, "定时任务")
         self._add_lazy_nav_page("pg_toolbox", FIF.DEVELOPER_TOOLS, "工具箱")
-        self._add_lazy_nav_page("pg_maintenance", FIF.SAVE, "维护中心")
         self._add_lazy_nav_page("pg_big", FIF.ZOOM, "大文件扫描")
         self._add_lazy_nav_page("pg_uninstall", FIF.APPLICATION, "应用强力卸载")
         self._add_lazy_nav_page("pg_more", FIF.MORE, "更多清理")
@@ -14701,9 +14644,12 @@ class MainWindow(MSFluentWindow):
         self.activateWindow()
 
     def _exit_from_tray(self):
-        maintenance = getattr(self, "pg_maintenance", None)
-        if maintenance is not None and maintenance.busy:
-            maintenance.stop.set()
+        maintenance = getattr(self, "pg_checkup", None)
+        if self._has_active_storage_task():
+            if maintenance is not None:
+                maintenance.stop.set()
+            for page in self._active_tool_pages():
+                page.stop.set()
             self._restore_from_tray()
             InfoBar.warning("任务进行中", "正在停止扫描或等待系统维护完成，请稍后退出", parent=self)
             return

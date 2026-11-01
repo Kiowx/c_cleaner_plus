@@ -13,6 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import cleaner_core as core
 import main
 from maintenance_ui import MaintenancePage, PreviewDialog, RowsModel, ReviewPackDialog
+from PySide6.QtWidgets import QDialogButtonBox
 
 
 class MaintenanceTests(unittest.TestCase):
@@ -274,7 +275,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(len(paths), len(set(paths)))
 
     def test_version_is_consistent(self):
-        self.assertEqual(main.CURRENT_VERSION, "0.8.2")
+        self.assertEqual(main.CURRENT_VERSION, "0.8.3")
         self.assertEqual(core.VERSION, main.CURRENT_VERSION)
 
     def test_cloud_language_updates_preserve_bundled_new_labels(self):
@@ -431,10 +432,113 @@ class MaintenanceWidgetTests(unittest.TestCase):
         self.addCleanup(self.dispose, page)
         page.resize(1150, 920)
         page.show()
-        for index in range(page.tabs.count()):
-            page.tabs.setCurrentIndex(index)
+        for index in range(page.stack.count()):
+            page.tabs.setCurrentItem(str(index))
             self.app.processEvents()
+            self.assertEqual(page.stack.currentIndex(), index)
             self.assertFalse(page.grab().isNull())
+
+    def test_stop_button_only_shown_on_pages_with_scans(self):
+        window = types.SimpleNamespace(_targets_lock=threading.Lock(), targets=[self.rule()])
+        for sections, expected in (([0], False), ([1, 2], False), ([4], False), ([6], False), ([3], True), ([7], True)):
+            page = MaintenancePage(window, main, sections=sections)
+            self.addCleanup(self.dispose, page)
+            self.assertEqual(page.cancel_button.isHidden(), not expected, sections)
+
+    def test_preferred_directory_row_follows_duplicate_strategy(self):
+        window = types.SimpleNamespace(_targets_lock=threading.Lock(), targets=[])
+        page = MaintenancePage(window, main, sections=[6])
+        self.addCleanup(self.dispose, page)
+        self.assertTrue(page.duplicate_preferred_row.isHidden())
+        page.duplicate_strategy.setCurrentIndex(3)
+        self.assertFalse(page.duplicate_preferred_row.isHidden())
+        page.duplicate_strategy.setCurrentIndex(1)
+        self.assertTrue(page.duplicate_preferred_row.isHidden())
+
+    def test_retention_button_only_shown_for_duplicate_scan(self):
+        page = main.MoreCleanPage(main.Sig(), threading.Event())
+        self.addCleanup(self.dispose, page)
+        self.assertFalse(page.btn_retention.isHidden())
+        page.cb_mode.setCurrentIndex(4)
+        self.assertTrue(page.btn_retention.isHidden())
+        page.cb_mode.setCurrentIndex(0)
+        self.assertFalse(page.btn_retention.isHidden())
+
+    def test_settings_buttons_open_expected_sections_and_refresh_status(self):
+        page = main.CleanPage(main.Sig(), [], threading.Event(), threading.Lock())
+        self.addCleanup(self.dispose, page)
+        with mock.patch.object(main, "open_tool") as open_tool:
+            for action in page.findChildren(main.TransparentPushButton):
+                action.click()
+        self.assertEqual([call.args[2] for call in open_tool.call_args_list], [[1, 2], [0]])
+
+        more = main.MoreCleanPage(main.Sig(), threading.Event())
+        self.addCleanup(self.dispose, more)
+        def save_policy(*args):
+            main.cleaner_core.current_store().set("duplicate_policy", dict(strategy="oldest", preferred=""))
+        with mock.patch.object(main, "open_tool", side_effect=save_policy) as open_tool:
+            more.btn_retention.click()
+        self.assertEqual(open_tool.call_args.args[2], [6])
+        self.assertEqual(more.btn_retention.text(), "保留策略 · 最旧修改")
+
+    def _clean_page(self, rules):
+        page = main.CleanPage(main.Sig(), rules, threading.Event(), threading.Lock())
+        self.addCleanup(self.dispose, page)
+        preview = next(b for b in page.findChildren(main.PushButton) if b.text() == "文件预览")
+        start = next(b for b in page.findChildren(main.PrimaryPushButton) if b.text() == "开始清理")
+        return page, preview, start
+
+    def test_file_preview_button_is_read_only_and_never_executes(self):
+        page, preview, _start = self._clean_page([list(self.rule())])
+        with mock.patch.object(main, "PreviewDialog") as dialog, mock.patch.object(main, "start_page_worker") as worker, \
+                mock.patch.object(main.cleaner_core, "execute_plan") as execute:
+            dialog.return_value.exec.return_value = 1
+            preview.click()
+        self.assertTrue(dialog.call_args.kwargs["read_only"])
+        worker.assert_not_called()
+        execute.assert_not_called()
+
+    def test_file_preview_requires_a_selected_rule(self):
+        rule = list(self.rule())
+        rule[3] = False
+        page, preview, _start = self._clean_page([rule])
+        with mock.patch.object(main, "PreviewDialog") as dialog, mock.patch.object(main.InfoBar, "warning") as warning:
+            preview.click()
+        dialog.assert_not_called()
+        warning.assert_called_once()
+
+    def test_start_cleanup_button_still_uses_confirmable_preview(self):
+        page, _preview, start = self._clean_page([list(self.rule())])
+        with mock.patch.object(main, "PreviewDialog") as dialog:
+            dialog.return_value.exec.return_value = 0
+            start.click()
+        self.assertNotIn("read_only", dialog.call_args.kwargs)
+
+    def test_read_only_preview_has_no_selection_or_cleanup_action(self):
+        target = self.file("file.log")
+        dialog = PreviewDialog([self.rule()], main, read_only=True)
+        self.addCleanup(self.dispose, dialog)
+        dialog.show()
+        deadline = time.monotonic() + 5
+        from PySide6.QtTest import QTest
+        while dialog.plan is None and time.monotonic() < deadline:
+            QTest.qWait(10)
+        self.assertIsNotNone(dialog.plan)
+        self.assertEqual(dialog.model.rowCount(), 1)
+        self.assertFalse(dialog.model.checkable)
+        self.assertIsNone(dialog.buttons.button(QDialogButtonBox.StandardButton.Ok))
+        dialog.buttons.button(QDialogButtonBox.StandardButton.Close).click()
+        self.assertEqual(dialog.result(), 0)
+        self.assertTrue(target.exists())
+
+    def test_settings_button_text_reflects_saved_policy(self):
+        self.assertEqual(main.auto_policy_button_text(), "运行条件 · 未启用")
+        self.assertEqual(main.duplicate_policy_button_text(), "保留策略 · 按路径顺序")
+        store = main.cleaner_core.current_store()
+        store.set("auto_policy", dict(main.cleaner_core.DEFAULT_AUTO_POLICY, enabled=True))
+        store.set("duplicate_policy", dict(strategy="newest", preferred=""))
+        self.assertEqual(main.auto_policy_button_text(), "运行条件 · 已启用")
+        self.assertEqual(main.duplicate_policy_button_text(), "保留策略 · 最新修改")
 
     def test_preview_loads_asynchronously_and_can_uncheck_files(self):
         self.file("file.log")
@@ -456,19 +560,145 @@ class MaintenanceWidgetTests(unittest.TestCase):
         dialog.model.select_all(False)
         self.assertFalse(any(item["selected"] for item in dialog.plan["items"]))
 
-    def test_main_window_registers_and_opens_maintenance_lazily(self):
+    def test_checkup_opens_from_toolbox_and_preserves_state_when_returning(self):
         with (mock.patch.object(main.MainWindow, "_load_config_dir", new=lambda _self: str(self.root / "window-config")),
               mock.patch.object(main.MainWindow, "_should_offer_legacy_migration", new=lambda _self: False),
               mock.patch.object(main.MainWindow, "check_updates", new=lambda *args, **kwargs: None),
               mock.patch.object(main.MainWindow, "_init_tray", new=lambda _self: None)):
             window = main.MainWindow()
             self.addCleanup(self.dispose, window)
-            self.assertIsNone(window.pg_maintenance)
-            page = window._ensure_lazy_page("pg_maintenance")
-            window.switchTo(page)
             self.app.processEvents()
-            self.assertIs(page, window.pg_maintenance)
-            self.assertEqual(page.tabs.count(), 8)
+            self.assertIs(window.stackedWidget.currentWidget(), window.pg_clean)
+            self.assertIsNone(window.pg_checkup)
+            self.assertNotIn("pg_checkup", window._lazy_route_keys)
+            toolbox = window._ensure_lazy_page("pg_toolbox")
+            window.switchTo(toolbox)
+            first_entry = toolbox.home_page.findChildren(main.ToolboxEntryCard)[0]
+            first_entry.findChild(main.TransparentToolButton).click()
+            self.app.processEvents()
+            page = window.pg_checkup
+            self.assertIs(toolbox.stack.currentWidget(), page)
+            self.assertIs(page.parentWidget(), toolbox.stack)
+            self.assertEqual(page.objectName(), "checkupPage")
+            self.assertEqual(page.mode.count(), 2)
+            page.summary.setText("Saved findings")
+            toolbox.btn_back.click()
+            self.assertIs(toolbox.stack.currentWidget(), toolbox.home_page)
+            first_entry.findChild(main.TransparentToolButton).click()
+            self.assertIs(window.pg_checkup, page)
+            self.assertEqual(page.summary.text(), "Saved findings")
+            self.assertFalse(page.busy)
+
+    def _toolbox_window(self):
+        patches = (mock.patch.object(main.MainWindow, "_load_config_dir", new=lambda _self: str(self.root / "window-config")),
+                   mock.patch.object(main.MainWindow, "_should_offer_legacy_migration", new=lambda _self: False),
+                   mock.patch.object(main.MainWindow, "check_updates", new=lambda *args, **kwargs: None),
+                   mock.patch.object(main.MainWindow, "_init_tray", new=lambda _self: None))
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        window = main.MainWindow()
+        self.addCleanup(self.dispose, window)
+        toolbox = window._ensure_lazy_page("pg_toolbox")
+        window.switchTo(toolbox)
+        self.app.processEvents()
+        return window, toolbox
+
+    def test_toolbox_card_body_opens_tool_and_title_shows_location(self):
+        window, toolbox = self._toolbox_window()
+        cards = toolbox.home_page.findChildren(main.ToolboxEntryCard)
+        self.assertEqual(len(cards), 6)
+        self.assertEqual(toolbox.lbl_title.text(), "工具箱")
+        self.assertFalse(toolbox.lbl_home_desc.isHidden())
+        cards[3].clicked.emit()
+        self.assertIs(toolbox.stack.currentWidget(), toolbox.download_page)
+        self.assertEqual(toolbox.lbl_title.text(), "工具箱 › 下载目录整理")
+        self.assertTrue(toolbox.lbl_home_desc.isHidden())
+        toolbox.btn_back.click()
+        self.assertEqual(toolbox.lbl_title.text(), "工具箱")
+
+    def test_toolbox_scan_tools_wait_for_explicit_scan(self):
+        window, toolbox = self._toolbox_window()
+        with mock.patch.object(main.ToolboxPage, "_start_toolbox_worker") as worker:
+            toolbox._show_cache_preset_tool()
+            toolbox._show_download_tool()
+            from PySide6.QtTest import QTest
+            QTest.qWait(20)
+        worker.assert_not_called()
+        self.assertFalse(toolbox.download_empty_hint.isHidden())
+
+    def test_toolbox_filter_values_have_room_to_show(self):
+        window, toolbox = self._toolbox_window()
+        toolbox.resize(1180, 820)
+        toolbox._show_download_tool()
+        self.app.processEvents()
+        for spin in (toolbox.sp_cache_min_mb, toolbox.sp_download_min_mb, toolbox.sp_download_min_days):
+            self.assertGreaterEqual(spin.width(), 150)
+
+    def test_all_page_spin_boxes_show_their_largest_value(self):
+        window, toolbox = self._toolbox_window()
+        with mock.patch.object(main.SchedulePage, "_refresh_tasks_worker", new=lambda _self: None):
+            spins = []
+            for name in ("pg_toolbox", "pg_schedule", "pg_big", "pg_uninstall"):
+                page = window._ensure_lazy_page(name)
+                if hasattr(page, "_ensure_content"):
+                    page._ensure_content(immediate=True)
+                if name == "pg_schedule":
+                    page._ensure_heavy_content(immediate=True)
+                    page._ensure_uninstall_cfg_widget()
+                page.resize(1180, 820)
+                page.show()
+                self.app.processEvents()
+                spins.extend(page.findChildren(main.SpinBox))
+            self.assertGreaterEqual(len(spins), 8)
+            for spin in spins:
+                self.assertGreaterEqual(spin.width(), 150, spin.maximum())
+            # Let deferred page stages finish before the window is disposed.
+            from PySide6.QtTest import QTest
+            QTest.qWait(100)
+
+    def test_toolbox_stack_sizes_to_current_page(self):
+        window, toolbox = self._toolbox_window()
+        toolbox._show_softlink_tool()
+        toolbox.seg_link_source.setCurrentItem("recommend")
+        self.app.processEvents()
+        tall = toolbox.stack.minimumSizeHint().height()
+        toolbox._show_tool_home()
+        self.app.processEvents()
+        self.assertLess(toolbox.stack.minimumSizeHint().height(), tall)
+
+    def test_softlink_source_switches_panels_and_recommendation_returns_to_manual(self):
+        window, toolbox = self._toolbox_window()
+        self.assertFalse(toolbox.link_manual_panel.isHidden())
+        self.assertTrue(toolbox.link_recommend_panel.isHidden())
+        toolbox.seg_link_source.setCurrentItem("recommend")
+        self.assertTrue(toolbox.link_manual_panel.isHidden())
+        self.assertFalse(toolbox.link_recommend_panel.isHidden())
+        toolbox.tbl_recommend.setRowCount(1)
+        self.assertTrue(toolbox.recommend_empty_hint.isHidden())
+        item = main.QTableWidgetItem("demo")
+        item.setData(main.Qt.ItemDataRole.UserRole, dict(name="demo", path=str(self.data)))
+        toolbox.tbl_recommend.setItem(0, 0, item)
+        toolbox.tbl_recommend.setCurrentCell(0, 0)
+        with mock.patch.object(main.InfoBar, "success"):
+            toolbox._use_selected_recommendation()
+        self.assertEqual(toolbox.edit_link_source.text(), str(self.data))
+        self.assertFalse(toolbox.link_manual_panel.isHidden())
+
+    def test_embedded_tools_open_in_page_and_block_shutdown_while_busy(self):
+        window, toolbox = self._toolbox_window()
+        with mock.patch.object(main, "open_tool") as open_tool:
+            page = toolbox._show_space_usage_tool()
+            development = toolbox._show_development_tool()
+        open_tool.assert_not_called()
+        self.assertIs(toolbox.stack.currentWidget(), development)
+        self.assertEqual(toolbox.lbl_title.text(), "工具箱 › 开发环境与 Docker / WSL")
+        self.assertIs(toolbox._show_space_usage_tool(), page)
+        self.assertFalse(page.cancel_button.isHidden())
+        self.assertFalse(window._has_active_storage_task())
+        page.busy = True
+        self.assertTrue(window._has_active_storage_task())
+        page.busy = False
 
     def dispose(self, widget):
         from PySide6.QtCore import QCoreApplication, QEvent

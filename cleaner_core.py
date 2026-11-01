@@ -24,7 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
-VERSION = "0.8.2"
+VERSION = "0.8.3"
 _store: Store | None = None
 _local = threading.local()
 _policy_cache = None
@@ -557,8 +557,16 @@ def execute_plan(plan: dict, delete: Callable, permanent: bool, stop=None, log=l
                     reason = "目标不再是普通文件"
                 else:
                     # The shared deletion gate rechecks exclusions immediately.
-                    ok = delete(path, permanent, log)
+                    messages = []
+                    def capture(message):
+                        messages.append(str(message))
+                        if len(messages)>6:
+                            del messages[0]
+                        log(message)
+                    ok = delete(path, permanent, capture)
                     status = "deleted" if ok and not os.path.lexists(path) else "pending" if ok else "failed"
+                    if not ok:
+                        reason = "\n".join(messages[-3:]) or "删除未完成；文件可能被占用或权限不足。"
                 if status == "deleted":
                     result["success"] += 1
                     # Hard links consume space until their final name is gone.
@@ -585,7 +593,10 @@ def execute_plan(plan: dict, delete: Callable, permanent: bool, stop=None, log=l
     finally:
         _local.batch = prior_batch
         result["finished"] = time.time()
-        result["free_delta"] = sum(free_change(root, before) for root, before in free_before.items())
+        result["free_before"] = free_before
+        result["free_after"] = {root: _volume_free(root) for root in free_before}
+        result["free_delta"] = sum(result["free_after"][root]-before for root, before in free_before.items()
+                                   if before is not None and result["free_after"][root] is not None)
         result["state"] = "cancelled" if result["cancelled"] else "finished"
         if store and journal_id:
             with store.connect() as db:

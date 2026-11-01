@@ -26,7 +26,7 @@ def _loaded_dlls():
 
 
 def run_startup_check(host, report_path: str) -> int:
-    """Create the real window and maintenance page using temporary settings.
+    """Create the real window and open checkup through Toolbox using temporary settings.
 
     No window is shown; scheduled actions, update downloads, tray registration,
     and cleanup are never started. Method replacements are plain Python
@@ -51,12 +51,18 @@ def run_startup_check(host, report_path: str) -> int:
                 setattr(host.MainWindow, name, replacement)
             try:
                 window = host.MainWindow()
-                page = window._ensure_lazy_page("pg_maintenance")
-                window.switchTo(page)
                 app.processEvents()
-                if page.tabs.count() != 8:
-                    raise RuntimeError("Maintenance navigation did not initialize")
-                report.update(success=True, qt_version=qVersion(), maintenance_tabs=page.tabs.count(), loaded_dlls=_loaded_dlls())
+                if window.stackedWidget.currentWidget() is not window.pg_clean:
+                    raise RuntimeError("Regular Cleanup is not the default page")
+                toolbox = window._ensure_lazy_page("pg_toolbox")
+                window.switchTo(toolbox)
+                page = toolbox._show_checkup_tool()
+                app.processEvents()
+                if toolbox.stack.currentWidget() is not page:
+                    raise RuntimeError("Toolbox checkup entry did not open")
+                if page.objectName() != "checkupPage" or page.mode.count() != 2:
+                    raise RuntimeError("Checkup navigation did not initialize")
+                report.update(success=True, qt_version=qVersion(), checkup_views=page.mode.count(), loaded_dlls=_loaded_dlls())
             finally:
                 if window is not None:
                     window.close()

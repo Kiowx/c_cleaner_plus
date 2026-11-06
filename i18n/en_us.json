@@ -1,8 +1,8 @@
 {
   "code": "en_us",
   "label": "English",
-  "version": 11,
-  "updated_at": "2026-11-01",
+  "version": 12,
+  "updated_at": "2026-11-06",
   "translations": {
     "C盘强力清理工具": "C Cleaner Plus",
     "常规清理": "Standard Cleanup",
@@ -1396,6 +1396,16 @@
     "已统计 {count} 个文件，覆盖内容 {size}；这是扫描到的逻辑体积，移入回收站后不会立即释放空间。": "Scanned {count} files covering {size} of logical data. Recycling does not immediately reclaim disk space.",
     "已勾选 {count} 项，逻辑体积 {size}": "Selected {count} suggestions · {size} logical size",
     "软件占用目录": "Software Storage Folders",
-    "本次勾选文件已全部处理。": "All selected files were processed."
+    "本次勾选文件已全部处理。": "All selected files were processed.",
+    "清理前预览": "Preview Before Cleanup",
+    "默认关闭，直接按所选规则清理；开启后先生成文件清单供逐项确认。文件预览按钮始终可用。": "Off by default. Clean selected rules directly, or enable to review individual files first. File Preview is always available.",
+    "已处理 {count} 项": "Processed {count} items",
+    "请先勾选需要清理的规则": "Select cleanup rules first",
+    "正在生成预览，已检查 {count} 项…": "Building preview, checked {count} items…",
+    "正在汇总文件归属": "Summarizing file ownership",
+    "正在生成清理建议": "Preparing cleanup suggestions",
+    "正在汇总软件排行": "Summarizing software storage",
+    "正在汇总大目录": "Summarizing large folders",
+    "已统计 {count} 个文件": "Counted {count} files"
   }
 }

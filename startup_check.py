@@ -45,6 +45,7 @@ def run_startup_check(host, report_path: str) -> int:
                 "check_updates": lambda *args, **kwargs: None,
                 "_download_language_pack_async": lambda *args, **kwargs: None,
                 "_init_tray": lambda self: None,
+                "_refresh_auto_start_state_async": lambda self: None,
             }
             for name, replacement in methods.items():
                 replacements[name] = getattr(host.MainWindow, name)
@@ -62,7 +63,11 @@ def run_startup_check(host, report_path: str) -> int:
                     raise RuntimeError("Toolbox checkup entry did not open")
                 if page.objectName() != "checkupPage" or page.mode.count() != 2:
                     raise RuntimeError("Checkup navigation did not initialize")
-                report.update(success=True, qt_version=qVersion(), checkup_views=page.mode.count(), loaded_dlls=_loaded_dlls())
+                settings = window._ensure_lazy_page("pg_setting")
+                if settings.switch_preview.isChecked():
+                    raise RuntimeError("Cleanup preview must be off by default")
+                report.update(success=True, qt_version=qVersion(), checkup_views=page.mode.count(),
+                              preview_default=settings.switch_preview.isChecked(), loaded_dlls=_loaded_dlls())
             finally:
                 if window is not None:
                     window.close()

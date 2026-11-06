@@ -37,6 +37,14 @@ Built with **Python + PySide6 + Fluent Widgets**, it provides a GUI, administrat
 
 ## Features
 
+### v0.8.4 Performance Fixes
+
+- Add Preview Before Cleanup in Settings, off by default; Regular Cleanup processes selected rules incrementally without waiting for a full file list
+- Manual File Preview remains available; enabling the setting restores per-file review before cleanup
+- Reuse overlapping directory scans and sort only when keeping the latest files
+- Index checkup results for faster software and folder summaries, with progress and cancellation during aggregation
+- Reduce successful-file log and progress updates and stabilize the progress bar layout; detailed results remain in Cleanup History
+
 ### v0.8.3 One-click Checkup
 
 - Start on Regular Cleanup; open One-click Checkup as the first Toolbox entry to scan common caches, old downloads, installed applications, and app data in one pass

@@ -215,7 +215,7 @@ class CheckupPage(ScrollArea):
         self.result_detail.hide()
         root.addWidget(self.result_detail)
         self.finished.connect(self.on_finished)
-        self.scanProgress.connect(lambda text, count: self.status.setText(f"{text} · 已统计 {count} 个文件"))
+        self.scanProgress.connect(lambda text, count: self.status.setText(f"{self.tr(text)} · {self.tr_format('已统计 {count} 个文件', count=count)}"))
         self.cleanProgress.connect(lambda value, total: self.progress.setValue(int(value*100/max(1,total))))
         self.update_disk()
 

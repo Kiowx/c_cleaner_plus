@@ -275,7 +275,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(len(paths), len(set(paths)))
 
     def test_version_is_consistent(self):
-        self.assertEqual(main.CURRENT_VERSION, "0.8.3")
+        self.assertEqual(main.CURRENT_VERSION, "0.8.4")
         self.assertEqual(core.VERSION, main.CURRENT_VERSION)
 
     def test_cloud_language_updates_preserve_bundled_new_labels(self):
@@ -520,10 +520,35 @@ class MaintenanceWidgetTests(unittest.TestCase):
 
     def test_start_cleanup_button_still_uses_confirmable_preview(self):
         page, _preview, start = self._clean_page([list(self.rule())])
+        page.global_settings = {"preview_before_cleanup": True}
         with mock.patch.object(main, "PreviewDialog") as dialog:
             dialog.return_value.exec.return_value = 0
             start.click()
         self.assertNotIn("read_only", dialog.call_args.kwargs)
+
+    def test_cleanup_skips_preview_by_default_and_keeps_confirmation(self):
+        page, _preview, start = self._clean_page([list(self.rule())])
+        with (mock.patch.object(main, "PreviewDialog") as preview,
+              mock.patch.object(main, "MessageBox") as confirm,
+              mock.patch.object(main, "start_page_worker") as worker):
+            confirm.return_value.exec.return_value = True
+            start.click()
+        preview.assert_not_called()
+        confirm.assert_called_once()
+        self.assertEqual(worker.call_args.args[1], page._cln_w)
+        self.assertTrue(worker.call_args.kwargs["args"][1])
+
+    def test_preview_setting_defaults_off_and_is_saved(self):
+        window, _toolbox = self._toolbox_window()
+        with mock.patch.object(main.MainWindow, "_refresh_auto_start_state_async", new=lambda self: None):
+            settings = window._ensure_lazy_page("pg_setting")
+            self.assertFalse(settings.switch_preview.isChecked())
+            settings.switch_preview.setChecked(True)
+            saved = json.loads(Path(window.global_settings_path).read_text(encoding="utf-8"))
+            self.assertTrue(saved["preview_before_cleanup"])
+            settings.switch_preview.setChecked(False)
+            saved = json.loads(Path(window.global_settings_path).read_text(encoding="utf-8"))
+            self.assertFalse(saved["preview_before_cleanup"])
 
     def test_read_only_preview_has_no_selection_or_cleanup_action(self):
         target = self.file("file.log")

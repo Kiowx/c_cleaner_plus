@@ -1,4 +1,4 @@
-"""Qt views for the 0.8.3 maintenance services (kept separate from main.py)."""
+"""Qt views for the 0.8.4 maintenance services (kept separate from main.py)."""
 from __future__ import annotations
 
 import json
@@ -174,6 +174,7 @@ def attach_exclusion_menu(view, model, host):
 
 class PreviewDialog(QDialog):
     loaded = Signal(object, str)
+    scanProgress = Signal(int)
 
     def __init__(self, rules, host, parent=None, title="清理预览", plan=None, read_only=False):
         super().__init__(parent)
@@ -208,6 +209,8 @@ class PreviewDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
         self.loaded.connect(self._loaded)
+        self.scanProgress.connect(lambda count: self.status.setText(
+            translate(self, "正在生成预览，已检查 {count} 项…").format(count=count)))
         # Snapshot inputs before starting the worker; it never reads widgets.
         snapshot = [tuple(rule) for rule in rules]
         if plan is None:
@@ -220,7 +223,7 @@ class PreviewDialog(QDialog):
 
     def _scan(self, rules):
         try:
-            plan = core.build_plan(rules, self.stop, self.host.is_protected_system_path)
+            plan = core.build_plan(rules, self.stop, self.host.is_protected_system_path, progress=self.scanProgress.emit)
             result, error = plan, ""
         except Exception as exc:
             result, error = None, str(exc)

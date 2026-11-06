@@ -24,7 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
-VERSION = "0.8.3"
+VERSION = "0.8.4"
 _store: Store | None = None
 _local = threading.local()
 _policy_cache = None
@@ -400,106 +400,190 @@ def tracked_uninstall(fn):
     return wrapped
 
 
-def build_plan(rules: list, stop: threading.Event | None = None, protected: Callable[[str], bool] | None = None,
-               max_items: int = 200000, condition_overrides: dict | None = None, policy: Policy | None = None) -> dict:
-    policy = policy or Policy()
-    conditions = condition_overrides if condition_overrides is not None else (_store.get("conditions", {}) if _store else {})
-    plan = dict(id=uuid.uuid4().hex, created=time.time(), items=[], errors=[], complete=True, omitted=0)
-    seen = set()
-    now = time.time()
+class CandidateScan:
+    """One candidate iterator for previews and incremental cleanup.
 
-    def cancelled():
-        return stop is not None and stop.is_set()
+    Only keep-latest rules need a complete per-rule file list. A preview caches
+    directory metadata across overlapping rules; direct cleanup stays lazy.
+    """
+    def __init__(self, rules, stop=None, protected=None, max_items=None,
+                 condition_overrides=None, policy=None, cache=False, progress=None):
+        self.rules = rules
+        self.stop, self.protected = stop, protected
+        self.max_items, self.policy = max_items, policy or Policy()
+        self.conditions = condition_overrides if condition_overrides is not None else (_store.get("conditions", {}) if _store else {})
+        self.plan = dict(id=uuid.uuid4().hex, created=time.time(), items=[], errors=[], complete=True, omitted=0)
+        self.cache = {} if cache else None
+        self.seen = set()
+        self.examined = 0
+        self.examined_paths = set() if max_items is not None else None
+        self.progress = progress
+        self.last_progress = 0.0
 
-    for rule in rules:
-        if cancelled():
-            plan["complete"] = False
-            break
-        if not isinstance(rule, (list, tuple)) or len(rule) < 5 or not rule[3]:
-            continue
-        name, root, kind = str(rule[0]), canonical(str(rule[1])), str(rule[2])
-        if kind not in {"dir", "file", "glob"}:
-            plan["errors"].append(f"{name}: 未知规则类型")
-            continue
-        cond = validate_conditions(conditions.get(rule_id(rule), {}))
-        candidates = []
-        directories = []
-        if policy.excluded(root) or (protected and protected(root)):
-            plan["omitted"] += 1
-            continue
+    def cancelled(self):
+        return self.stop is not None and self.stop.is_set()
+
+    def pulse(self):
+        if self.progress and time.monotonic() - self.last_progress >= .1:
+            self.progress(self.examined)
+            self.last_progress = time.monotonic()
+
+    def error(self, message):
+        self.plan["complete"] = False
+        if len(self.plan["errors"]) < 50:
+            self.plan["errors"].append(message)
+
+    def walk(self, root, kind, pattern):
+        # Directory frames hold live scandir iterators, not all descendant paths.
+        # Every iterator is closed on cancellation, error, or generator.close().
+        frames = []
+        def children(path):
+            if self.cache is not None and path in self.cache:
+                return iter(self.cache[path]), None
+            stream = os.scandir(path)
+            entries = [] if self.cache is not None else None
+            def iterate():
+                for entry in stream:
+                    entry_path = canonical(entry.path)
+                    st = entry.stat(follow_symlinks=False)
+                    # Windows DirEntry.stat omits file IDs/link counts. Use one
+                    # lstat for evidence that can be compared before deletion.
+                    if not st.st_ino:
+                        st = os.lstat(entry_path)
+                    value = (entry_path, st)
+                    if entries is not None:
+                        entries.append(value)
+                    yield value
+                if entries is not None:
+                    self.cache[path] = entries
+            return iterate(), stream
         try:
-            if not os.path.lexists(root):
-                continue
-            if link_like(root) or has_link_ancestor(root):
-                plan["omitted"] += 1
-                continue
-            stack = []
+            root_stat = os.lstat(root)
+            if link_like(root, root_stat) or has_link_ancestor(root):
+                self.plan["omitted"] += 1
+                return
             if kind == "file":
-                candidates.append(root)
+                iterator = iter([(root, root_stat)])
+                frames.append((iterator, None, None, None, False))
             else:
-                with os.scandir(root) as entries:
-                    pattern = str(rule[6] if len(rule) > 6 and rule[6] else "*")
-                    for entry in entries:
-                        if kind != "glob" or fnmatch.fnmatchcase(entry.name.lower(), pattern.lower()):
-                            stack.append(entry.path)
-            while stack:
-                if cancelled():
-                    plan["complete"] = False
-                    break
-                path = stack.pop()
-                if policy.excluded(path) or (protected and protected(path)) or link_like(path):
-                    plan["omitted"] += 1
-                    continue
-                if os.path.isdir(path):
-                    directories.append(path)
-                    with os.scandir(path) as entries:
-                        stack.extend(entry.path for entry in entries)
-                else:
-                    candidates.append(path)
-                if len(candidates) + len(directories) + len(plan["items"]) > max_items:
-                    plan["complete"] = False
-                    plan["errors"].append("清理预览达到项目上限，请缩小范围后重试")
-                    break
-            files = []
-            for path in candidates:
-                if cancelled():
-                    plan["complete"] = False
-                    break
+                iterator, stream = children(root)
+                frames.append((iterator, stream, None, None, True))
+            while frames and not self.cancelled():
+                iterator, stream, directory, directory_stat, top = frames[-1]
                 try:
-                    st = os.lstat(path)
-                    if not stat.S_ISREG(st.st_mode) or link_like(path, st) or policy.excluded(path) or (protected and protected(path)):
-                        continue
-                    files.append((path, st))
-                except OSError as exc:
-                    plan["errors"].append(f"{path}: {exc}")
-            files.sort(key=lambda item: (-item[1].st_mtime_ns, canonical(item[0])))
-            for index, (path, st) in enumerate(files):
-                if index < cond["keep_latest"] or st.st_size < cond["min_size_bytes"] or (cond["min_age_days"] and now - st.st_mtime < cond["min_age_days"] * 86400):
-                    plan["omitted"] += 1
+                    path, st = next(iterator)
+                except StopIteration:
+                    frames.pop()
+                    if stream is not None:
+                        stream.close()
+                    if directory is not None:
+                        yield directory, directory_stat, True
                     continue
-                key = canonical(path)
-                if key in seen:
+                if self.examined_paths is None or path not in self.examined_paths:
+                    self.examined += 1
+                    if self.examined_paths is not None:
+                        self.examined_paths.add(path)
+                self.pulse()
+                if self.max_items is not None and self.examined > self.max_items:
+                    self.error("清理预览达到项目上限，请缩小范围后重试")
+                    return
+                if top and kind == "glob" and not fnmatch.fnmatchcase(os.path.basename(path).lower(), pattern.lower()):
                     continue
-                seen.add(key)
-                plan["items"].append(dict(path=path, rule=name, kind="file", size=st.st_size, mtime=st.st_mtime,
-                                          signature=signature(st), selected=True, nlink=st.st_nlink))
-            # Never recursively delete a directory from a preview. Only rmdir
-            # after the reviewed files have gone, and only with no age filters.
-            if not any(cond.values()):
-                for path in sorted(directories, key=len, reverse=True):
-                    if canonical(path) in seen:
+                if self.policy.excluded(path) or (self.protected and self.protected(path)) or link_like(path, st):
+                    self.plan["omitted"] += 1
+                    continue
+                if stat.S_ISDIR(st.st_mode):
+                    child_iterator, child_stream = children(path)
+                    frames.append((child_iterator, child_stream, path, st, False))
+                elif stat.S_ISREG(st.st_mode):
+                    yield path, st, False
+        finally:
+            for _iterator, stream, *_rest in frames:
+                if stream is not None:
+                    stream.close()
+
+    def __iter__(self):
+        for rule in self.rules:
+            if self.cancelled():
+                break
+            if not isinstance(rule, (list, tuple)) or len(rule) < 5 or not rule[3]:
+                continue
+            name, root, kind = str(rule[0]), canonical(str(rule[1])), str(rule[2])
+            if kind not in {"dir", "file", "glob"}:
+                self.error(f"{name}: 未知规则类型")
+                continue
+            cond = validate_conditions(self.conditions.get(rule_id(rule), {}))
+            if self.policy.excluded(root) or (self.protected and self.protected(root)):
+                self.plan["omitted"] += 1
+                continue
+            pattern = str(rule[6] if len(rule) > 6 and rule[6] else "*")
+            latest = []
+            try:
+                if not os.path.lexists(root):
+                    continue
+                for path, st, directory in self.walk(root, kind, pattern):
+                    if directory and any(cond.values()):
                         continue
-                    seen.add(canonical(path))
-                    st = os.lstat(path)
-                    plan["items"].append(dict(path=path, rule=name, kind="empty-directory", size=0, mtime=st.st_mtime,
-                                              signature=signature(st), selected=True))
-        except OSError as exc:
-            plan["errors"].append(f"{name}: {exc}")
-        if not plan["complete"]:
-            break
-    if plan["errors"]:
-        plan["complete"] = False
-    return plan
+                    if not directory and cond["keep_latest"]:
+                        latest.append((path, st))
+                        continue
+                    item = self.item(path, st, directory, name, cond)
+                    if item is not None:
+                        yield item
+                if latest and not self.cancelled():
+                    latest.sort(key=lambda value: (-value[1].st_mtime_ns, value[0]))
+                    for index, (path, st) in enumerate(latest):
+                        if self.cancelled():
+                            break
+                        if index < cond["keep_latest"]:
+                            self.plan["omitted"] += 1
+                            continue
+                        item = self.item(path, st, False, name, cond)
+                        if item is not None:
+                            yield item
+            except OSError as exc:
+                self.error(f"{name}: {exc}")
+            if self.max_items is not None and self.examined > self.max_items:
+                break
+        if self.cancelled():
+            self.plan["complete"] = False
+
+    def item(self, path, st, directory, name, cond):
+        if path in self.seen:
+            return None
+        if not directory and (st.st_size < cond["min_size_bytes"] or
+                (cond["min_age_days"] and self.plan["created"] - st.st_mtime < cond["min_age_days"] * 86400)):
+            self.plan["omitted"] += 1
+            return None
+        self.seen.add(path)
+        return dict(path=path, rule=name, kind="empty-directory" if directory else "file", size=0 if directory else st.st_size,
+                    mtime=st.st_mtime, signature=signature(st), selected=True, nlink=st.st_nlink)
+
+
+def build_plan(rules: list, stop: threading.Event | None = None, protected: Callable[[str], bool] | None = None,
+               max_items: int = 200000, condition_overrides: dict | None = None, policy: Policy | None = None,
+               progress=None) -> dict:
+    scan = CandidateScan(rules, stop, protected, max_items, condition_overrides, policy, cache=True, progress=progress)
+    scan.plan["items"] = list(scan)
+    return scan.plan
+
+
+def clean_rules(rules, delete, permanent, stop=None, log=lambda message: None, protected=None, progress=None):
+    """Delete confirmed rules incrementally, without constructing a preview."""
+    scan = CandidateScan(rules, stop, protected)
+    roots = {os.path.splitdrive(canonical(str(rule[1])))[0] + os.sep for rule in rules if len(rule) >= 5 and rule[3]}
+    result = _execute_items(iter(scan), scan.plan["id"], roots, 0, delete, permanent, stop, log, protected, progress, "常规清理")
+    result["scan_errors"] = scan.plan["errors"]
+    result["omitted"] = scan.plan["omitted"]
+    result["scan_complete"] = scan.plan["complete"] and not result["cancelled"]
+    if not result["cancelled"] and not scan.plan["complete"]:
+        result["state"] = "partial"
+    for message in result["scan_errors"]:
+        log(message)
+    if _store and result.get("history_id"):
+        with _store.connect() as db:
+            db.execute("UPDATE history SET payload=? WHERE id=?", (json.dumps(result, ensure_ascii=False), result["history_id"]))
+    return result
 
 
 def _volume_free(path: str):
@@ -520,10 +604,14 @@ def execute_plan(plan: dict, delete: Callable, permanent: bool, stop=None, log=l
         raise ValueError("扫描不完整，请缩小范围或解决读取错误后重新预览")
     selected = [dict(item) for item in plan["items"] if item.get("selected")]
     selected.sort(key=lambda item: (item["kind"] != "file", -len(item["path"]) if item["kind"] != "file" else 0))
-    policy = Policy()
     roots = {os.path.splitdrive(item["path"])[0] + os.sep for item in selected}
+    return _execute_items(iter(selected), plan["id"], roots, len(selected), delete, permanent, stop, log, protected, progress, kind)
+
+
+def _execute_items(items, plan_id, roots, total, delete, permanent, stop, log, protected, progress, kind):
+    policy = Policy()
     free_before = {root: _volume_free(root) for root in roots}
-    result = dict(plan_id=plan["id"], started=time.time(), permanent=bool(permanent), success=0, failed=0,
+    result = dict(plan_id=plan_id, started=time.time(), permanent=bool(permanent), success=0, failed=0,
                   skipped=0, estimated_bytes=0, items=[], cancelled=False)
     # Reserve the journal before the first side effect. Retain a crash marker.
     store = _store
@@ -531,7 +619,9 @@ def execute_plan(plan: dict, delete: Callable, permanent: bool, stop=None, log=l
     prior_batch = getattr(_local, "batch", False)
     _local.batch = True
     try:
-        for index, item in enumerate(selected):
+        last_progress = 0.0
+        processed = 0
+        for index, item in enumerate(items):
             if stop is not None and stop.is_set():
                 result["cancelled"] = True
                 break
@@ -562,7 +652,6 @@ def execute_plan(plan: dict, delete: Callable, permanent: bool, stop=None, log=l
                         messages.append(str(message))
                         if len(messages)>6:
                             del messages[0]
-                        log(message)
                     ok = delete(path, permanent, capture)
                     status = "deleted" if ok and not os.path.lexists(path) else "pending" if ok else "failed"
                     if not ok:
@@ -588,15 +677,24 @@ def execute_plan(plan: dict, delete: Callable, permanent: bool, stop=None, log=l
             result["items"].append(dict(path=path, rule=item["rule"], size=item["size"], status=status, reason=reason))
             if reason:
                 log(f"[{status}] {path}: {reason}")
-            if progress:
-                progress(index + 1, len(selected))
+            processed = index + 1
+            if progress and time.monotonic() - last_progress >= .1:
+                progress(processed, total)
+                last_progress = time.monotonic()
     finally:
+        close = getattr(items, "close", None)
+        if close is not None:
+            close()
+        if progress:
+            progress(processed, total)
+        result["history_id"] = journal_id
         _local.batch = prior_batch
         result["finished"] = time.time()
         result["free_before"] = free_before
         result["free_after"] = {root: _volume_free(root) for root in free_before}
         result["free_delta"] = sum(result["free_after"][root]-before for root, before in free_before.items()
                                    if before is not None and result["free_after"][root] is not None)
+        result["cancelled"] = result["cancelled"] or bool(stop is not None and stop.is_set())
         result["state"] = "cancelled" if result["cancelled"] else "finished"
         if store and journal_id:
             with store.connect() as db:

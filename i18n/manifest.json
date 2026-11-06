@@ -1,12 +1,12 @@
 {
-  "version": 11,
-  "updated_at": "2026-11-01",
+  "version": 12,
+  "updated_at": "2026-11-06",
   "languages": {
     "en_us": {
       "label": "English",
       "url": "https://raw.githubusercontent.com/Kiowx/c_cleaner_plus/refs/heads/main/i18n/en_us.json",
-      "version": 11,
-      "updated_at": "2026-11-01"
+      "version": 12,
+      "updated_at": "2026-11-06"
     }
   }
 }

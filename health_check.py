@@ -77,6 +77,7 @@ def scan_checkup(rules, builtins, installed, data_roots, download_roots, scopes,
     state = dict(complete=True, examined=0, skipped=0, issues=0)
     incomplete_locations = set()
     last_progress = 0.0
+    limit_reported = False
 
     def cancelled():
         return stop is not None and stop.is_set()
@@ -102,6 +103,7 @@ def scan_checkup(rules, builtins, installed, data_roots, download_roots, scopes,
 
     def visit(path):
         """Skip reparse points at every level and bound traversal globally."""
+        nonlocal limit_reported
         path = core.canonical(path)
         source = path
         issue_count = state['issues']
@@ -118,7 +120,11 @@ def scan_checkup(rules, builtins, installed, data_roots, download_roots, scopes,
                 state['complete'] = False
                 break
             if state['examined'] >= max_entries or len(files) >= max_files:
-                note("达到本次扫描上限，当前结果为部分统计；可缩小扫描范围后重试。")
+                if not limit_reported:
+                    note("达到本次扫描上限，当前结果为部分统计；可缩小扫描范围后重试。")
+                    limit_reported = True
+                state['complete'] = False
+                incomplete_locations.add(source)
                 break
             path = stack.pop()
             if path in visited or not eligible(path):
@@ -173,7 +179,7 @@ def scan_checkup(rules, builtins, installed, data_roots, download_roots, scopes,
             continue
         if key not in builtin_ids and not bool(rule[3]):
             continue
-        emit("正在检查 " + str(rule[0]), True)
+        emit("正在检查 " + str(rule[0]))
         source_complete = visit(path)
         pending_rules.append((key, rule, path, source_complete))
 
@@ -183,9 +189,11 @@ def scan_checkup(rules, builtins, installed, data_roots, download_roots, scopes,
         if os.path.dirname(scope) != scope and not any(contains(scope, core.canonical(row[1])) for row in data_roots):
             data_roots.append((os.path.basename(scope), scope, '所选目录'))
     for name, path, owner in data_roots:
+        if cancelled():
+            break
         path = core.canonical(path)
         if eligible(path) and os.path.isdir(path) and not policy.excluded(path):
-            emit("正在分析 " + name, True)
+            emit("正在分析 " + name)
             visit(path)
             folders.append(dict(name=name, path=path, owner=owner, kind='data'))
     for app in installed:
@@ -202,25 +210,53 @@ def scan_checkup(rules, builtins, installed, data_roots, download_roots, scopes,
         if path in shared_roots or os.path.dirname(path) == path or not eligible(path) or not os.path.isdir(path):
             continue
         owner = application_name(str(app.get('name', '')), path)
-        emit("正在统计软件 " + owner, True)
+        emit("正在统计软件 " + owner)
         visit(path)
         folders.append(dict(name=app.get('name', owner), path=path, owner=owner, kind='install',
                             app_name=app.get('name', ''), reg=app.get('reg', '')))
     downloads = []
     for root in download_roots:
+        if cancelled():
+            break
         root = core.canonical(root)
         if not eligible(root) or not os.path.isdir(root):
             continue
-        emit("正在检查下载残留", True)
+        emit("正在检查下载残留")
         visit(root)
         downloads.append(root)
 
     items = list(files.values())
+    # Index only known roots. Walk ancestors once per file instead of comparing
+    # every file with every rule, software location and folder again.
+    roots = {path for _key, _rule, path, _complete in pending_rules}
+    roots.update(folder['path'] for folder in folders)
+    roots.update(downloads)
+    by_root = {root: [] for root in roots}
+    emit("正在汇总文件归属", True)
+    for number, item in enumerate(items):
+        if cancelled():
+            break
+        path = item['path']
+        while True:
+            if path in by_root:
+                by_root[path].append(item)
+            parent = os.path.dirname(path)
+            if parent == path:
+                break
+            path = parent
+        if number % 512 == 0:
+            emit("正在汇总文件归属")
+            time.sleep(0)
     recommendations, assigned = [], set()
     # A file is offered for cleanup at most once even if rules overlap.
     for key, rule, path, source_complete in pending_rules:
+        if cancelled():
+            break
+        emit("正在生成清理建议")
         matches = []
-        for item in items:
+        for item in by_root.get(path, ()):
+            if cancelled():
+                break
             p = item['path']
             if rule[2] == 'file':
                 matched = p == path
@@ -236,9 +272,15 @@ def scan_checkup(rules, builtins, installed, data_roots, download_roots, scopes,
         cond = core.validate_conditions(conditions.get(key, {}))
         if trusted and '临时文件' in str(rule[0]):
             cond['min_age_days'] = max(cond['min_age_days'], 7)
-        matches.sort(key=lambda f: (-f['mtime'], f['path']))
+        if cond['keep_latest']:
+            matches.sort(key=lambda f: (-f['mtime'], f['path']))
         candidates = []
         for i, item in enumerate(matches):
+            if cancelled():
+                break
+            if i % 512 == 0:
+                emit("正在生成清理建议")
+                time.sleep(0)
             if item['path'] in assigned or i < cond['keep_latest'] or item['size'] < cond['min_size_bytes']:
                 continue
             if cond['min_age_days'] and now-item['mtime'] < cond['min_age_days']*86400:
@@ -259,8 +301,8 @@ def scan_checkup(rules, builtins, installed, data_roots, download_roots, scopes,
                                     files=candidates))
 
     for root in downloads:
-        candidates = [dict(item, kind='file', rule='旧下载文件', selected=True) for item in items
-                      if contains(item['path'], root) and item['path'] not in assigned
+        candidates = [dict(item, kind='file', rule='旧下载文件', selected=True) for item in by_root.get(root, ())
+                      if not cancelled() and contains(item['path'], root) and item['path'] not in assigned
                       and os.path.dirname(item['path']) == root
                       and os.path.splitext(item['path'])[1].lower() in DOWNLOAD_EXTENSIONS
                       and now-item['mtime'] >= 30*86400 and not (protected and protected(item['path']))]
@@ -278,26 +320,45 @@ def scan_checkup(rules, builtins, installed, data_roots, download_roots, scopes,
         owner_locations.append((folder['path'], folder['owner'], folder['kind'], folder))
     for _key, rule, path, _complete in pending_rules:
         owner_locations.append((path, application_name(str(rule[0]), path), 'cache', {}))
-    owner_locations.sort(key=lambda row: (-len(row[0]), row[0]))
-    for item in items:
-        for path, owner, kind, info in owner_locations:
-            if contains(item['path'], path):
-                group = owners[owner]
-                identity = item['identity']
-                if identity not in group['identities']:
-                    group['identities'][identity] = item['size']
-                    group[kind] += item['size']
-                group['paths'].add(path)
-                if kind == 'install':
-                    group['app_name'], group['install_path'] = info.get('app_name', ''), path
+    # Stable ties preserve the original folder-before-cache attribution.
+    location_map = {}
+    for row in owner_locations:
+        location_map.setdefault(row[0], row)
+    emit("正在汇总软件排行", True)
+    for number, item in enumerate(items):
+        if cancelled():
+            break
+        probe = item['path']
+        while probe not in location_map:
+            parent = os.path.dirname(probe)
+            if parent == probe:
                 break
+            probe = parent
+        location = location_map.get(probe)
+        if location:
+            path, owner, kind, info = location
+            group = owners[owner]
+            identity = item['identity']
+            if identity not in group['identities']:
+                group['identities'][identity] = item['size']
+                group[kind] += item['size']
+            group['paths'].add(path)
+            if kind == 'install':
+                group['app_name'], group['install_path'] = info.get('app_name', ''), path
+        if number % 512 == 0:
+            emit("正在汇总软件排行")
+            time.sleep(0)
     ranking = [dict(name=name, size=sum(data['identities'].values()), cache=data['cache'], data=data['data'],
                     install=data['install'], paths=sorted(data['paths']), app_name=data['app_name'],
                     path=data['install_path'] or next(iter(sorted(data['paths'])), '')) for name, data in owners.items()]
     ranking.sort(key=lambda row: (-row['size'], row['name']))
 
+    emit("正在汇总大目录", True)
     for folder in sorted(folders, key=lambda row: row['path']):
-        contained = [f for f in items if contains(f['path'], folder['path'])]
+        if cancelled():
+            break
+        emit("正在汇总大目录")
+        contained = by_root.get(folder['path'], ())
         total = unique_size(contained)
         if total >= large_threshold:
             recommendations.append(dict(id=uuid.uuid4().hex, name=folder['name'], path=folder['path'], owner=folder['owner'],

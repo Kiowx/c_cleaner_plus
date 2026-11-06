@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-C盘强力清理工具 v0.8.3
+C盘强力清理工具 v0.8.4
 PySide6 + PySide6-Fluent-Widgets (Fluent2 UI)
 包含：常规清理(支持拖拽排序与自定义规则)、大文件扫描、重复文件、空文件夹、无效快捷方式等
 """
@@ -149,7 +149,7 @@ InfoBar = _RuntimeInfoBar(_FluentInfoBar)
 # ══════════════════════════════════════════════════════════
 #  版本与更新配置
 # ══════════════════════════════════════════════════════════
-CURRENT_VERSION = "0.8.3"
+CURRENT_VERSION = "0.8.4"
 UPDATE_JSON_URL = "https://gitee.com/kio0/c_cleaner_plus/raw/master/update.json"
 APP_SCHEDULED_TASK_PREFIX = "C盘强力清理工具 - "
 APP_AUTOSTART_TASK_NAME = "C盘强力清理工具 开机自启"
@@ -5044,6 +5044,9 @@ class PageFooterWidget(QWidget):
         self.pb.setFixedHeight(6)
         pg.addWidget(self.pb, 1)
         self.sl = CaptionLabel("就绪")
+        self.sl.setFixedWidth(240)
+        self.sl.setMinimumHeight(20)
+        self.sl.setToolTip("就绪")
         pg.addWidget(self.sl)
         layout.addLayout(pg)
 
@@ -5090,7 +5093,8 @@ class PageFooterWidget(QWidget):
         display = text[:80] if text else ""
         if percent is not None and 0 <= percent <= 100:
             display = f"{display}  {percent}%" if display else f"{percent}%"
-        self.sl.setText(display)
+        self.sl.setToolTip(display)
+        self.sl.setText(self.sl.fontMetrics().elidedText(display, Qt.TextElideMode.ElideRight, self.sl.width()))
 
 
 @dataclass(slots=True)
@@ -6418,6 +6422,7 @@ def load_runtime_targets_and_settings():
     paths = get_runtime_config_paths()
     global_settings = {
         "auto_save": True,
+        "preview_before_cleanup": False,
         "language_mode": "auto",
         "update_channel": "stable",
         "protect_builtin_rules": True,
@@ -9992,6 +9997,11 @@ class SettingPage(ScrollArea):
         self.switch_save.setChecked(self.main_win.global_settings.get("auto_save", True))
         self.switch_save.checkedChanged.connect(self._on_auto_save_changed)
 
+        self.switch_preview = SwitchButton()
+        self.switch_preview.setOnText("开启"); self.switch_preview.setOffText("关闭")
+        self.switch_preview.setChecked(self.main_win.global_settings.get("preview_before_cleanup", False))
+        self.switch_preview.checkedChanged.connect(self._on_preview_changed)
+
         self.switch_protect_builtin = SwitchButton()
         self.switch_protect_builtin.setOnText("开启"); self.switch_protect_builtin.setOffText("关闭")
         self.switch_protect_builtin.setChecked(self.main_win.global_settings.get("protect_builtin_rules", True))
@@ -10091,6 +10101,12 @@ class SettingPage(ScrollArea):
                 "退出时自动保存配置",
                 "自动保存常规清理中的勾选状态、自定义规则以及拖拽后的排序结果",
                 self.switch_save
+            ),
+            self._make_setting_row(
+                FIF.SEARCH,
+                "清理前预览",
+                "默认关闭，直接按所选规则清理；开启后先生成文件清单供逐项确认。文件预览按钮始终可用。",
+                self.switch_preview
             ),
             self._make_setting_row(
                 FIF.SETTING,
@@ -10317,6 +10333,10 @@ class SettingPage(ScrollArea):
 
     def _on_auto_save_changed(self, is_checked):
         self.main_win.global_settings["auto_save"] = is_checked
+        self.main_win.save_global_settings()
+
+    def _on_preview_changed(self, is_checked):
+        self.main_win.global_settings["preview_before_cleanup"] = is_checked
         self.main_win.save_global_settings()
 
     def _on_protect_builtin_changed(self, is_checked):
@@ -11161,37 +11181,75 @@ class CleanPage(ScrollArea):
             if not MessageBox("风险提示", content, self.window()).exec():
                 self._apply_sort_state()
                 return
-        dialog = PreviewDialog(selected_rules, sys.modules[__name__], self.window())
-        if not dialog.exec():
+        if not selected_rules:
             self._apply_sort_state()
+            InfoBar.warning("提示", "请先勾选需要清理的规则", parent=self.window())
             return
+        settings = getattr(self.window(), "global_settings", {})
+        plan = None
+        if settings.get("preview_before_cleanup", False):
+            dialog = PreviewDialog(selected_rules, sys.modules[__name__], self.window())
+            accepted = dialog.exec()
+            plan = dialog.plan
+            dialog.deleteLater()
+            if not accepted:
+                self._apply_sort_state()
+                return
         if self.chk_perm.isChecked():
             if not MessageBox("确认", "当前为强力模式，删除后无法恢复继续？", self.window()).exec():
                 self._apply_sort_state()
                 return
         permanent_delete = self.chk_perm.isChecked()
         create_restore_point = self.chk_rst.isChecked()
-        start_page_worker(self, self._execute_reviewed_plan,
-                          args=(dialog.plan, permanent_delete, create_restore_point))
-    
+        if plan is None:
+            start_page_worker(self, self._cln_w, args=(selected_rules, permanent_delete, create_restore_point))
+        else:
+            start_page_worker(self, self._execute_reviewed_plan, args=(plan, permanent_delete, create_restore_point))
+
     def _cln_w(self, selected_rules, permanent_delete, create_restore_point):
-        plan = cleaner_core.build_plan(selected_rules, self.stop, is_protected_system_path)
-        self._execute_reviewed_plan(plan, permanent_delete, create_restore_point)
+        self._execute_cleanup(selected_rules, permanent_delete, create_restore_point, reviewed=False)
 
     def _execute_reviewed_plan(self, plan, permanent_delete, create_restore_point):
+        self._execute_cleanup(plan, permanent_delete, create_restore_point, reviewed=True)
+
+    def _execute_cleanup(self, payload, permanent_delete, create_restore_point, reviewed):
+        pending_logs = []
+        omitted_logs = 0
+        last_flush = 0.0
+        def flush_logs(force=False):
+            nonlocal omitted_logs, last_flush
+            if pending_logs and (force or time.monotonic() - last_flush >= .1):
+                text = "\n".join(pending_logs)
+                if omitted_logs:
+                    text += "\n" + f"另有 {omitted_logs} 条记录，详见清理历史。"
+                self.sig.clean_log.emit(text)
+                pending_logs.clear()
+                omitted_logs = 0
+                last_flush = time.monotonic()
+        def queue_log(message):
+            nonlocal omitted_logs
+            if len(pending_logs) < 50:
+                pending_logs.append(str(message))
+            else:
+                omitted_logs += 1
+            flush_logs()
         try:
             store = cleaner_core.current_store()
             with cleaner_core.JobLock(store.directory if store else app_root_dir()):
                 self._try_rst(create_restore_point)
-                result = cleaner_core.execute_plan(
-                    plan, delete_path, permanent_delete, self.stop,
-                    self.sig.clean_log.emit, is_protected_system_path, self.sig.clean_prog.emit)
-            message = (f"清理{'已取消' if result['cancelled'] else '完成'}：成功 {result['success']}，"
+                self.sig.clean_prog.emit(0, len(payload["items"]) if reviewed else 0)
+                execute = cleaner_core.execute_plan if reviewed else cleaner_core.clean_rules
+                result = execute(payload, delete_path, permanent_delete, self.stop,
+                                 queue_log, is_protected_system_path, self.sig.clean_prog.emit)
+            flush_logs(True)
+            label = "已取消" if result['cancelled'] else "部分完成" if result.get('state') == 'partial' else "完成"
+            message = (f"清理{label}：成功 {result['success']}，"
                        f"失败 {result['failed']}，跳过 {result['skipped']}，"
                        f"已处理逻辑体积 {human_size(result['estimated_bytes'])}，"
                        f"磁盘可用空间变化 {human_size(result['free_delta'])}")
             self.sig.clean_done.emit(message)
         except Exception as e:
+            flush_logs(True)
             self.sig.clean_done.emit(f"清理失败: {format_exception_text(e)}")
 
     def _dedupe_rule_targets(self, rules):
@@ -13341,6 +13399,7 @@ class MainWindow(MSFluentWindow):
         self.legacy_config_dir = os.environ.get("LOCALAPPDATA", "")
         self.global_settings = {
             "auto_save": True,
+            "preview_before_cleanup": False,
             "auto_start": False,
             "tray_enabled": False,
             "tray_start_hidden": False,
@@ -14859,16 +14918,18 @@ class MainWindow(MSFluentWindow):
         line=f"[{self._ts()}] {t}"
         append_session_log_line(line)
         append_capped_log(page.log, line)
-        page.sl.setText(t[:80])
+        if page is not self.pg_clean:
+            page.footer.set_status(t[:80])
 
     def _page_prog(self, page, v, m):
         if m <= 0:
             page.pb.setRange(0, 0)
+            page.footer.set_status(self.tr_text("已处理 {count} 项").format(count=v))
         else:
             page.pb.setRange(0, max(1, m))
             page.pb.setValue(v)
             pct = int(v * 100 / max(1, m))
-            page.footer.set_status(page.sl.text().split("  ")[0], pct)
+            page.footer.set_status(f"{v} / {m}", pct)
 
     def _est(self, idx, val):
         try:

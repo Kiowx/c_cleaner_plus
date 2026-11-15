@@ -57,22 +57,6 @@ Built with **Python + PySide6 + Fluent Widgets**, it provides a GUI, administrat
 The checkup covers known locations inside the selected drive or folder, with limits of 200000 files and 500000 filesystem entries.
 Incomplete or limited scans show partial findings; incomplete sources are never preselected. Cancelling clears all default selections. Software rankings cover discovered locations and logical size, rather than every installed application's exact disk usage.
 
-Former Maintenance Center tools now live beside their related features:
-
-- Regular Cleanup → Exclusions and Conditions, Cleanup History
-- Scheduled Tasks → Automatic Maintenance Conditions
-- Rule Store → Rule Pack Versions and Rollback
-- More Cleanup → Duplicate Retention
-- Toolbox → Space Usage and Growth, Development / Docker / WSL
-
-Automatic maintenance conditions gate existing Windows scheduled tasks. Set their checking frequency on the scheduled tasks page.
-Data is stored in `maintenance.sqlite3` inside the active configuration directory and migrates with it.
-Up to 20 complete snapshots are retained per root. Incomplete or cancelled scans are excluded from growth comparisons.
-Previews are limited to 200000 entries, space scans to 200000 directories, and the visible directory tree to 10000 nodes. Narrow the scope when a limit is reached.
-Moving files to the recycle bin does not immediately reclaim space. Concurrent applications can also affect measured free-space changes.
-WSL compaction stops all distributions; save your work and exit Docker Desktop first. Reclamation depends on reclaimable blocks in the image.
-Docker maintenance uses the [Docker CLI](https://docs.docker.com/reference/cli/docker/image/prune/); virtual-disk compaction uses Windows [CompactVirtualDisk](https://learn.microsoft.com/en-us/windows/win32/api/virtdisk/nf-virtdisk-compactvirtualdisk).
-
 ### Regular Cleanup
 
 - Cleans common targets such as temp files, system logs, thumbnail cache, browser cache, and package manager cache
